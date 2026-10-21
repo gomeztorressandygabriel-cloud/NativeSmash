@@ -89,6 +89,9 @@ static inline HRESULT shader_cache_compile(const char *hlsl, const char *name, i
     /* (variant 8: IEEE strictness - the bytecode then does not allow the driver to refactor
      * floating-point arithmetic) */
     if (shader_hlsl_variant() & 8) flags |= D3DCOMPILE_IEEE_STRICTNESS;
+    /* (variants 32 and 64: fxc's optimiser at its highest level, or not at all) */
+    if (shader_hlsl_variant() & 32) flags = (flags & ~(D3DCOMPILE_OPTIMIZATION_LEVEL1 | D3DCOMPILE_SKIP_OPTIMIZATION)) | D3DCOMPILE_OPTIMIZATION_LEVEL3;
+    if (shader_hlsl_variant() & 64) flags = (flags & ~D3DCOMPILE_OPTIMIZATION_LEVEL3) | D3DCOMPILE_SKIP_OPTIMIZATION;
     *code = *errors = NULL;
     HRESULT hr = D3DCompile(hlsl, strlen(hlsl), name, NULL, NULL, "main", target, flags, 0, code, errors);
     if (FAILED(hr) && flags != D3DCOMPILE_SKIP_OPTIMIZATION) {

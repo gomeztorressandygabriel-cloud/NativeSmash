@@ -4016,6 +4016,34 @@ void gfx_draw(const u32 *regs, const CbBinding cb[STAGES][18], int indexed) {
         }
     }
     if (ps_override && ps && strstr(ps->name, ps_for)) { ID3D11DeviceContext_PSSetShader(ctx, ps_override, NULL, 0); cur.ps = ps_override; }
+    static const char *ps_dir = (const char *)1;   /* debug: SSBU_GFX_PS_DIR=<folder>: a pixel shader with a <name>.hlsl there is replaced by it */
+    if (ps_dir == (const char *)1) ps_dir = getenv("SSBU_GFX_PS_DIR");
+    if (ps_dir && ps) {
+        static struct { char name[64]; ID3D11PixelShader *obj; } seen[512];
+        static u32 nseen;
+        int found = -1;
+        for (u32 i = 0; i < nseen && found < 0; i++) if (!strcmp(seen[i].name, ps->name)) found = (int)i;
+        if (found < 0 && nseen < 512) {
+            found = (int)nseen++;
+            snprintf(seen[found].name, sizeof seen[found].name, "%s", ps->name);
+            char path[1024];
+            snprintf(path, sizeof path, "%s/%s.hlsl", ps_dir, ps->name);
+            FILE *f = fopen(path, "rb");
+            if (f) {
+                static char src[262144];
+                size_t n = fread(src, 1, sizeof src - 1, f);
+                fclose(f);
+                src[n] = 0;
+                ID3DBlob *b = compile_hlsl(src, "main", "ps_5_0");
+                if (b) {
+                    ID3D11Device_CreatePixelShader(dev, ID3D10Blob_GetBufferPointer(b), ID3D10Blob_GetBufferSize(b), NULL, &seen[found].obj);
+                    ID3D10Blob_Release(b);
+                }
+                fprintf(stderr, "[gfx] %s replaced from %s%s\n", ps->name, path, seen[found].obj ? "" : " (failed to compile)");
+            }
+        }
+        if (found >= 0 && seen[found].obj) { ID3D11DeviceContext_PSSetShader(ctx, seen[found].obj, NULL, 0); cur.ps = seen[found].obj; }
+    }
     static const char *magenta_only = (const char *)1;
     if (magenta_only == (const char *)1) magenta_only = getenv("SSBU_GFX_MAGENTA");   /* only draws with this pixel shader */
     if ((gfx_debug() & 32) && ps && (!magenta_only || strstr(ps->name, magenta_only))) {   /* debug: every pixel magenta, to see what geometry lands where */

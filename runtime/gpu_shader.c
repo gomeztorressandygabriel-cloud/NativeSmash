@@ -1748,8 +1748,13 @@ static const char LOP3[] =
 
 /* ---- the text around the body, shared by both languages ---------------------------------- */
 static void put_swz(Str *out, int stage) {
-    put(out, "float comp_(float4 v, uint s) { return s == 2u ? v.x : s == 3u ? v.y : s == 4u ? v.z : s == 5u ? v.w : s >= 6u ? 1.0f : 0.0f; }\n"
-             "float4 swz(float4 v, uint k) { uint s = params.swz[%u + (k >> 2)][k & 3u];\n"
+    if (shader_variant() & 16)   /* (variant 16: the component picked with masks, no selects) */
+        put(out, "float comp_(float4 v, uint s) { uint4 b = asuint(v);\n"
+                 "  return asfloat((b.x & (uint(s == 2u) * 0xFFFFFFFFu)) | (b.y & (uint(s == 3u) * 0xFFFFFFFFu)) | (b.z & (uint(s == 4u) * 0xFFFFFFFFu))\n"
+                 "    | (b.w & (uint(s == 5u) * 0xFFFFFFFFu)) | (uint(s >= 6u) * 0x3F800000u)); }\n");
+    else
+        put(out, "float comp_(float4 v, uint s) { return s == 2u ? v.x : s == 3u ? v.y : s == 4u ? v.z : s == 5u ? v.w : s >= 6u ? 1.0f : 0.0f; }\n");
+    put(out, "float4 swz(float4 v, uint k) { uint s = params.swz[%u + (k >> 2)][k & 3u];\n"
              "  return float4(comp_(v, s & 7u), comp_(v, (s >> 3) & 7u), comp_(v, (s >> 6) & 7u), comp_(v, (s >> 9) & 7u)); }\n",
         stage == SHADER_VERTEX ? 0 : 8);
 }

@@ -44,6 +44,11 @@ try {
 }
 
 # ---- words -------------------------------------------------------------------------------------
+if (-not $Lang) {   # what the player chose in the installer, else the PC's language
+    $langFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'language.txt'
+    if (Test-Path -LiteralPath $langFile) { $Lang = ([string](Get-Content -LiteralPath $langFile -TotalCount 1)).Trim().ToLower() }
+    if ($Lang -notin @('es', 'en')) { $Lang = $null }
+}
 if (-not $Lang) { $Lang = if ((Get-Culture).TwoLetterISOLanguageName -eq 'es') { 'es' } else { 'en' } }
 $Words = @{
     play = @('Jugar', 'Play'); online = @('En línea', 'Online'); pads = @('Controles', 'Controllers')
@@ -405,6 +410,15 @@ $xaml = @'
 '@
 
 $win = [Windows.Markup.XamlReader]::Parse($xaml)
+# the window's own icon (taskbar and Alt+Tab)
+try {
+    $iconPng = Join-Path (Split-Path -Parent $PSScriptRoot) 'docs\assets\nativesmash-512.png'
+    if (Test-Path -LiteralPath $iconPng) {
+        $iconBmp = New-Object Windows.Media.Imaging.BitmapImage
+        $iconBmp.BeginInit(); $iconBmp.UriSource = New-Object Uri($iconPng); $iconBmp.CacheOption = 'OnLoad'; $iconBmp.EndInit()
+        $win.Icon = $iconBmp
+    }
+} catch { }
 function Find([string]$Name) { return $win.FindName($Name) }
 function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Controls.TextBlock]) { $el.Text = T $Key } else { $el.Content = T $Key } }
 

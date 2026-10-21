@@ -63,6 +63,8 @@ Prepare the game files (program, fonts, data, DLC, fighters) but stop before the
 Passed to the build: how many files to compile at a time (default: by the installed RAM).
 .PARAMETER NoUpdate
 Do not look for a newer NativeSmash (the updated installer is started with it).
+.PARAMETER Language
+es or en: the language of the windows. Without it the installer asks first, once; the answer is kept in language.txt.
 .PARAMETER BuildTools
 For the compiler, install the Visual Studio Build Tools rather than download it into deps\.
 #>
@@ -77,7 +79,8 @@ param(
     [switch]$SkipBuild,
     [int]$Jobs,
     [switch]$NoUpdate,
-    [switch]$BuildTools
+    [switch]$BuildTools,
+    [string]$Language
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1043,7 +1046,7 @@ function Show-Wizard {
     $form.MinimizeBox = $false
     $form.StartPosition = [Windows.Forms.FormStartPosition]::CenterScreen
     $form.Font = New-Object Drawing.Font('Segoe UI', 9.75)
-    $ico = Join-Path $Root 'docs\assets\windowsmash.ico'
+    $ico = Join-Path $Root 'docs\assets\nativesmash.ico'
     if (Test-Path -LiteralPath $ico) { $form.Icon = New-Object Drawing.Icon($ico) }
 
     $intro = New-Object Windows.Forms.Label
@@ -1270,7 +1273,7 @@ function Test-FirewallRule {
 function Step-Extras {
     param([hashtable]$Answers)
     Write-Step '[8/10] Shortcut and firewall'
-    $lnk = Join-Path (Get-DesktopFolder) 'Play SSBU.lnk'
+    $lnk = Join-Path (Get-DesktopFolder) 'NativeSmash.lnk'
     if (-not $Answers.Shortcut) {
         Write-Info 'shortcut: not wanted'
     } elseif (Test-Path -LiteralPath $lnk) {
@@ -1282,7 +1285,7 @@ function Step-Extras {
         $s = $ws.CreateShortcut($lnk)
         $s.TargetPath = Join-Path $Root 'Play SSBU.bat'
         $s.WorkingDirectory = $Root
-        $s.IconLocation = (Join-Path $Root 'docs\assets\windowsmash.ico') + ',0'
+        $s.IconLocation = (Join-Path $Root 'docs\assets\nativesmash.ico') + ',0'
         $s.Description = 'Super Smash Bros. Ultimate (NativeSmash)'
         $s.Save()
         Write-Info "shortcut: $lnk"
@@ -1331,6 +1334,22 @@ function Step-Shaders {
     Write-Info 'launchers\Prepare Shaders.bat runs in its own window at low priority; you can play meanwhile, and close it any time'
 }
 
+function Get-SetupLanguage {
+    <# es or en: the -Language argument, else what the player chose before (language.txt), else asked now in a window of
+       its own (and kept). Nothing is asked in a dry run or with -NoWizard: the PC's language is used. #>
+    $file = Join-Path $Root 'language.txt'
+    $chosen = $Language
+    if (-not $chosen -and (Test-Path -LiteralPath $file)) { $chosen = (Get-Content -LiteralPath $file -TotalCount 1 -ErrorAction SilentlyContinue) }
+    if ($chosen) { $chosen = "$chosen".Trim().ToLower() }
+    if ($chosen -notin @('es', 'en')) {
+        $chosen = $null
+        if (-not $DryRun -and -not $NoWizard) { try { $chosen = Show-LanguageWindow } catch { Write-Info "language window: $($_.Exception.Message)" } }
+        if (-not $chosen) { $chosen = if ((Get-Culture).TwoLetterISOLanguageName -eq 'es') { 'es' } else { 'en' } }
+    }
+    if (-not $DryRun) { try { Set-Content -LiteralPath $file -Value $chosen -Encoding ASCII } catch { } }
+    return $chosen
+}
+
 function Main {
     $log = Join-Path $Root 'install.log'
     try { Start-Transcript -Path $log -Append | Out-Null } catch { }
@@ -1339,6 +1358,7 @@ function Main {
         Write-Host "  $Root"
         if ($DryRun) { Write-Host '  dry run: saying what each step would do, doing nothing' -ForegroundColor DarkGray }
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $Script:Language = Get-SetupLanguage
         if (Step-Update) {
             # the rest is the new version's to do: start its installer in this window, as this one was
             Write-Host ''

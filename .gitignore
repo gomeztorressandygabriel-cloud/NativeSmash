@@ -80,3 +80,6 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+language.txt
+dist/
+build_release/

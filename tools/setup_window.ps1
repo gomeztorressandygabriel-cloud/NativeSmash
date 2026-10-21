@@ -151,15 +151,89 @@ $Script:SetupXaml = @'
 </Window>
 '@
 
+# ---- the language, asked before anything else ----------------------------------------------------------------
+$Script:LanguageXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="NativeSmash" Width="560" Height="470" WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI" TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
+  <Border Margin="14" CornerRadius="22" BorderThickness="1" BorderBrush="#26FFFFFF">
+    <Border.Background>
+      <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF171A33" Offset="0"/><GradientStop Color="#FF0B0D1D" Offset="1"/>
+      </LinearGradientBrush>
+    </Border.Background>
+    <Border.Effect><DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.55"/></Border.Effect>
+    <Grid Margin="34,26,34,30">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Image x:Name="Logo" Grid.Row="0" Width="92" Height="92" HorizontalAlignment="Center" Margin="0,4,0,10" RenderOptions.BitmapScalingMode="HighQuality"/>
+      <TextBlock Grid.Row="1" Text="NativeSmash" Foreground="#FFF2F4FB" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+      <TextBlock Grid.Row="2" Text="Elige tu idioma  ·  Choose your language" Foreground="#FF9AA1BC" FontSize="15" HorizontalAlignment="Center" Margin="0,8,0,22"/>
+      <StackPanel Grid.Row="3" VerticalAlignment="Top">
+        <Button x:Name="EsButton" Content="Español" Height="58" Margin="0,0,0,12" FontSize="19" FontWeight="SemiBold" Foreground="White" BorderThickness="0" Cursor="Hand">
+          <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="B" CornerRadius="16" Background="{TemplateBinding Background}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+          <Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF6D7DFF" Offset="0"/><GradientStop Color="#FFA66BFF" Offset="1"/></LinearGradientBrush></Button.Background>
+        </Button>
+        <Button x:Name="EnButton" Content="English" Height="58"  FontSize="19" FontWeight="SemiBold" Foreground="White" BorderThickness="0" Cursor="Hand">
+          <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="B" CornerRadius="16" Background="{TemplateBinding Background}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+          <Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF6D7DFF" Offset="0"/><GradientStop Color="#FFA66BFF" Offset="1"/></LinearGradientBrush></Button.Background>
+        </Button>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>
+'@
+
+function Show-LanguageWindow {
+    <# A small window with two big buttons; returns 'es' or 'en', or $null when it is closed with Esc. #>
+    param([string]$Snapshot)
+    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+    $win = [Windows.Markup.XamlReader]::Parse($Script:LanguageXaml)
+    $png = Join-Path (Split-Path -Parent $PSScriptRoot) 'docs\assets\nativesmash-512.png'
+    if (Test-Path -LiteralPath $png) {
+        $bmp = New-Object Windows.Media.Imaging.BitmapImage
+        $bmp.BeginInit(); $bmp.UriSource = New-Object Uri($png); $bmp.CacheOption = 'OnLoad'; $bmp.EndInit()
+        $win.FindName('Logo').Source = $bmp
+        $win.Icon = $bmp
+    }
+    $Script:LanguagePicked = $null
+    $win.FindName('EsButton').Add_Click({ $Script:LanguagePicked = 'es'; $win.Close() })
+    $win.FindName('EnButton').Add_Click({ $Script:LanguagePicked = 'en'; $win.Close() })
+    $win.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $win.Close() } })
+    $win.Add_MouseLeftButtonDown({ param($s, $e) if ($e.OriginalSource -isnot [Windows.Controls.TextBlock] -and $e.OriginalSource -isnot [Windows.Controls.Border]) { return }; try { $win.DragMove() } catch { } })
+    if ($Snapshot) {
+        $win.Add_ContentRendered({
+            $r = New-Object Windows.Media.Imaging.RenderTargetBitmap([int]$win.ActualWidth, [int]$win.ActualHeight, 96, 96, [Windows.Media.PixelFormats]::Pbgra32)
+            $r.Render($win)
+            $enc = New-Object Windows.Media.Imaging.PngBitmapEncoder; $enc.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($r))
+            $fs = [IO.File]::Create($Snapshot); $enc.Save($fs); $fs.Close(); $Script:LanguagePicked = 'es'; $win.Close()
+        })
+    }
+    [void]$win.ShowDialog()
+    return $Script:LanguagePicked
+}
+
 function Show-WizardWpf {
     param([hashtable]$Detected, [string]$DefaultName)
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     Add-Type -AssemblyName System.Windows.Forms
-    $lang = if ((Get-Culture).TwoLetterISOLanguageName -eq 'es') { 'es' } else { 'en' }
+    $lang = if ($Script:Language) { $Script:Language } elseif ((Get-Culture).TwoLetterISOLanguageName -eq 'es') { 'es' } else { 'en' }
     $W = Get-SetupWords $lang
     $themeFile = Join-Path $PSScriptRoot 'ui_theme.xaml'
     $theme = [IO.File]::ReadAllText($themeFile)
     $win = [Windows.Markup.XamlReader]::Parse($Script:SetupXaml.Replace('@@THEME@@', $theme))
+    # the window's own icon (taskbar and Alt+Tab)
+    try {
+        $iconPng = Join-Path (Split-Path -Parent $PSScriptRoot) 'docs\assets\nativesmash-512.png'
+        if (Test-Path -LiteralPath $iconPng) {
+            $iconBmp = New-Object Windows.Media.Imaging.BitmapImage
+            $iconBmp.BeginInit(); $iconBmp.UriSource = New-Object Uri($iconPng); $iconBmp.CacheOption = 'OnLoad'; $iconBmp.EndInit()
+            $win.Icon = $iconBmp
+        }
+    } catch { }
     $f = { param($n) $win.FindName($n) }
 
     foreach ($p in @(@('Title', 'title'), @('Sub', 'sub'), @('GameTitle', 'game'), @('GameHint', 'gameHint'), @('KeysTitle', 'keys'), @('KeysHint', 'keysHint'),

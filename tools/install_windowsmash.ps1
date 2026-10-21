@@ -1023,7 +1023,7 @@ function Test-GameFolder {
     $lines = @($scan.summary)
     if (Test-Path -LiteralPath (Join-Path $Folder 'romfs.bin')) { $lines += 'romfs.bin found (the game data, used as it is).' }
     if ($scan.program) { return @{ Ok = $true; Text = ($lines -join ' ') } }
-    return @{ Ok = $false; Text = (($lines + @("Problem: $($scan.problem)")) -join ' ') }
+    return @{ Ok = $false; Text = ((@("Problem: $($scan.problem)") + $lines) -join ' ') }   # (the problem first: two lines show)
 }
 
 . (Join-Path $PSScriptRoot 'setup_window.ps1')   # Show-WizardWpf: the setup window of NativeSmash (the plain one below is its fallback)
@@ -1058,7 +1058,7 @@ function Show-Wizard {
     $rows = @{}
     $y = 58
     foreach ($spec in @(
-        @{ Key = 'Game'; Title = 'Game files'; Hint = "yuzu's or Ryujinx's game folder, or yours: the game (.xci, .nsp or .nca), update, DLC" },
+        @{ Key = 'Game'; Title = 'Game files'; Hint = "yuzu's or Ryujinx's game folder, or yours: the game (.xci/.nsp/.nca), its 13.0.5 update, DLC" },
         @{ Key = 'Keys'; Title = 'Keys'; Hint = "The folder with prod.keys and title.keys" },
         @{ Key = 'Firmware'; Title = 'Firmware'; Hint = "The folder with your Switch firmware's .nca files (for the fonts)" }
     )) {

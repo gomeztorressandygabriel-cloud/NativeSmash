@@ -136,7 +136,7 @@ $script:tree = if ($preferred) { $preferred.Tree } else { $null }
 
 Add-Type -AssemblyName System.Windows.Forms   # (only for the Shift key)
 if ($Auto -and -not $Shot -and -not (Test-ShowLauncher) -and -not ([Windows.Forms.Control]::ModifierKeys -band [Windows.Forms.Keys]::Shift)) {
-    if (-not $preferred) { Write-Host 'No game version is built here yet - see docs\VERSIONS.md.'; exit 1 }
+    if (-not $preferred) { Write-Host 'No game is built here yet - run Install NativeSmash.bat.'; exit 1 }
     Write-Host "Game version $($preferred.Label)"
     Save-Version $preferred.Tree
     Start-Game $preferred.Tree

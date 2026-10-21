@@ -1496,7 +1496,7 @@ static int emit_flow(Ctx *c, const Insn *in, u32 next) {
         if (c->stack_to) {   /* where it goes, known (unreached: 0, which the default case ends) */
             u32 to = c->stack_to[in - c->ins];
             if (!guard) goto_pc(c, to);
-            else line(c, "npc_ = %s ? 0x%xu : 0x%xu; break;", guard, to, next);
+            else line(c, "npc_ = %s ? 0x%xu : 0x%xu;%s", guard, to, next, block_end(c));
             return 1;
         }
         const char *pop = in->op == OP_SYNC ? "ssp_ = ssp_ - 1u; npc_ = ssy_[ssp_ & 15u];" : "psp_ = psp_ - 1u; npc_ = pbk_[psp_ & 15u];";

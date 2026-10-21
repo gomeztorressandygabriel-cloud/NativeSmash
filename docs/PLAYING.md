@@ -11,6 +11,7 @@ Everything about playing once the game is built: how to start it, the controls, 
 - [Controls](#controls)
 - [Controllers](#controllers)
 - [Window and display](#window-and-display)
+- [60 fps, and what about 120](#60-fps-and-what-about-120)
 - [Shaders and first-time stutter](#shaders-and-first-time-stutter)
 - [Low frame rate](#low-frame-rate)
 - [Where your files are](#where-your-files-are)
@@ -171,8 +172,15 @@ The first start also writes **`display.ini`**, which sets how the game starts. T
 
 | `upscale` | `fsr`: a picture smaller than its place in the window (`render_scale` under 1) is made bigger by AMD's FidelityFX Super Resolution 1 instead of a plain filter, which keeps the picture close to the full size while the graphics card draws fewer pixels: `render_scale = 0.67` is about 2.2 times fewer. It works on any graphics card. The launcher's **Video** page sets both with one choice (Quality 0.77, Balanced 0.67, Performance 0.59, Ultra performance 0.5). `off`: the plain filter. | `off` |
 | `sharpness` | `0` to `1`: how much the upscaled picture is sharpened. `0`: not at all. | `0.8` |
+| `vsync` | `on`: each picture is shown in step with the monitor's refresh, so it never tears, at the price of one more frame of delay (16.7 ms). `off`: less delay, but a tear line can show. | `on` |
 
 `controllers.ini` and `display.ini` apply to every game version started from the same folder. A `display.ini` written by an older version has no `gpu` or `render_scale` line; the game then uses `auto` and `1`. Add the line yourself to use it, or delete `display.ini` to get a new one with every setting. `render_scale` is read when the game starts: change it, then start the game again.
+
+## 60 fps, and what about 120
+
+The game always runs at 60 frames a second, as on the Switch. Its rules advance 60 times a second, and that pace is what keeps everyone in an online match in step, so NativeSmash does not change it: a player on a 60 Hz screen and one on a 120 Hz screen play together without any difference. On a 120 Hz or 240 Hz monitor the game still runs at 60.
+
+Showing 120 pictures a second would take *frame interpolation*: inventing a picture between each two real ones. It adds at least one frame of delay (16.7 ms), blurs fast effects, and costs the graphics card more, so NativeSmash does not do it. If you have a 120 Hz or faster monitor and want a smoother picture anyway, a separate program such as Lossless Scaling can do it for any window, without touching the game. Try it at your own risk, and turn it off for online matches if you notice the extra delay.
 
 ## Shaders and first-time stutter
 

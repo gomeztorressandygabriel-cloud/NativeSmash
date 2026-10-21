@@ -120,6 +120,8 @@ Any other pad can use the game's GameCube controls too: set `style = gamecube` f
 
 ### controllers.ini
 
+**The launcher sets each controller up for you:** on its **Controls** page, open the **Controllers** tab, pick the controller, and choose how it plays (as a Pro or a GameCube controller), its stick dead zone, rumble and triggers. To change a button, click it in the list, then press the controller button you want (the two swap if that button did something else); what you press lights up in the list. **A, B, X and Y as on my controller** makes an Xbox-style pad's A be A. It writes the controller's `[device ...]` section below, when you press **Play**.
+
 The first time the game starts, it writes **`controllers.ini`** into the NativeSmash folder. The [settings](#settings) change it for you; you can also open it in Notepad (**Controllers → Open controllers.ini** opens it). Every setting is explained inside the file. Changes made by hand apply the next time the game starts, and deleting the file brings back the defaults.
 
 | Setting | What it does | Default |

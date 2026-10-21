@@ -22,7 +22,7 @@ Press Play by itself a moment after the window opens (to test the start and the 
 .PARAMETER Shot
 Draw the window into this PNG file and exit (to check the look without opening it). -Page picks the page.
 .PARAMETER Page
-play, online, pads, video, shaders or game (with -Shot, or to open on that page).
+play, online, pads, controllers (the pads page's Controllers tab), video, shaders or game (with -Shot, or to open on that page).
 .PARAMETER Lang
 es or en (default: the PC's language).
 .PARAMETER Root
@@ -67,8 +67,24 @@ $Words = @{
     directHelp = @('Más rápidas. Apagadas, todo pasa por la sala y nadie ve tu dirección de internet.', 'Faster. Off: everything goes through the lobby and nobody learns your internet address.')
     padsTitle = @('Controles', 'Controllers'); kbPlays = @('El teclado juega como', 'The keyboard plays as'); nobody = @('Nadie', 'Nobody')
     background = @('Los mandos funcionan con otra ventana al frente', 'Controllers work while another window is in front')
-    padsHelp = @('Cada mando se configura en el juego: pulsa Esc, o el botón Inicio del mando, y entra en Controles.', 'Each controller is set up in the game: press Esc, or the controller''s Home button, and go to Controllers.')
+    padsHelp = @('Lo que cambies aquí se guarda al pulsar Jugar. Dentro del juego también puedes ajustarlo: pulsa Esc, o el botón Inicio del mando, y entra en Controles.', 'What you change here is saved when you press Play. In the game you can set it up too: press Esc, or the controller''s Home button, and go to Controllers.')
     openPads = @('Abrir controllers.ini', 'Open controllers.ini')
+    tabKeys = @('Teclado', 'Keyboard'); tabPads = @('Mandos', 'Controllers')
+    padPick = @('Mando conectado', 'Connected controller'); padXinput = @('Mando {0} · Xbox (XInput)', 'Controller {0} · Xbox (XInput)')
+    padLetters = @('A, B, X e Y como en mi mando', 'A, B, X and Y as on my controller')
+    padNone = @('No hay ningún mando conectado. Conéctalo, o pulsa un botón para despertarlo, y aparecerá aquí.', 'No controller is connected. Plug one in, or press a button to wake it, and it shows up here.')
+    padWhere = @('{0} ({1}). Se guarda en controllers.ini, en [device {2}].', '{0} ({1}). Saved in controllers.ini, under [device {2}].')
+    padStyle = @('Juega como', 'Plays as'); padStyleAuto = @('Automático', 'Automatic')
+    padLayout = @('Botones A, B, X e Y', 'A, B, X and Y buttons'); padPositional = @('Por posición, como en Switch', 'By position, as on a Switch'); padLabels = @('Por la letra impresa', 'By the printed letter')
+    padDead = @('Zona muerta de los sticks', 'Stick dead zone'); padRumble = @('Vibración', 'Rumble'); padOff = @('Apagada', 'Off')
+    padTrig = @('Gatillos: cuánto apretar para ZL y ZR', 'Triggers: how far to pull for ZL and ZR')
+    padMapTitle = @('Botones del mando', 'Controller buttons')
+    padMapHelp = @('Pulsa un botón de la lista y luego el botón del mando que quieras. Si ese botón ya hacía otra cosa, se intercambian. Esc cancela. Lo que pulses en el mando se ilumina aquí.', 'Pick a button in the list, then press the controller button you want. If that button already did something else, the two swap. Esc cancels. What you press on the controller lights up here.')
+    pressPad = @('Pulsa en el mando…', 'Press on the controller…'); resetPad = @('Restaurar este mando', 'Restore this controller')
+    padDpad = @('Cruceta', 'D-pad'); padLStick = @('Stick izq. (clic)', 'Left stick (click)'); padRStick = @('Stick der. (clic)', 'Right stick (click)'); padCapture = @('Captura', 'Capture')
+    pb_A = @('A', 'A'); pb_B = @('B', 'B'); pb_X = @('X', 'X'); pb_Y = @('Y', 'Y'); pb_L = @('L', 'L'); pb_R = @('R', 'R'); pb_ZL = @('ZL', 'ZL'); pb_ZR = @('ZR', 'ZR')
+    pb_PLUS = @('+ (pausa)', '+ (pause)'); pb_MINUS = @('−', '−'); pb_LSTICK = @('Stick izquierdo (clic)', 'Left stick (click)'); pb_RSTICK = @('Stick derecho (clic)', 'Right stick (click)')
+    pb_UP = @('Cruceta ↑', 'D-pad ↑'); pb_DOWN = @('Cruceta ↓', 'D-pad ↓'); pb_LEFT = @('Cruceta ←', 'D-pad ←'); pb_RIGHT = @('Cruceta →', 'D-pad →')
     updTitle = @('Actualizaciones', 'Updates'); updCheck = @('Buscar actualizaciones', 'Check for updates'); updChecking = @('Buscando…', 'Checking…')
     updNow = @('Actualizar ahora', 'Update now'); updUpToDate = @('NativeSmash está al día.', 'NativeSmash is up to date.')
     updAvailable = @('Hay una actualización disponible', 'An update is available'); updChanges = @('{0} cambios nuevos', '{0} new changes')
@@ -329,17 +345,48 @@ $xaml = @'
           <ScrollViewer x:Name="PagePads" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
           <StackPanel>
             <TextBlock x:Name="PadsTitle" Style="{StaticResource Title}"/>
-            <TextBlock x:Name="KbLabel" Style="{StaticResource Label}"/>
-            <WrapPanel x:Name="KbChips" MaxWidth="640" HorizontalAlignment="Left"/>
-            <CheckBox x:Name="BackgroundBox" Style="{StaticResource Switch}" Margin="0,18,0,0"/>
-            <TextBlock x:Name="KeysTitle" Style="{StaticResource Label}" Margin="0,26,0,2" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="SemiBold"/>
-            <TextBlock x:Name="KeysHelp" Style="{StaticResource Help}" MaxWidth="640" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-            <WrapPanel x:Name="KeyGrid" MaxWidth="660" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="KeysNote" Foreground="#FFFFB86B" FontSize="13" Margin="0,2,0,0"/>
-            <WrapPanel Margin="0,14,0,0">
-              <Button x:Name="ResetKeys" Style="{StaticResource Soft}"/>
-              <Button x:Name="OpenPads" Style="{StaticResource Soft}"/>
-            </WrapPanel>
+            <WrapPanel x:Name="PadTabs" Margin="0,14,0,0"/>
+            <StackPanel x:Name="KbSection">
+              <TextBlock x:Name="KbLabel" Style="{StaticResource Label}"/>
+              <WrapPanel x:Name="KbChips" MaxWidth="640" HorizontalAlignment="Left"/>
+              <CheckBox x:Name="BackgroundBox" Style="{StaticResource Switch}" Margin="0,18,0,0"/>
+              <TextBlock x:Name="KeysTitle" Style="{StaticResource Label}" Margin="0,26,0,2" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="SemiBold"/>
+              <TextBlock x:Name="KeysHelp" Style="{StaticResource Help}" MaxWidth="640" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+              <WrapPanel x:Name="KeyGrid" MaxWidth="660" HorizontalAlignment="Left"/>
+              <TextBlock x:Name="KeysNote" Foreground="#FFFFB86B" FontSize="13" Margin="0,2,0,0"/>
+              <WrapPanel Margin="0,14,0,0">
+                <Button x:Name="ResetKeys" Style="{StaticResource Soft}"/>
+                <Button x:Name="OpenPads" Style="{StaticResource Soft}"/>
+              </WrapPanel>
+            </StackPanel>
+            <StackPanel x:Name="PadSection" Visibility="Collapsed">
+              <TextBlock x:Name="PadPickLabel" Style="{StaticResource Label}"/>
+              <WrapPanel x:Name="PadPickChips" MaxWidth="660" HorizontalAlignment="Left"/>
+              <TextBlock x:Name="PadNone" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left"/>
+              <StackPanel x:Name="PadBody" Visibility="Collapsed">
+                <TextBlock x:Name="PadWhere" Style="{StaticResource Help}" MaxWidth="640" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="PadStyleLabel" Style="{StaticResource Label}"/>
+                <WrapPanel x:Name="PadStyleChips" MaxWidth="660" HorizontalAlignment="Left"/>
+                <StackPanel x:Name="PadLayoutBox">
+                  <TextBlock x:Name="PadLayoutLabel" Style="{StaticResource Label}"/>
+                  <WrapPanel x:Name="PadLayoutChips" MaxWidth="660" HorizontalAlignment="Left"/>
+                </StackPanel>
+                <TextBlock x:Name="PadDeadLabel" Style="{StaticResource Label}"/>
+                <WrapPanel x:Name="PadDeadChips" MaxWidth="660" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="PadRumbleLabel" Style="{StaticResource Label}"/>
+                <WrapPanel x:Name="PadRumbleChips" MaxWidth="660" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="PadTrigLabel" Style="{StaticResource Label}"/>
+                <WrapPanel x:Name="PadTrigChips" MaxWidth="660" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="PadMapTitle" Style="{StaticResource Label}" Margin="0,26,0,2" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="SemiBold"/>
+                <TextBlock x:Name="PadMapHelp" Style="{StaticResource Help}" MaxWidth="640" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                <WrapPanel x:Name="PadMapGrid" MaxWidth="660" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="PadMapNote" Foreground="#FFFFB86B" FontSize="13" Margin="0,2,0,0"/>
+                <WrapPanel Margin="0,14,0,0">
+                  <Button x:Name="PadLetters" Style="{StaticResource Soft}"/>
+                  <Button x:Name="ResetPad" Style="{StaticResource Soft}"/>
+                </WrapPanel>
+              </StackPanel>
+            </StackPanel>
             <TextBlock x:Name="PadsHelp" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left" Margin="0,8,0,0"/>
           </StackPanel>
           </ScrollViewer>
@@ -426,7 +473,7 @@ foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'p
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
                  @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('PadsTitle', 'padsTitle'),
-                 @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('VideoTitle', 'videoTitle'),
+                 @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
                  @('GameVersionLabel', 'version'), @('NoVersions', 'noVersions'), @('ToolsLabel', 'tools'), @('GameInstall', 'install'), @('UnlockBtn', 'unlock'),
@@ -609,9 +656,11 @@ function Show-Page([string]$Name) {
 }
 $navs = @('NavPlay', 'NavOnline', 'NavPads', 'NavVideo', 'NavShaders', 'NavGame')
 foreach ($n in $navs) { (Find $n).Add_Checked({ param($s, $e) Show-Page ([string]$s.Tag) }) }
-$startPage = if ($pageNames.ContainsKey($Page)) { $Page } else { 'play' }
+$startPage = if ($Page -eq 'controllers') { 'pads' } elseif ($pageNames.ContainsKey($Page)) { $Page } else { 'play' }
 (Find ('Nav' + (Get-Culture).TextInfo.ToTitleCase($startPage).Replace('Pads', 'Pads'))).IsChecked = $true
 foreach ($k in $pageNames.Keys) { if ($k -ne $startPage) { (Find $pageNames[$k]).Visibility = 'Collapsed' } else { (Find $pageNames[$k]).Visibility = 'Visible' } }
+
+. (Join-Path $PSScriptRoot 'launcher_pads.ps1')   # the Controllers tab: the pads connected, each set up
 
 # ---- reading the window back into the files' values -------------------------------------------
 function Get-WindowValues {
@@ -642,6 +691,7 @@ function Get-WindowValues {
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
     }
     foreach ($a in $KeyActions.Keys) { $result["$padsIni|keyboard|$a"] = [string]$script:KeyValue[$a] }
+    foreach ($kv in (Get-PadValues).GetEnumerator()) { $result[$kv.Key] = $kv.Value }
     $result["$displayIni||vsync"] = if ((Find 'VsyncBox').IsChecked) { 'on' } else { 'off' }
     $up = Get-Chip (Find 'UpChips')
     $result["$displayIni||upscale"] = if ($up -eq 'off') { 'off' } else { 'fsr' }

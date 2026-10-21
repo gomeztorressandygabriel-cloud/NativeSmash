@@ -209,6 +209,30 @@ void overlay_present(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTa
     draw(ctx, rtv, x0, y0, w, h);
 }
 
+/* The loading screen while the start's shader prewarm runs: a bar, done of total, on black. */
+void overlay_loading(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned w, unsigned h, long done,
+                     long total, double seconds) {
+    if (!state) state = init(dev) ? 1 : -1;
+    if (state < 0) return;
+    nverts = 0;
+    float fw = (float)w, fh = (float)h, size = fh / 18.0f, sm = fh / 36.0f;
+    float bw = fw * 0.6f, bh = fh / 40.0f, bx = (fw - bw) / 2, by = fh * 0.55f;
+    float frac = total > 0 ? (float)done / (float)total : 0.0f;
+    if (frac > 1) frac = 1;
+    rect(0, 0, fw, fh, RGBA(8, 8, 12, 255));
+    static const char title[] = "Preparing shaders";
+    text_sized((fw - (float)(sizeof title - 1) * size / 2) / 2, by - size * 2.2f, size, RGBA(255, 255, 255, 255), title);
+    rect(bx - 3, by - 3, bw + 6, bh + 6, RGBA(70, 70, 80, 255));
+    rect(bx, by, bw, bh, RGBA(25, 25, 32, 255));
+    rect(bx, by, bw * frac, bh, RGBA(230, 50, 60, 255));
+    char line[160];
+    int n = snprintf(line, sizeof line, "%ld of %ld  (%d%%)  %.0f s", done, total, (int)(frac * 100.0f), seconds);
+    text_sized((fw - (float)n * sm / 2) / 2, by + bh + sm, sm, RGBA(210, 210, 220, 255), line);
+    static const char hint[] = "Esc: play now (the rest loads while you play)";
+    text_sized((fw - (float)(sizeof hint - 1) * sm / 2) / 2, fh - sm * 3, sm, RGBA(140, 140, 150, 255), hint);
+    draw(ctx, rtv, 0, 0, w, h);
+}
+
 /* The overlay: the last second's frame rate and a graph of the last 240 frames' times. */
 static void hud(const char *detail) {
     /* the last second: frames, slowest and fastest */

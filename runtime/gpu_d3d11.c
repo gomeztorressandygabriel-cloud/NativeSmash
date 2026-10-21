@@ -449,7 +449,9 @@ static const char DECODE_HLSL[] =
 
 static void start_compilers(void);                 /* (see "shaders") */
 static DWORD WINAPI prewarm_main(void *unused);
+static int prewarm_on;                             /* the prewarm was started */
 static int warm_first_draws;                       /* (see "first draws") */
+static u32 gpu_vendor;                             /* the Direct3D driver's PCI vendor (0 under DXVK) */
 static LUID warm_adapter;
 static void warm_start(void);
 
@@ -701,11 +703,14 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
     ID3D11Device_QueryInterface(dev, &IID_IDXGIDevice, (void **)&dxgi_dev);
     IDXGIDevice_GetAdapter(dxgi_dev, &adapter);
     IDXGIAdapter_GetParent(adapter, &IID_IDXGIFactory2, (void **)&factory);
-    /* NVIDIA's: a second device, with the driver's internal threading off, that compiles each
-     * shader first on our compiler threads (see "shaders"). SSBU_COMPILE_DEVICE=0/1 overrides. */
+    /* NVIDIA's and Intel's: a second device, with the driver's internal threading off, that compiles each
+     * shader first on our compiler threads (see "shaders"). SSBU_COMPILE_DEVICE=0/1 overrides.
+     * Intel's driver, left to itself, makes a program's GPU code at the first draw that uses it: on an Iris Xe
+     * that froze the game for seconds whenever a new effect appeared (2 to 30 frames a second in a battle with
+     * fighters not seen before, one 40 s stall); with the second device the same battle ran at 59. */
     DXGI_ADAPTER_DESC ad;
     memset(&ad, 0, sizeof ad);
-    int nvidia = SUCCEEDED(IDXGIAdapter_GetDesc(adapter, &ad)) && ad.VendorId == 0x10DE;
+    int nvidia = SUCCEEDED(IDXGIAdapter_GetDesc(adapter, &ad)) && (ad.VendorId == 0x10DE || ad.VendorId == 0x8086) && !on_dxvk();
     char name[128];
     {
         size_t i = 0;
@@ -744,6 +749,7 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
     const char *wv = getenv("SSBU_SHADER_WARM");
     warm_first_draws = wv ? atoi(wv) != 0 : ad.VendorId == 0x1002 && !on_dxvk();
     warm_adapter = ad.AdapterLuid;
+    gpu_vendor = on_dxvk() ? 0 : ad.VendorId;
     /* The back buffer is the window's inside (display.ini sizes the window). Where the system
      * allows it, the swap chain may tear, which VRR pacing asks for at each Present. */
     IDXGIFactory5 *factory5;
@@ -827,7 +833,7 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
      * behind them (5,948 shaders: 600 CPU-seconds, no frame for over 30 s). So under DXVK it is
      * off unless SSBU_SHADER_PREWARM=1. */
     const char *prewarm = getenv("SSBU_SHADER_PREWARM");
-    if (prewarm ? atoi(prewarm) != 0 : !on_dxvk()) CloseHandle(CreateThread(NULL, 0, prewarm_main, NULL, 0, NULL));
+    if (prewarm ? atoi(prewarm) != 0 : !on_dxvk()) { prewarm_on = 1; CloseHandle(CreateThread(NULL, 0, prewarm_main, NULL, 0, NULL)); }
     else if (!prewarm) fprintf(stderr, "[gfx] prewarm: off under DXVK (SSBU_SHADER_PREWARM=1 turns it on)\n");
     ready = 1;
     fprintf(stderr, "[gfx] Direct3D 11 ready%s\n", compile_dev ? " (shaders compile on a device of their own first)" : "");
@@ -1059,6 +1065,7 @@ enum { PW_EMPTY, PW_QUEUED, PW_LOADING, PW_READY, PW_TAKEN, PW_FAILED };
 static Prewarm *volatile prewarm_table;
 static SRWLOCK prewarm_lock = SRWLOCK_INIT;
 static volatile LONG prewarm_total, prewarm_done, prewarm_ready;
+static volatile LONG prewarm_listed;   /* prewarm_total is final */
 static u64 prewarm_t0, prewarm_bytes0;
 
 static u64 private_bytes(void) {
@@ -1307,8 +1314,9 @@ static DWORD WINAPI prewarm_main(void *unused) {
         order[queued++] = s->prewarm;
     }
     free(found);
-    if (!queued) { free(order); return 0; }
+    if (!queued) { free(order); InterlockedExchange(&prewarm_listed, 1); return 0; }
     prewarm_total = (LONG)queued;
+    InterlockedExchange(&prewarm_listed, 1);
     AcquireSRWLockExclusive(&jobs_lock);
     if (job_queue[2].tail) job_queue[2].tail->next_job = head; else job_queue[2].head = head;
     job_queue[2].tail = tail;
@@ -1971,13 +1979,21 @@ static const u32 ring_count[RING_CLASSES] = {8192, 2048, 1024, 256, 64};
 static struct { ID3D11Buffer *buf; ID3D11ShaderResourceView **srv; u32 next, gen; } rings[RING_CLASSES];   /* (gen: discards so far) */
 static int rings_ok = -1;
 
+/* Intel's Direct3D driver says it allows that, but on an Iris Xe (driver 31.0.101.5186) draws
+ * then read wrong data: fighters lit in wrong colours, overbright, the damage figures missing -
+ * the same programs drew right through DXVK, and with every upload renamed. So no rings with
+ * Intel's driver; SSBU_UPLOAD_RINGS=1 turns them on with any. */
 static int rings_init(void) {
     D3D11_FEATURE_DATA_D3D11_OPTIONS o;
     memset(&o, 0, sizeof o);
-    if (getenv("SSBU_NO_UPLOAD_RINGS") || FAILED(ID3D11Device_CheckFeatureSupport(dev, D3D11_FEATURE_D3D11_OPTIONS, &o, sizeof o)) ||
+    const char *on = getenv("SSBU_UPLOAD_RINGS");
+    int intel = gpu_vendor == 0x8086 && !(on && atoi(on));
+    if (getenv("SSBU_NO_UPLOAD_RINGS") || intel || FAILED(ID3D11Device_CheckFeatureSupport(dev, D3D11_FEATURE_D3D11_OPTIONS, &o, sizeof o)) ||
         !o.MapNoOverwriteOnDynamicBufferSRV) {
         fprintf(stderr, "[gfx] upload rings off (%s): every upload renames a buffer\n",
-                getenv("SSBU_NO_UPLOAD_RINGS") ? "SSBU_NO_UPLOAD_RINGS" : "the driver does not allow writing a buffer the GPU reads through a view");
+                getenv("SSBU_NO_UPLOAD_RINGS") ? "SSBU_NO_UPLOAD_RINGS"
+                : intel                        ? "Intel's driver reads them wrong"
+                                               : "the driver does not allow writing a buffer the GPU reads through a view");
         return 0;
     }
     for (u32 c = 0; c < RING_CLASSES; c++) {
@@ -4818,6 +4834,26 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     }
     D3D11_TEXTURE2D_DESC back_desc;
     ID3D11Texture2D_GetDesc(back, &back_desc);
+    /* The first frame waits for the start's prewarm behind a loading screen, so that no shader is
+     * made while playing (Esc: play now). SSBU_SHADER_WAIT=0: no waiting. */
+    static int loading = -1;
+    if (loading < 0) loading = prewarm_on && (!getenv("SSBU_SHADER_WAIT") || atoi(getenv("SSBU_SHADER_WAIT")) != 0);
+    if (loading) {
+        loading = 0;
+        u64 t0 = GetTickCount64();
+        while (!prewarm_listed || prewarm_done < prewarm_total) {
+            if (window && GetForegroundWindow() == window && (GetAsyncKeyState(VK_ESCAPE) & 0x8000)) break;
+            watchdog_present();
+            static const float black[4] = {0, 0, 0, 1};
+            ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, black);
+            overlay_loading(dev, ctx, rtv, back_desc.Width, back_desc.Height, prewarm_done, prewarm_total, (GetTickCount64() - t0) / 1000.0);
+            HRESULT lh = IDXGISwapChain1_Present(swapchain, 1, 0);
+            if (lh == DXGI_ERROR_DEVICE_REMOVED || lh == DXGI_ERROR_DEVICE_RESET) { check_device(lh, "showing the loading screen"); break; }
+            Sleep(30);
+        }
+        fprintf(stderr, "[gfx] loading screen: %ld of %ld shaders made in %.1f s%s\n", (long)prewarm_done, (long)prewarm_total,
+                (GetTickCount64() - t0) / 1000.0, prewarm_done < prewarm_total ? " (Esc: the rest while playing)" : "");
+    }
     Surface *src = NULL;
     for (u32 i = 0; i < nsurfaces; i++)
         if (surfaces[i].tex && !surfaces[i].depth && surfaces[i].guest == guest) src = &surfaces[i];

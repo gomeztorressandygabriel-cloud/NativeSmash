@@ -10,6 +10,10 @@
 void overlay_present(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned x, unsigned y, unsigned w,
                      unsigned h, int show, const char *detail);
 
+/* The start's loading screen into rtv (w x h): "Preparing shaders" and a bar, done of total. */
+void overlay_loading(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned w, unsigned h, long done,
+                     long total, double seconds);
+
 /* For menu_draw, in the picture's pixels (0, 0 its top left): a rectangle, and a line of text
  * whose letters are `size` pixels high and size / 2 wide (printable ASCII; '\n' starts a line).
  * Colours are 0xAABBGGRR (OVL_RGBA). ovl_text returns the y below the text. */

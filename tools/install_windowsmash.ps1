@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Sets WindowSmash up on this PC in one go: what "Install WindowSmash.bat" runs.
+Sets NativeSmash up on this PC in one go: what "Install NativeSmash.bat" runs.
 
 .DESCRIPTION
 Steps, each skipped when it is already done, so running it again carries on where it stopped:
@@ -62,7 +62,7 @@ Prepare the game files (program, fonts, data, DLC, fighters) but stop before the
 .PARAMETER Jobs
 Passed to the build: how many files to compile at a time (default: by the installed RAM).
 .PARAMETER NoUpdate
-Do not look for a newer WindowSmash (the updated installer is started with it).
+Do not look for a newer NativeSmash (the updated installer is started with it).
 .PARAMETER BuildTools
 For the compiler, install the Visual Studio Build Tools rather than download it into deps\.
 #>
@@ -105,17 +105,17 @@ $VsBuildToolsUrl = 'https://visualstudio.microsoft.com/visual-cpp-build-tools/'
 $VsInstallerDir = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
 $NeedDiskGb = 60
 $MinRamGb = 8
-$FirewallRuleName = 'WindowSmash (ssbu.exe)'
-$UserAgent = 'WindowSmash-installer'
+$FirewallRuleName = 'NativeSmash (ssbu.exe)'
+$UserAgent = 'NativeSmash-installer'
 # Python code that exits 0 when tools\arc.py has a zstd: the zstandard package (any Python), or
 # compression.zstd (3.14 and newer). zstandard is asked first: before 3.14, asking for
 # compression.zstd raises an error instead of answering no (there is no compression package).
 # (No double quotes in it: Windows PowerShell hands them to programs unescaped.)
 $ZstdCheck = 'import sys, importlib.util as u; sys.exit(0 if u.find_spec(''zstandard'') or (sys.version_info >= (3, 14) and u.find_spec(''compression.zstd'')) else 1)'
-# where updates come from: this repository's branch
-$RepoOwner = 'SNO2207'
-$RepoName = 'WindowSmash'
-$UpdateBranch = 'main'
+# where updates come from: this project's repository and branch (tools\project.json, which the launcher reads too)
+$Project = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$RepoOwner, $RepoName = ([string]$Project.repo) -split '/', 2
+$UpdateBranch = [string]$Project.branch
 $RepoApi = "https://api.github.com/repos/$RepoOwner/$RepoName"
 $SourceVersionFile = 'tools\source_version.txt'   # "<commit> <date>": GitHub's ZIP download fills it in
 
@@ -353,9 +353,9 @@ function Test-CpuFeature {
     param([int]$Feature)
     try {
         if (-not $Script:Kernel32) {
-            $name = New-Object Reflection.AssemblyName 'WindowSmashSetup.Native'
+            $name = New-Object Reflection.AssemblyName 'NativeSmashSetup.Native'
             $assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly($name, [Reflection.Emit.AssemblyBuilderAccess]::Run)
-            $type = $assembly.DefineDynamicModule('WindowSmashSetup.Native').DefineType('WindowSmashSetup.Kernel32', 'Public, Class')
+            $type = $assembly.DefineDynamicModule('NativeSmashSetup.Native').DefineType('NativeSmashSetup.Kernel32', 'Public, Class')
             $method = $type.DefinePInvokeMethod('IsProcessorFeaturePresent', 'kernel32.dll',
                 [Reflection.MethodAttributes]'Public, Static, PinvokeImpl', [Reflection.CallingConventions]::Standard,
                 [bool], [Type[]]@([int]), [Runtime.InteropServices.CallingConvention]::Winapi, [Runtime.InteropServices.CharSet]::Auto)
@@ -375,7 +375,7 @@ function Get-FirewallRuleCommand {
 }
 
 function Test-PythonVersionText {
-    <# Whether "3.14.6"-like text names a Python WindowSmash can use (3.10 or newer, 3.x). #>
+    <# Whether "3.14.6"-like text names a Python NativeSmash can use (3.10 or newer, 3.x). #>
     param([string]$Text)
     $m = [regex]::Match($Text, '(\d+)\.(\d+)')
     if (-not $m.Success) { return $false }
@@ -476,7 +476,7 @@ function Test-PythonCommand {
     }
 }
 
-# ---- step 1: the newest WindowSmash -----------------------------------------------------------------
+# ---- step 1: the newest NativeSmash -----------------------------------------------------------------
 function Invoke-Http {
     <# A GET that answers with its status instead of throwing (a 404 is an answer here, and a thrown
        one would land in install.log as an error): @{Code; Body; Error}. #>
@@ -544,7 +544,7 @@ function Update-GitCheckout {
 }
 
 function Update-FromZip {
-    <# Replaces this folder's WindowSmash files with those of commit $New (GitHub's ZIP of it).
+    <# Replaces this folder's NativeSmash files with those of commit $New (GitHub's ZIP of it).
        Only files whose content changed are written; they get the current time, so the build redoes
        what they feed. Files of commit $Old that $New dropped are removed. Nothing else is touched:
        dump\, build\, save\, deps\, settings and the like are not in the ZIP. #>
@@ -552,13 +552,13 @@ function Update-FromZip {
     $work = Join-Path $Root 'deps\update'
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
     New-Item -ItemType Directory -Path $work -Force | Out-Null
-    $zip = Join-Path $work "WindowSmash-$New.zip"
-    Invoke-Download "https://codeload.github.com/$RepoOwner/$RepoName/zip/$New" $zip "WindowSmash $($New.Substring(0, 7))"
+    $zip = Join-Path $work "NativeSmash-$New.zip"
+    Invoke-Download "https://codeload.github.com/$RepoOwner/$RepoName/zip/$New" $zip "NativeSmash $($New.Substring(0, 7))"
     $extract = Join-Path $work 'extract'
     Expand-Archive -LiteralPath $zip -DestinationPath $extract
     $top = @(Get-ChildItem -LiteralPath $extract -Directory)
     if ($top.Count -ne 1 -or -not (Test-Path -LiteralPath (Join-Path $top[0].FullName 'tools\recomp.py'))) {
-        throw 'The downloaded WindowSmash does not look complete; nothing was changed. Run this again.'
+        throw 'The downloaded NativeSmash does not look complete; nothing was changed. Run this again.'
     }
     $src = $top[0].FullName
     $newFiles = @(Get-ChildItem -LiteralPath $src -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($src.Length + 1).Replace('\', '/') })
@@ -612,7 +612,7 @@ function Update-FromZip {
 
 function Step-Update {
     <# Brings this folder to the newest commit of GitHub's branch. $true when files changed. #>
-    Write-Step '[1/10] Get the newest WindowSmash'
+    Write-Step '[1/10] Get the newest NativeSmash'
     if ($NoUpdate) { Write-Info 'not checking (-NoUpdate)'; return $false }
     if (Test-Path -LiteralPath (Join-Path $Root '.git')) { return (Update-GitCheckout) }
     $local = Get-LocalCommit
@@ -643,12 +643,12 @@ function Step-Update {
     $n = [int]$cmp.Data.ahead_by
     $plural = ''
     if ($n -ne 1) { $plural = 's' }
-    Write-Info "a newer WindowSmash is on GitHub: $n new commit$plural ($short to $($headSha.Substring(0, 7)), $headDate)"
+    Write-Info "a newer NativeSmash is on GitHub: $n new commit$plural ($short to $($headSha.Substring(0, 7)), $headDate)"
     $titles = @($cmp.Data.commits | ForEach-Object { ([string]$_.commit.message -split "`n")[0] } | Where-Object { $_ -notmatch '^Merge (pull request|branch) ' })
     [array]::Reverse($titles)
     foreach ($t in ($titles | Select-Object -First 8)) { Write-Info "  - $t" }
     if ($titles.Count -gt 8) { Write-Info "  ... and $($titles.Count - 8) more" }
-    if ($DryRun) { Write-Would "download it and replace this folder's WindowSmash files (your game files, settings, save and builds stay)"; return $false }
+    if ($DryRun) { Write-Would "download it and replace this folder's NativeSmash files (your game files, settings, save and builds stay)"; return $false }
     return (Update-FromZip $local $headSha $headDate)
 }
 
@@ -658,8 +658,8 @@ function Step-CheckPc {
     $os = Get-CimInstance Win32_OperatingSystem
     $build = [int]$os.BuildNumber
     Write-Info "$($os.Caption) ($($os.Version), $($os.OSArchitecture))"
-    if ($os.OSArchitecture -notmatch '64') { throw 'WindowSmash needs 64-bit Windows; this Windows is not 64-bit.' }
-    if ([version]$os.Version -lt [version]'10.0') { throw 'WindowSmash needs Windows 10 or 11.' }
+    if ($os.OSArchitecture -notmatch '64') { throw 'NativeSmash needs 64-bit Windows; this Windows is not 64-bit.' }
+    if ([version]$os.Version -lt [version]'10.0') { throw 'NativeSmash needs Windows 10 or 11.' }
 
     $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
     $name = ($cpu.Name -replace '\s+', ' ').Trim()
@@ -667,11 +667,11 @@ function Step-CheckPc {
     if ($build -ge 19041) { $avx2 = Test-CpuFeature 40 }   # Windows 10 version 2004 and later can be asked about AVX2 (feature 40)
     if ($null -eq $avx2) { $avx2 = Test-Avx2ByName $name }
     if ($avx2 -eq $true) { Write-Info "$name - has AVX2" }
-    elseif ($avx2 -eq $false) { throw "The processor ($name) has no AVX2, which the game needs: WindowSmash cannot run on it." }
+    elseif ($avx2 -eq $false) { throw "The processor ($name) has no AVX2, which the game needs: NativeSmash cannot run on it." }
     else { Write-Warn "$name - whether it has AVX2 is unknown; the game will only start if it does (the setup guide's step 1 says which do)" }
 
     $ramGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
-    if ($ramGb -lt $MinRamGb) { throw "This PC has $ramGb GB of RAM; WindowSmash needs at least $MinRamGb GB (16 GB is comfortable)." }
+    if ($ramGb -lt $MinRamGb) { throw "This PC has $ramGb GB of RAM; NativeSmash needs at least $MinRamGb GB (16 GB is comfortable)." }
     if ($ramGb -lt 16) { Write-Warn "$ramGb GB of RAM: enough, but the build will be slow (16 GB is comfortable)" } else { Write-Info "$ramGb GB of RAM" }
 
     $drive = [IO.Path]::GetPathRoot($Root)
@@ -687,7 +687,7 @@ function Step-CheckPc {
         $need = Get-DiskNeedGb $NeedDiskGb $already
         Write-Info ("{0:N0} GB free on {1}, {2:N0} GB still needed for the build" -f $free, $drive, $need)
         if ($free -lt $need) {
-            throw ("Only {0:N0} GB are free on {1}; the build needs about {2:N0} GB more. Free some space, or move WindowSmash to a drive with room." -f $free, $drive, $need)
+            throw ("Only {0:N0} GB are free on {1}; the build needs about {2:N0} GB more. Free some space, or move NativeSmash to a drive with room." -f $free, $drive, $need)
         }
     } else {
         Write-Warn "the free space on $drive could not be read; the build needs about $NeedDiskGb GB"
@@ -846,7 +846,7 @@ function Step-PortableCompiler {
     $how = Install-PortableCompiler
     if ($how -eq 'declined') {
         throw ("Microsoft's license terms were not accepted, so the C runtime and the Windows SDK, which the game is built with, " +
-               "cannot be downloaded. The Visual Studio Build Tools come under the same terms. Run Install WindowSmash.bat again to " +
+               "cannot be downloaded. The Visual Studio Build Tools come under the same terms. Run Install NativeSmash.bat again to " +
                "accept them, or install Visual Studio yourself (setup guide step 4).")
     }
     if ($how -eq 'done') {
@@ -906,7 +906,7 @@ function Step-Compiler {
     $check = Test-Compiler
     if (-not $check.Ok) {
         throw ("The compiler still does not work after the install:`n" + $check.Output +
-               "`nA restart may be needed. After it, run Install WindowSmash.bat again.")
+               "`nA restart may be needed. After it, run Install NativeSmash.bat again.")
     }
     foreach ($line in ($check.Output -split "`n")) { if ($line -match 'clang-cl|toolchain') { Write-Info $line.Trim() } }
 }
@@ -958,7 +958,7 @@ function Step-Codecs {
     if ((Test-Path -LiteralPath $opus) -and (Test-Path -LiteralPath $vpx)) {
         Write-Info 'libopus and libvpx are in third_party and are built during the game build: nothing to download'
     } else {
-        Write-Warn 'third_party\opus or third_party\libvpx is missing: the game will build without music or movies (download WindowSmash again to get them)'
+        Write-Warn 'third_party\opus or third_party\libvpx is missing: the game will build without music or movies (download NativeSmash again to get them)'
     }
 }
 
@@ -1023,6 +1023,8 @@ function Test-GameFolder {
     return @{ Ok = $false; Text = (($lines + @("Problem: $($scan.problem)")) -join ' ') }
 }
 
+. (Join-Path $PSScriptRoot 'setup_window.ps1')   # Show-WizardWpf: the setup window of NativeSmash (the plain one below is its fallback)
+
 function Show-Wizard {
     <# The setup window: three folders with what was found in each, the online name, the options.
        Returns @{Game; Keys; Firmware; OnlineName; Shaders; Shortcut; Firewall}, or $null if cancelled. #>
@@ -1032,7 +1034,7 @@ function Show-Wizard {
     [Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object Windows.Forms.Form
-    $form.Text = 'WindowSmash setup'
+    $form.Text = 'NativeSmash setup'
     $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
     $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
     $form.ClientSize = New-Object Drawing.Size(760, 560)
@@ -1112,7 +1114,7 @@ function Show-Wizard {
     }
 
     $note = New-Object Windows.Forms.Label
-    $note.Text = 'Then the game is built, which takes 30 minutes to a few hours. If it stops, run Install WindowSmash.bat again: it carries on where it stopped.'
+    $note.Text = 'Then the game is built, which takes 30 minutes to a few hours. If it stops, run Install NativeSmash.bat again: it carries on where it stopped.'
     $note.Location = New-Object Drawing.Point(16, ($y + 4))
     $note.Size = New-Object Drawing.Size(728, 40)
     $form.Controls.Add($note)
@@ -1162,7 +1164,7 @@ function Show-Wizard {
         $bad = @()
         foreach ($k in @('Game', 'Keys', 'Firmware')) { if (-not $results[$k].Ok) { $bad += $k } }
         if ($bad.Count -gt 0) {
-            [Windows.Forms.MessageBox]::Show($form, "Please fix: $($bad -join ', ') (see the line under each folder).", 'WindowSmash setup', 'OK', 'Warning') | Out-Null
+            [Windows.Forms.MessageBox]::Show($form, "Please fix: $($bad -join ', ') (see the line under each folder).", 'NativeSmash setup', 'OK', 'Warning') | Out-Null
             return
         }
         if (-not $nameBox.Text.Trim()) { $nameBox.Text = $DefaultName }
@@ -1236,8 +1238,11 @@ function Step-GameFiles {
     }
     $answers = $null
     if (-not $NoWizard) {
-        try { $answers = Show-Wizard $detected $default } catch { Write-Warn "the setup window could not open ($($_.Exception.Message)); asking here instead"; $NoWizard = $true }
-        if (-not $NoWizard -and -not $answers) { throw 'Cancelled. Run Install WindowSmash.bat again when you are ready.' }
+        try { $answers = Show-WizardWpf $detected $default } catch {
+            Write-Warn "the setup window could not open ($($_.Exception.Message)); trying the plain one"
+            try { $answers = Show-Wizard $detected $default } catch { Write-Warn "the plain window could not open either ($($_.Exception.Message)); asking here instead"; $NoWizard = $true }
+        }
+        if (-not $NoWizard -and -not $answers) { throw 'Cancelled. Run Install NativeSmash.bat again when you are ready.' }
     }
     if ($NoWizard) { $answers = Read-Answers $detected $default }
     if (($answers.OnlineName -and $answers.OnlineName -ne $default) -or -not (Test-Path -LiteralPath $nameFile)) {
@@ -1253,7 +1258,7 @@ function Get-DesktopFolder {
 }
 
 function Test-FirewallRule {
-    <# Whether the rule is there for this folder's ssbu.exe (another WindowSmash folder has its own). #>
+    <# Whether the rule is there for this folder's ssbu.exe (another NativeSmash folder has its own). #>
     param([string]$Exe)
     foreach ($r in @(Get-NetFirewallRule -DisplayName $FirewallRuleName -ErrorAction SilentlyContinue)) {
         $f = $r | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
@@ -1278,7 +1283,7 @@ function Step-Extras {
         $s.TargetPath = Join-Path $Root 'Play SSBU.bat'
         $s.WorkingDirectory = $Root
         $s.IconLocation = (Join-Path $Root 'docs\assets\windowsmash.ico') + ',0'
-        $s.Description = 'Super Smash Bros. Ultimate (WindowSmash)'
+        $s.Description = 'Super Smash Bros. Ultimate (NativeSmash)'
         $s.Save()
         Write-Info "shortcut: $lnk"
     }
@@ -1311,7 +1316,7 @@ function Step-Build {
     if ($DryRun) { Write-Would ('run: ' + ($Script:Python -join ' ') + ' ' + ($build -join ' ')); return $false }
     if ($SkipBuild) { Write-Info 'the program, fonts, data, DLC and fighters; not the build itself (-SkipBuild)' }
     else { Write-Info 'the program, fonts, data, DLC and fighters, then the build: 30 minutes to a few hours' }
-    if ((Invoke-Python $build) -ne 0) { throw 'The build stopped (the message above says why). Fix that, then run Install WindowSmash.bat again: it carries on where it stopped.' }
+    if ((Invoke-Python $build) -ne 0) { throw 'The build stopped (the message above says why). Fix that, then run Install NativeSmash.bat again: it carries on where it stopped.' }
     if ($SkipBuild) { return $false }
     return $true
 }
@@ -1330,7 +1335,7 @@ function Main {
     $log = Join-Path $Root 'install.log'
     try { Start-Transcript -Path $log -Append | Out-Null } catch { }
     try {
-        Write-Host 'WindowSmash setup' -ForegroundColor Cyan
+        Write-Host 'NativeSmash setup' -ForegroundColor Cyan
         Write-Host "  $Root"
         if ($DryRun) { Write-Host '  dry run: saying what each step would do, doing nothing' -ForegroundColor DarkGray }
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12

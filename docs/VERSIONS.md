@@ -2,7 +2,7 @@
 
 [← README](../README.md) · [Setup guide](BUILDING.md) · [Game updates](UPDATES.md) · [Technical guide](TECHNICAL.md)
 
-One WindowSmash folder can hold several versions of the game side by side, each in a folder of its own with its own save. Each is installed and built with one command, and what versions have in common is shared instead of built twice.
+One NativeSmash folder can hold several versions of the game side by side, each in a folder of its own with its own save. Each is installed and built with one command, and what versions have in common is shared instead of built twice.
 
 ## Contents
 
@@ -23,11 +23,11 @@ One WindowSmash folder can hold several versions of the game side by side, each 
 
 To skip the question, set `SSBU_TREE` to a version's folder before starting a launcher.
 
-On a Mac, `Play SSBU.command`, `launchers/*.command` and the Play SSBU app ask the same way ([macOS](MACOS.md)); a version folder's game is its `build-mac/WindowSmash.app`.
+On a Mac, `Play SSBU.command`, `launchers/*.command` and the Play SSBU app ask the same way ([macOS](MACOS.md)); a version folder's game is its `build-mac/NativeSmash.app`.
 
 ## Installing a version
 
-One command, from the WindowSmash folder, with your own update file, DLC and keys (example paths):
+One command, from the NativeSmash folder, with your own update file, DLC and keys (example paths):
 
 ```powershell
 python tools/install_version.py install --tree v13.0.5 --update "D:\MyDump\update.nsp" --dlc "D:\MyDump\dlc" --keys "D:\MyKeys"

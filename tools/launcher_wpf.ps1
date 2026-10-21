@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-WindowSmash's launcher: one window to find the game, set it up, and play. When Play is pressed the window
+NativeSmash's launcher: one window to find the game, set it up, and play. When Play is pressed the window
 starts the game, waits for the game's window and fades away to leave it in its place.
 
 .DESCRIPTION
@@ -51,7 +51,7 @@ $Words = @{
     tagline = @('Super Smash Bros. Ultimate · PC nativo', 'Super Smash Bros. Ultimate · native PC')
     ready = @('Todo listo para jugar', 'Ready to play'); notready = @('Falta instalar el juego', 'The game is not installed yet')
     readyHelp = @('Elige cómo quieres jugar a la izquierda y pulsa Jugar.', 'Set things up on the left and press Play.')
-    notreadyHelp = @('WindowSmash no incluye el juego: se prepara con tu propia copia. Pulsa Buscar e instalar y elige tus archivos.', 'WindowSmash does not include the game: it is set up from your own copy. Press Find and install and pick your files.')
+    notreadyHelp = @('NativeSmash no incluye el juego: se prepara con tu propia copia. Pulsa Buscar e instalar y elige tus archivos.', 'NativeSmash does not include the game: it is set up from your own copy. Press Find and install and pick your files.')
     version = @('Versión del juego', 'Game version'); playBtn = @('JUGAR', 'PLAY'); starting = @('Iniciando el juego…', 'Starting the game…')
     direct = @('Iniciar directamente la próxima vez (Shift al abrir muestra esta ventana)', 'Start the game directly next time (hold Shift to see this window)')
     install = @('Buscar e instalar el juego', 'Find and install the game')
@@ -64,6 +64,14 @@ $Words = @{
     background = @('Los mandos funcionan con otra ventana al frente', 'Controllers work while another window is in front')
     padsHelp = @('Cada mando se configura en el juego: pulsa Esc, o el botón Inicio del mando, y entra en Controles.', 'Each controller is set up in the game: press Esc, or the controller''s Home button, and go to Controllers.')
     openPads = @('Abrir controllers.ini', 'Open controllers.ini')
+    updTitle = @('Actualizaciones', 'Updates'); updCheck = @('Buscar actualizaciones', 'Check for updates'); updChecking = @('Buscando…', 'Checking…')
+    updNow = @('Actualizar ahora', 'Update now'); updUpToDate = @('NativeSmash está al día.', 'NativeSmash is up to date.')
+    updAvailable = @('Hay una actualización disponible', 'An update is available'); updChanges = @('{0} cambios nuevos', '{0} new changes')
+    updLatest = @('Lo último', 'Latest'); updThis = @('Esta copia', 'This copy')
+    updFail = @('No se pudo comprobar (¿sin internet, o el repositorio aún no existe?).', 'Could not check (no internet, or the repository does not exist yet?).')
+    updUnknown = @('No sé de qué versión es esta copia: se sabe si se descarga de GitHub o se clona.', 'This copy''s version is not known: it is when it is downloaded from GitHub or cloned.')
+    updOwn = @('Esta copia tiene cambios propios, así que no se actualiza sola.', 'This copy has changes of its own, so it does not update itself.')
+    updConfirm = @('Se descargará la versión nueva y se recompilará lo que cambió. Tus partidas y ajustes se conservan. ¿Seguir?', 'The new version will be downloaded and what changed rebuilt. Your saves and settings are kept. Go on?')
     keysTitle = @('Teclas del teclado', 'Keyboard keys'); pressKey = @('Pulsa una tecla…', 'Press a key…')
     resetKeys = @('Restaurar teclas', 'Restore keys')
     keysHelp = @('Pulsa una acción y luego la tecla que quieras. Esc cancela. F1 a F6, F11 y Esc son del juego y no se pueden usar.', 'Click an action, then the key you want. Esc cancels. F1 to F6, F11 and Esc are the game''s own and cannot be used.')
@@ -144,7 +152,7 @@ if (Test-Path -LiteralPath $shaderDir) {
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="WindowSmash" Width="1160" Height="680" WindowStyle="None" AllowsTransparency="True"
+        Title="NativeSmash" Width="1160" Height="680" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI" TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
   <Window.Resources>
@@ -262,7 +270,7 @@ $xaml = @'
         <Border Grid.Column="0" Background="#0DFFFFFF" CornerRadius="26,0,0,26" BorderBrush="#14FFFFFF" BorderThickness="0,0,1,0">
           <Grid Margin="22,26,22,22">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <StackPanel><TextBlock Text="WindowSmash" FontSize="23" FontWeight="Bold" Foreground="{StaticResource Ink}"/>
+            <StackPanel><TextBlock Text="NativeSmash" FontSize="23" FontWeight="Bold" Foreground="{StaticResource Ink}"/>
               <TextBlock x:Name="Tagline" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,4,0,28" TextWrapping="Wrap"/></StackPanel>
             <StackPanel Grid.Row="1">
               <RadioButton x:Name="NavPlay" Style="{StaticResource Nav}" GroupName="nav" Tag="play"/>
@@ -282,6 +290,9 @@ $xaml = @'
                   Foreground="{StaticResource Muted}" Background="Transparent" BorderThickness="0" FontSize="14" Cursor="Hand"/>
 
           <StackPanel x:Name="PagePlay" VerticalAlignment="Center">
+            <Border x:Name="UpdBanner" Visibility="Collapsed" CornerRadius="14" Background="#22A66BFF" BorderBrush="#55A66BFF" BorderThickness="1" Padding="16,6,6,0" HorizontalAlignment="Left" Margin="0,0,0,26">
+              <StackPanel Orientation="Horizontal"><TextBlock x:Name="UpdBannerText" Foreground="{StaticResource Ink}" FontSize="14" VerticalAlignment="Center" Margin="0,0,14,6"/>
+                <Button x:Name="UpdBannerBtn" Style="{StaticResource Soft}" Padding="0" Margin="0,0,0,6"/></StackPanel></Border>
             <TextBlock x:Name="PlayTitle" Style="{StaticResource Title}" FontSize="40"/>
             <TextBlock x:Name="PlayHelp" Style="{StaticResource Help}" FontSize="15" MaxWidth="560" HorizontalAlignment="Left"/>
             <TextBlock x:Name="VersionLabel" Style="{StaticResource Label}" Margin="0,34,0,8"/>
@@ -367,6 +378,10 @@ $xaml = @'
               <Button x:Name="GameInstall" Style="{StaticResource Soft}"/><Button x:Name="UnlockBtn" Style="{StaticResource Soft}"/>
               <Button x:Name="FolderBtn" Style="{StaticResource Soft}"/><Button x:Name="ReportsBtn" Style="{StaticResource Soft}"/><Button x:Name="LogBtn" Style="{StaticResource Soft}"/>
             </WrapPanel>
+            <TextBlock x:Name="UpdTitle" Style="{StaticResource Label}" Margin="0,22,0,6"/>
+            <TextBlock x:Name="UpdStatus" Style="{StaticResource Help}" MaxWidth="660" HorizontalAlignment="Left" Foreground="{StaticResource Ink}" Margin="0,0,0,2"/>
+            <TextBlock x:Name="UpdDetail" Style="{StaticResource Help}" MaxWidth="660" HorizontalAlignment="Left" Margin="0,0,0,10"/>
+            <WrapPanel><Button x:Name="UpdCheckBtn" Style="{StaticResource Soft}"/><Button x:Name="UpdNowBtn" Style="{StaticResource Soft}" Visibility="Collapsed"/></WrapPanel>
           </StackPanel>
 
           <!-- while the game starts -->
@@ -391,7 +406,7 @@ foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'p
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
                  @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('PadsTitle', 'padsTitle'),
-                 @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('VideoTitle', 'videoTitle'),
+                 @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
                  @('GameVersionLabel', 'version'), @('NoVersions', 'noVersions'), @('ToolsLabel', 'tools'), @('GameInstall', 'install'), @('UnlockBtn', 'unlock'),
@@ -669,7 +684,7 @@ function Open-Path([string]$Path, [string]$Verb) {
 (Find 'CloseBtn').Add_Click({ $win.Close() })
 (Find 'Shell').Add_MouseLeftButtonDown({ param($s, $e) if ($e.OriginalSource -is [Windows.Controls.Border] -or $e.OriginalSource -is [Windows.Controls.Grid]) { try { $win.DragMove() } catch { } } })
 $install = {
-    $bat = Join-Path $Root 'Install WindowSmash.bat'
+    $bat = Join-Path $Root 'Install NativeSmash.bat'
     if (Test-Path -LiteralPath $bat) { Start-Process -FilePath $bat -WorkingDirectory $Root } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
 }
 (Find 'InstallBtn').Add_Click($install); (Find 'GameInstall').Add_Click($install)
@@ -679,6 +694,90 @@ $install = {
 (Find 'FolderBtn').Add_Click({ Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" })
 (Find 'ReportsBtn').Add_Click({ $d = Join-Path $Root 'reports'; if (Test-Path -LiteralPath $d) { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$d`"" } })
 (Find 'LogBtn').Add_Click({ $t = if ($script:tree -and $script:tree -ne '.') { Join-Path $Root "$($script:tree)\build\play.log" } else { Join-Path $Root 'build\play.log' }; if (Test-Path -LiteralPath $t) { Start-Process notepad.exe -ArgumentList "`"$t`"" } })
+
+# ---- updates: GitHub's newest commit of the project's branch (tools\project.json), as the installer's first step ------
+$Project = $null
+try { $Project = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+function Get-LocalCommit {
+    <# The commit this copy is: a git clone's HEAD, else the one GitHub's ZIP wrote in tools\source_version.txt. #>
+    $c = $null
+    try { if ((Test-Path -LiteralPath (Join-Path $Root '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) { $c = [string]((& git -C $Root rev-parse HEAD 2>$null) | Select-Object -First 1) } } catch { }
+    if ($c -notmatch '^[0-9a-f]{40}$') {
+        $c = $null
+        $f = Join-Path $PSScriptRoot 'source_version.txt'
+        if (Test-Path -LiteralPath $f) { $t = ([IO.File]::ReadAllText($f)).Trim() -split '\s+'; if ($t[0] -match '^[0-9a-f]{40}$') { $c = $t[0] } }
+    }
+    return $c
+}
+$script:upd = @{ State = 'idle'; Result = $null; Local = $null }
+$script:updTimer = New-Object Windows.Threading.DispatcherTimer
+$script:updTimer.Interval = [TimeSpan]::FromMilliseconds(400)
+function Show-UpdateState {
+    $r = $script:upd.Result
+    $banner = Find 'UpdBanner'; $now = Find 'UpdNowBtn'
+    $banner.Visibility = 'Collapsed'; $now.Visibility = 'Collapsed'
+    (Find 'UpdCheckBtn').IsEnabled = ($script:upd.State -ne 'checking')
+    if ($script:upd.State -eq 'checking') { (Find 'UpdStatus').Text = T 'updChecking'; (Find 'UpdDetail').Text = ''; return }
+    if (-not $r) { (Find 'UpdStatus').Text = ''; (Find 'UpdDetail').Text = ''; return }
+    if (-not $r.Ok) { (Find 'UpdStatus').Text = T 'updFail'; (Find 'UpdDetail').Text = ''; return }
+    $short = { param($s) if ($s) { ([string]$s).Substring(0, 7) } else { '?' } }
+    $detail = "$(T 'updThis'): $(if ($script:upd.Local) { & $short $script:upd.Local } else { '?' })   ·   $(T 'updLatest'): $(& $short $r.Remote) - $($r.Message)"
+    (Find 'UpdDetail').Text = $detail
+    switch ($r.Status) {
+        'identical' { (Find 'UpdStatus').Text = T 'updUpToDate' }
+        'ahead' {
+            $text = "$(T 'updAvailable') ($((T 'updChanges') -f $r.Ahead))"
+            (Find 'UpdStatus').Text = $text; $now.Visibility = 'Visible'
+            (Find 'UpdBannerText').Text = $text; $banner.Visibility = 'Visible'
+        }
+        'behind' { (Find 'UpdStatus').Text = T 'updOwn' }
+        'diverged' { (Find 'UpdStatus').Text = T 'updOwn' }
+        default { (Find 'UpdStatus').Text = T 'updUnknown' }
+    }
+}
+function Start-UpdateCheck {
+    if (-not $Project -or $script:upd.State -eq 'checking') { return }
+    $script:upd.Local = Get-LocalCommit
+    $script:upd.State = 'checking'; $script:upd.Result = $null
+    Show-UpdateState
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript({
+        param($repo, $branch, $local)
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $h = @{ 'User-Agent' = 'NativeSmash-launcher'; 'Accept' = 'application/vnd.github+json' }
+        try {
+            $head = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/$branch" -Headers $h -TimeoutSec 8
+            $r = @{ Ok = $true; Remote = [string]$head.sha; Message = (([string]$head.commit.message) -split "`n")[0]; Status = 'unknown'; Ahead = 0 }
+            if ($local) {
+                if ($local -eq $head.sha) { $r.Status = 'identical' }
+                else {
+                    try { $cmp = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/compare/$local...$($head.sha)?per_page=1" -Headers $h -TimeoutSec 10; $r.Status = [string]$cmp.status; $r.Ahead = [int]$cmp.ahead_by } catch { }
+                }
+            }
+            return $r
+        } catch { return @{ Ok = $false; Error = $_.Exception.Message } }
+    }).AddArgument($Project.repo).AddArgument($Project.branch).AddArgument($script:upd.Local)
+    $script:updPs = $ps
+    $script:updAsync = $ps.BeginInvoke()
+    $script:updTimer.Start()
+}
+$script:updTimer.Add_Tick({
+    if (-not $script:updAsync.IsCompleted) { return }
+    $script:updTimer.Stop()
+    try { $script:upd.Result = @($script:updPs.EndInvoke($script:updAsync))[0] } catch { $script:upd.Result = @{ Ok = $false } }
+    try { $script:updPs.Dispose() } catch { }
+    $script:upd.State = 'done'
+    Show-UpdateState
+})
+function Invoke-Update {
+    if ([Windows.MessageBox]::Show($win, (T 'updConfirm'), 'NativeSmash', 'YesNo', 'Question') -ne 'Yes') { return }
+    $bat = @('Install NativeSmash.bat', 'Install NativeSmash.bat') | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($bat) { Start-Process -FilePath $bat -WorkingDirectory $Root; $win.Close() } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
+}
+(Find 'UpdCheckBtn').Add_Click({ Start-UpdateCheck })
+(Find 'UpdNowBtn').Add_Click({ Invoke-Update })
+(Find 'UpdBannerBtn').Add_Click({ Invoke-Update })
+(Find 'UpdBannerBtn').Content = T 'updNow'
 
 # ---- Play: start the game, wait for its window, fade away ------------------------------------
 $script:waited = 0
@@ -705,15 +804,15 @@ $poll.Add_Tick({
     } elseif ($script:waited -gt 240) {
         $poll.Stop()
         (Find 'Starting').Visibility = 'Collapsed'
-        [void][Windows.MessageBox]::Show($win, (T 'noStart'), 'WindowSmash', 'OK', 'Warning')
+        [void][Windows.MessageBox]::Show($win, (T 'noStart'), 'NativeSmash', 'OK', 'Warning')
     }
 })
 (Find 'PlayBtn').Add_Click({
     if ((Get-Chip (Find 'LobbyChips')) -eq 'custom' -and (Find 'ServerBox').Text.Trim() -and (Find 'ServerBox').Text.Trim() -notmatch '^\S+:\d+$') {
-        [void][Windows.MessageBox]::Show($win, (T 'badServer'), 'WindowSmash', 'OK', 'Warning'); return
+        [void][Windows.MessageBox]::Show($win, (T 'badServer'), 'NativeSmash', 'OK', 'Warning'); return
     }
     try { Save-WindowValues $before (Get-WindowValues) } catch {
-        [void][Windows.MessageBox]::Show($win, "$(T 'saveFail')$($_.Exception.Message)", 'WindowSmash', 'OK', 'Error'); return
+        [void][Windows.MessageBox]::Show($win, "$(T 'saveFail')$($_.Exception.Message)", 'NativeSmash', 'OK', 'Error'); return
     }
     $script:played = $script:tree
     (Find 'Starting').Visibility = 'Visible'
@@ -743,6 +842,7 @@ $win.Opacity = 0
 $win.Add_ContentRendered({
     $in = New-Object Windows.Media.Animation.DoubleAnimation(0, 1, [TimeSpan]::FromMilliseconds(420))
     $win.BeginAnimation([Windows.Window]::OpacityProperty, $in)
+    Start-UpdateCheck
     if ($ClickPlay) {
         $auto = New-Object Windows.Threading.DispatcherTimer
         $auto.Interval = [TimeSpan]::FromMilliseconds(1500)

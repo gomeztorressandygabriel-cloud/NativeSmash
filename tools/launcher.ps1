@@ -345,7 +345,7 @@ $netMode = if (-not $lobbyHost -or $lobbyHost -eq 'off') { 'offline' }
 try {
 [Windows.Forms.Application]::EnableVisualStyles()
 $form = New-Object Windows.Forms.Form
-$form.Text = 'WindowSmash'
+$form.Text = 'NativeSmash'
 $form.AutoScaleMode = [Windows.Forms.AutoScaleMode]::Dpi
 $form.AutoScaleDimensions = New-Object Drawing.SizeF(96, 96)
 $form.ClientSize = New-Object Drawing.Size(760, 574)
@@ -519,7 +519,7 @@ $padsButton.Text = 'Open controllers.ini'
 [void](New-Text "Each controller is set up in the game: press Esc, or the controller's Home / PS / Xbox button, and go to Controllers." 196 396 548 40 -Dim)
 $padsButton.Add_Click({
     if (Test-Path -LiteralPath $padsIni) { Start-Process -FilePath 'notepad.exe' -ArgumentList "`"$padsIni`"" }
-    else { [void][Windows.Forms.MessageBox]::Show($form, "controllers.ini is written at the game's first start.", 'WindowSmash', 'OK', 'Information') }
+    else { [void][Windows.Forms.MessageBox]::Show($form, "controllers.ini is written at the game's first start.", 'NativeSmash', 'OK', 'Information') }
 })
 
 $sep = New-Object Windows.Forms.Label
@@ -603,16 +603,16 @@ $before = Get-WindowValues
 $script:played = $null
 $play.Add_Click({
     if ($modeBox.SelectedItem.Value -eq 'private' -and -not ($codeBox.Text -replace '\s', '')) {
-        [void][Windows.Forms.MessageBox]::Show($form, 'Type a lobby code: a word your friends type too.', 'WindowSmash', 'OK', 'Warning')
+        [void][Windows.Forms.MessageBox]::Show($form, 'Type a lobby code: a word your friends type too.', 'NativeSmash', 'OK', 'Warning')
         [void]$codeBox.Focus()
         return
     }
     if ($modeBox.SelectedItem.Value -eq 'custom' -and $serverBox.Text.Trim() -and $serverBox.Text.Trim() -notmatch '^\S+:\d+$') {
-        [void][Windows.Forms.MessageBox]::Show($form, 'Your own server is host:port, e.g. 192.168.1.20:39420.', 'WindowSmash', 'OK', 'Warning')
+        [void][Windows.Forms.MessageBox]::Show($form, 'Your own server is host:port, e.g. 192.168.1.20:39420.', 'NativeSmash', 'OK', 'Warning')
         return
     }
     try { Save-WindowValues $before (Get-WindowValues) } catch {
-        [void][Windows.Forms.MessageBox]::Show($form, "The settings could not be saved: $($_.Exception.Message)", 'WindowSmash', 'OK', 'Error')
+        [void][Windows.Forms.MessageBox]::Show($form, "The settings could not be saved: $($_.Exception.Message)", 'NativeSmash', 'OK', 'Error')
         return
     }
     $script:played = $versionBox.SelectedItem.Value

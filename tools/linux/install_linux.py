@@ -44,7 +44,11 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-REPO_OWNER, REPO_NAME, BRANCH = "SNO2207", "WindowSmash", "main"
+# where updates come from: this project's repository and branch (tools/project.json, which the launcher reads too)
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "project.json"), encoding="utf-8") as _f:
+    _PROJECT = json.load(_f)
+REPO_OWNER, REPO_NAME = _PROJECT["repo"].split("/", 1)
+BRANCH = _PROJECT["branch"]
 REPO_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 SOURCE_VERSION = os.path.join("tools", "source_version.txt")   # "<commit> <date>": GitHub's ZIP fills it in
 USER_AGENT = "WindowSmash-installer"

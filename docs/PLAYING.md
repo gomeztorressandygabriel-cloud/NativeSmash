@@ -2,7 +2,7 @@
 
 [← README](../README.md) · [Setup guide](BUILDING.md) · [Multiplayer](MULTIPLAYER.md) · [DLC and unlocks](DLC-AND-UNLOCKS.md)
 
-Everything about playing once the game is built: how to start it, the controls, the settings, and where WindowSmash keeps your save, screenshots and problem reports.
+Everything about playing once the game is built: how to start it, the controls, the settings, and where NativeSmash keeps your save, screenshots and problem reports.
 
 ## Contents
 
@@ -18,20 +18,20 @@ Everything about playing once the game is built: how to start it, the controls, 
 
 ## Starting the game
 
-Everything starts from a launcher. `Play SSBU.bat` and `Install WindowSmash.bat` are in the WindowSmash folder; the others are in its `launchers` folder. Double-click the one you want:
+Everything starts from a launcher. `Play SSBU.bat` and `Install NativeSmash.bat` are in the NativeSmash folder; the others are in its `launchers` folder. Double-click the one you want:
 
 | Launcher | What it does |
 | :--- | :--- |
-| **`Play SSBU.bat`** | Opens the WindowSmash window (below), then starts the game and joins the online lobby, so Local Wireless shows everyone's rooms. If the lobby doesn't answer, the game plays offline. |
-| **`Play SSBU.bat`** with <kbd>Shift</kbd> held | Opens the WindowSmash window even when you've ticked **Start the game directly next time**. |
+| **`Play SSBU.bat`** | Opens the NativeSmash window (below), then starts the game and joins the online lobby, so Local Wireless shows everyone's rooms. If the lobby doesn't answer, the game plays offline. |
+| **`Play SSBU.bat`** with <kbd>Shift</kbd> held | Opens the NativeSmash window even when you've ticked **Start the game directly next time**. |
 | **`launchers\Play SSBU Offline.bat`** | Starts the game without going online. |
 | **`launchers\Host SSBU Netplay.bat`** | Starts the game as the host of a private room ([multiplayer guide](MULTIPLAYER.md#private-room)). |
 | **`launchers\Join SSBU Netplay.bat`** | Starts the game and joins someone's private room. |
 | **`launchers\Unlock All Fighters.bat`** | Unlocks every base-game fighter on your save. Close the game first ([DLC and unlocks](DLC-AND-UNLOCKS.md#unlock-every-base-game-fighter)). |
 | **`launchers\Prepare Shaders.bat`** | Prepares all of the game's shaders ahead of time ([below](#shaders-and-first-time-stutter)). |
-| **`Install WindowSmash.bat`** | Sets everything up and builds the game ([setup guide](BUILDING.md#install-in-one-go)). Run it again to get the newest WindowSmash and build it. |
-| **`launchers\Build WindowSmash.bat`** | Builds the game from your files, when the tools are already installed ([setup guide](BUILDING.md#shortcut-build-windowsmashbat)). |
-| **`launchers\Configure Game Data.bat`** | Points WindowSmash at your game data and fonts ([setup guide, step 10](BUILDING.md#step-10-connect-your-game-data)). |
+| **`Install NativeSmash.bat`** | Sets everything up and builds the game ([setup guide](BUILDING.md#install-in-one-go)). Run it again to get the newest NativeSmash and build it. |
+| **`launchers\Build NativeSmash.bat`** | Builds the game from your files, when the tools are already installed ([setup guide](BUILDING.md#shortcut-build-windowsmashbat)). |
+| **`launchers\Configure Game Data.bat`** | Points NativeSmash at your game data and fonts ([setup guide, step 10](BUILDING.md#step-10-connect-your-game-data)). |
 
 `Play SSBU.bat` first opens a small window where you pick the [game version](VERSIONS.md) and change the most used settings: your online name and lobby, the window and frame pacing, the render scale, the graphics card, and which player the keyboard is. **Play** saves what you changed and starts the game; **Close** changes nothing. It edits the same files as the in-game [settings](#settings), keeping their comments. Tick **Start the game directly next time** to skip the window; hold <kbd>Shift</kbd> while you start `Play SSBU.bat` to see it again.
 
@@ -55,7 +55,7 @@ Press <kbd>Esc</kbd> in the game to open the settings (on Windows and Linux; the
 - Every change is **saved at once**. Settings marked **now** take effect straight away. Settings marked **next start** take effect the next time the game starts: **Game → Restart the game** does that for you. A match in progress is lost when you restart.
 - To type a name or a code, use the keyboard, or pick the letters with a controller: **A** types, **B** deletes, **+** finishes.
 
-The settings are kept in the same files as always: `display.ini`, `controllers.ini` and the `online_*.txt` files in the WindowSmash folder. You can still edit those files by hand, and the settings keep your comments in them. Some things are only in the files, such as settings for a whole kind of controller ([below](#controllersini)).
+The settings are kept in the same files as always: `display.ini`, `controllers.ini` and the `online_*.txt` files in the NativeSmash folder. You can still edit those files by hand, and the settings keep your comments in them. Some things are only in the files, such as settings for a whole kind of controller ([below](#controllersini)).
 
 ## Controls
 
@@ -97,7 +97,7 @@ Up to **eight players** can use pads at once: Xbox, PlayStation, Switch Pro, Gam
 
 - Each pad that connects becomes the **next free player**. A pad that's unplugged and plugged back in gets its player back.
 - Buttons go by **position**, as on a Switch controller. On an Xbox controller, the right-hand button (**B**) is the Switch's **A**, and the bottom one (**A**) is the Switch's **B**. To use the printed letters instead, or to change any button, open the [settings](#settings) and go to **Controllers**.
-- The settings' **Controllers** page, or <kbd>F2</kbd> in the game, shows which pads WindowSmash found and which player each one is.
+- The settings' **Controllers** page, or <kbd>F2</kbd> in the game, shows which pads NativeSmash found and which player each one is.
 
 > [!NOTE]
 > PlayStation, Switch Pro and most other pads need `SDL3.dll` next to `build\ssbu.exe`. [Step 12 of the setup guide](BUILDING.md#step-12-optional-support-more-kinds-of-controllers) adds it. Without it, only Xbox (XInput) pads work, as players 1–4.
@@ -113,13 +113,13 @@ They play as GameCube controllers, as they do on a Switch:
 - Rumble works when the adapter's second plug (the grey one on Nintendo's adapter) is in a USB port too. WaveBird controllers have no rumble.
 
 > [!NOTE]
-> WindowSmash reads the adapter through the driver Windows installs for it. If you swapped that driver for WinUSB with Zadig (as Dolphin's setup asks), WindowSmash can't see the adapter. To undo that, open Device Manager, right-click the adapter (**WUP-028**), choose **Uninstall device** and tick the box that removes its driver, then unplug the adapter and plug it back in.
+> NativeSmash reads the adapter through the driver Windows installs for it. If you swapped that driver for WinUSB with Zadig (as Dolphin's setup asks), NativeSmash can't see the adapter. To undo that, open Device Manager, right-click the adapter (**WUP-028**), choose **Uninstall device** and tick the box that removes its driver, then unplug the adapter and plug it back in.
 
 Any other pad can use the game's GameCube controls too: set `style = gamecube` for it in `controllers.ini` (below). Its triggers become L and R, and its shoulder buttons become Z.
 
 ### controllers.ini
 
-The first time the game starts, it writes **`controllers.ini`** into the WindowSmash folder. The [settings](#settings) change it for you; you can also open it in Notepad (**Controllers → Open controllers.ini** opens it). Every setting is explained inside the file. Changes made by hand apply the next time the game starts, and deleting the file brings back the defaults.
+The first time the game starts, it writes **`controllers.ini`** into the NativeSmash folder. The [settings](#settings) change it for you; you can also open it in Notepad (**Controllers → Open controllers.ini** opens it). Every setting is explained inside the file. Changes made by hand apply the next time the game starts, and deleting the file brings back the defaults.
 
 | Setting | What it does | Default |
 | :--- | :--- | :--- |
@@ -176,7 +176,7 @@ The first start also writes **`display.ini`**, which sets how the game starts. T
 
 ## Shaders and first-time stutter
 
-The game's graphics programs (*shaders*) are prepared the first time each one is used, so a new effect can show a moment late, or stutter, the first time you see it. WindowSmash keeps every prepared shader in `dump\shadercache\` and loads them in the background each time the game starts, so each stutter happens only once.
+The game's graphics programs (*shaders*) are prepared the first time each one is used, so a new effect can show a moment late, or stutter, the first time you see it. NativeSmash keeps every prepared shader in `dump\shadercache\` and loads them in the background each time the game starts, so each stutter happens only once.
 
 To prepare them all before playing, double-click **`launchers\Prepare Shaders.bat`**. It runs once per game version, at low priority so the PC stays usable, and shows a progress bar with the time left. A first run compiles about 40,000 shaders (for 13.0.5): about half an hour on a 16-thread processor, an hour or two on a 4- to 8-thread one. You can close it at any time and start it again later; what's done stays done, so a later run takes minutes. It needs Python and Visual Studio, as for [building](BUILDING.md).
 
@@ -187,11 +187,11 @@ If matches run slowly on a PC that should manage them (press <kbd>F1</kbd> for t
 - **A laptop is drawing with its processor's graphics.** With two graphics chips, the game takes the NVIDIA or AMD one by itself. Check the `[gfx] drawing with` line near the top of `build\play.log`, and see `gpu` in [`display.ini`](#window-and-display).
 - **Prepare Shaders is still running.** It uses most of the processor; let it finish, or close it while you play.
 - **NVIDIA's shader cache is off.** In NVIDIA Control Panel → *Manage 3D settings*, set **Shader Cache Size** to *Driver default* (not *Disabled*). Without it, the graphics driver redoes its part of every shader each time the game starts.
-- **Windows uses a slow system timer.** Some "gaming tweaks" set Windows to time everything with an old, slow timer (the HPET). WindowSmash notices and works around it, and says so near the top of `build\play.log`: a `[clock]` line ending in *slow*. Other programs stay slower, though; to undo the tweak, run `bcdedit /deletevalue useplatformclock` in a Command Prompt opened as administrator, then restart the PC.
+- **Windows uses a slow system timer.** Some "gaming tweaks" set Windows to time everything with an old, slow timer (the HPET). NativeSmash notices and works around it, and says so near the top of `build\play.log`: a `[clock]` line ending in *slow*. Other programs stay slower, though; to undo the tweak, run `bcdedit /deletevalue useplatformclock` in a Command Prompt opened as administrator, then restart the PC.
 
 ## Where your files are
 
-All of these are in the WindowSmash folder:
+All of these are in the NativeSmash folder:
 
 | What | Where |
 | :--- | :--- |
@@ -208,7 +208,7 @@ All of these are in the WindowSmash folder:
 
 ## Problem reports
 
-When the game crashes, or freezes with no new picture for five seconds, WindowSmash writes a report into the **`reports\`** folder:
+When the game crashes, or freezes with no new picture for five seconds, NativeSmash writes a report into the **`reports\`** folder:
 
 | File | Written when |
 | :--- | :--- |
@@ -221,4 +221,4 @@ When you report a problem, attach the `.txt` report and the end of `build\play.l
 
 If the game doesn't start at all, check, in this order: the game data path ([step 10](BUILDING.md#step-10-connect-your-game-data)), that the game version matches, the six font files, that your processor has AVX2, and your graphics driver.
 
-WindowSmash is experimental. That it starts doesn't mean every fighter, stage, mode or online match works.
+NativeSmash is experimental. That it starts doesn't mean every fighter, stage, mode or online match works.

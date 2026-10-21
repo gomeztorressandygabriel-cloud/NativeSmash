@@ -150,7 +150,7 @@ class BuildStepsTests(unittest.TestCase):
         self.assertIn(f'The game in {self.game} is an early release', text)
         self.assertIn('uncompressed file table, v1 layout', text)
         self.assertIn(f"Put the game's update (an .nsp file; the newest you have) in {self.game}", text)
-        self.assertIn('extract a fresh WindowSmash folder and run Install WindowSmash.bat there', text)
+        self.assertIn('extract a fresh NativeSmash folder and run Install NativeSmash.bat there', text)
         self.assertNotIn('romfs.bin', text)
         steps = [m.strip() for m in self.logged if m.lstrip().startswith('[')]
         self.assertTrue(steps[-1].startswith('[6/9]'), steps[-1])

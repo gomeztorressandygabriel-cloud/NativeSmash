@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the game from your own files in one go: what launchers\\Build WindowSmash.bat runs.
+"""Build the game from your own files in one go: what launchers\\Build NativeSmash.bat runs.
 
 Usage:
   build_game.py [--game <dir>] [--keys <dir>] [--firmware <dir>] [--jobs N] [--prepare-only]
@@ -45,11 +45,11 @@ tools/linux/toolchain.py names, and a test link with SDL2, libopus and libvpx; s
 build-linux/ssbu: the C generated into build/ (tools/recomp.py all --generate-only), compiled and
 linked for Linux (tools/linux/build_vkd3d.py once, then tools/linux/build_linux.py).
 
-On macOS (what Install WindowSmash.command runs), step 1 checks the Command Line Tools
+On macOS (what Install NativeSmash.command runs), step 1 checks the Command Line Tools
 (tools/mac/toolchain.py), SDL3.framework in deps/SDL3 and the codecs' sources, and builds and runs
 a test program as the game is built: C++ exceptions through C, SDL3, a Metal device, then compiles
 the runtime's sources for their errors against the SDK (an older SDK lacks parts of them); step 9
-builds build-mac/WindowSmash.app: the C generated into build/ (tools/recomp.py all
+builds build-mac/NativeSmash.app: the C generated into build/ (tools/recomp.py all
 --generate-only), compiled and linked for macOS (tools/mac/build_mac.py), with the Mac kept awake
 meanwhile.
 """
@@ -78,7 +78,7 @@ EXEFS = os.path.join(DUMP, "exefs")
 FONTS = os.path.join(DUMP, "fonts")
 MODULES = os.path.join(DUMP, "modules")
 EXE = os.path.join(ROOT, "build-linux", "ssbu") if LINUX else \
-    os.path.join(ROOT, "build-mac", "WindowSmash.app", "Contents", "MacOS", "ssbu") if MACOS else os.path.join(ROOT, "build", "ssbu.exe")
+    os.path.join(ROOT, "build-mac", "NativeSmash.app", "Contents", "MacOS", "ssbu") if MACOS else os.path.join(ROOT, "build", "ssbu.exe")
 SAVED = os.path.join(DUMP, "build_folders.txt")
 SOURCE = os.path.join(DUMP, "game_source.txt")   # which game and version dump/ was set up from
 EXEFS_FILES = ("main", "main.npdm", "rtld", "sdk", "subsdk0")
@@ -203,8 +203,8 @@ def check_tools(fetch=True):
     CompilerDownload returned downloads it while the game files are prepared (its start() after
     step 2, its finish() at step 9). Otherwise None."""
     if sys.version_info < (3, 10):
-        raise Failed(f"this is Python {sys.version.split()[0]}: WindowSmash needs Python 3.10 or newer "
-                     + ("(Install WindowSmash.command makes deps/venv with one: docs/MACOS.md)." if MACOS else "(setup guide step 3)."))
+        raise Failed(f"this is Python {sys.version.split()[0]}: NativeSmash needs Python 3.10 or newer "
+                     + ("(Install NativeSmash.command makes deps/venv with one: docs/MACOS.md)." if MACOS else "(setup guide step 3)."))
     log(f"  Python {sys.version.split()[0]}: {sys.executable}")
     if LINUX:
         check_linux_tools()
@@ -228,7 +228,7 @@ def windows_compiler_problem(cc):
     library the game links (cc.link's), and the program is run."""
     clang = cc.CLANG if os.path.isfile(cc.CLANG) else shutil.which(cc.CLANG)
     if not clang:
-        return ("No compiler (clang-cl.exe) was found. launchers\\Build WindowSmash.bat gets one by itself (or python "
+        return ("No compiler (clang-cl.exe) was found. launchers\\Build NativeSmash.bat gets one by itself (or python "
                 "tools\\msvc_deps.py install), or install Visual Studio with Desktop development with C++ and C++ Clang tools "
                 "for Windows (setup guide step 4).")
     if cc.WINSYSROOT:
@@ -444,15 +444,15 @@ def check_mac_runtime(tc, tmp):
 
 def check_mac_tools():
     """The Command Line Tools (clang, the macOS SDK), SDL3.framework in deps/SDL3 (Install
-    WindowSmash.command downloads it), the codecs' sources, a test program built as the game
+    NativeSmash.command downloads it), the codecs' sources, a test program built as the game
     is - C with C++ exceptions, Objective-C, SDL3, Metal - that runs, and the runtime's sources
     compiled for their errors against the SDK."""
     tc = mac_toolchain()
     if not os.path.isfile(os.path.join(tc.SDL3_FRAMEWORK, "Headers", "SDL.h")):
-        raise Failed(f"SDL3.framework is not in {tc.SDL3_DIR}. Run Install WindowSmash.command: it downloads it.")
+        raise Failed(f"SDL3.framework is not in {tc.SDL3_DIR}. Run Install NativeSmash.command: it downloads it.")
     import codec_libs
     if not codec_libs.have_opus() or not codec_libs.have_vpx("config-arm64"):
-        raise Failed("third_party/opus or third_party/libvpx is missing: this WindowSmash folder is incomplete. "
+        raise Failed("third_party/opus or third_party/libvpx is missing: this NativeSmash folder is incomplete. "
                      "Download it again.")
     includes = ["-F", tc.SDL3_DIR, "-I", os.path.join(codec_libs.OPUS, "include"), "-I", codec_libs.VPX]
     with tempfile.TemporaryDirectory(prefix="windowsmash-check-") as tmp:
@@ -472,7 +472,7 @@ def check_mac_tools():
             raise Failed(tc.LICENCE + ".")
         if failures:
             raise Failed(f"{tc.CLANG} could not build a test program with SDL3 and Metal. Run Install "
-                         "WindowSmash.command: it installs what is missing.\n" + failures[0][1][-2000:])
+                         "NativeSmash.command: it installs what is missing.\n" + failures[0][1][-2000:])
         try:
             r = subprocess.run([exe], capture_output=True, text=True, timeout=120)
         except subprocess.TimeoutExpired:
@@ -492,8 +492,8 @@ def install_packages():
         return
     run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
         "pip could not install " + ", ".join(missing) + " (see above)."
-        + (" On Linux, install-windowsmash.sh installs them in a Python of WindowSmash's own (deps/venv)." if LINUX else
-           " On macOS, Install WindowSmash.command installs them in a Python of WindowSmash's own (deps/venv)." if MACOS
+        + (" On Linux, install-windowsmash.sh installs them in a Python of NativeSmash's own (deps/venv)." if LINUX else
+           " On macOS, Install NativeSmash.command installs them in a Python of NativeSmash's own (deps/venv)." if MACOS
            else ""))
     importlib.invalidate_caches()
 
@@ -621,9 +621,9 @@ def check_same_game(rec):
         was_display = f.readline().split("\t")[0].strip()
     now = game_identity(rec)
     if was and not same_game(was, now):
-        raise Failed(f"This WindowSmash folder was set up from {describe_identity(was, was_display)}, but the game "
+        raise Failed(f"This NativeSmash folder was set up from {describe_identity(was, was_display)}, but the game "
                      f"folder now has {describe_identity(now, rec['display_version'])} to build from. One folder holds "
-                     "one game version: set up the new one in a new WindowSmash folder, or add it as a version of its "
+                     "one game version: set up the new one in a new NativeSmash folder, or add it as a version of its "
                      "own (docs/VERSIONS.md).")
 
 
@@ -688,12 +688,12 @@ def early_release(game, form):
     the build with the update goes in a fresh folder."""
     where = game or "your game folder"
     by_hand = os.path.isfile(os.path.join(game, "romfs.bin")) if game else False
-    return (f"The game in {where} is an early release, without a newer update: WindowSmash can't read its data "
+    return (f"The game in {where} is an early release, without a newer update: NativeSmash can't read its data "
             f"yet ({form}).\n"
             f"  1. Put the game's update (an .nsp file; the newest you have) in {where}, next to the game."
             + (" Make romfs.bin again too, with the update applied (setup guide part 2)." if by_hand else "") + "\n"
-            "  2. This WindowSmash folder is set up for that early release now and would refuse the update: extract "
-            "a fresh WindowSmash folder and run Install WindowSmash.bat there.")
+            "  2. This NativeSmash folder is set up for that early release now and would refuse the update: extract "
+            "a fresh NativeSmash folder and run Install NativeSmash.bat there.")
 
 
 def check_game_data(cfg, game):
@@ -713,7 +713,7 @@ def write_romfs_cfg(game, keys, the_program):
         from nca import is_plain_romfs
         if not is_plain_romfs(romfs_bin):
             raise Failed(f"{romfs_bin} is not the game's data as a plain RomFS image (unencrypted, with your update "
-                         "applied). Remove it, and WindowSmash reads the data from the game's own files instead.")
+                         "applied). Remove it, and NativeSmash reads the data from the game's own files instead.")
         os.makedirs(MODULES, exist_ok=True)
         with open(os.path.join(MODULES, "romfs.cfg"), "w", newline="\n") as f:
             f.write(f"{os.path.abspath(romfs_bin)}\n0\n")
@@ -746,7 +746,7 @@ def write_romfs_cfg(game, keys, the_program):
         base = gamefiles.base_program(result["contents"], program)
         if not base:
             raise Failed(f"{gamefiles.where(program)} is the game's update, whose data is a patch over the game's own: "
-                         f"WindowSmash also needs the game itself (its program .nca, or its .nsp) in {game}, next to it.")
+                         f"NativeSmash also needs the game itself (its program .nca, or its .nsp) in {game}, next to it.")
         base_cfg = os.path.join("dump", "modules", "romfs_base.cfg")
         base_ref = nca_ref(base) if base["romfs"] == "plain" else [decrypt_once(base, keys)]
         run([sys.executable, os.path.join("tools", "nca.py"), "romfs-cfg", *base_ref, "--keys", keys, "--out", base_cfg],
@@ -800,7 +800,7 @@ def write_version():
 def build_is_current():
     """build/ssbu.exe is newer than the runtime, the tools and the modules it is built from, and
     has SDL3.dll beside it if SDL3 is there to build with (on Linux: build-linux/ssbu, also newer
-    than the Linux runtime and tools; on macOS: build-mac/WindowSmash.app's program, also newer
+    than the Linux runtime and tools; on macOS: build-mac/NativeSmash.app's program, also newer
     than the platform layers it is made with and the macOS tools, with SDL3.framework in the app)."""
     if not os.path.isfile(EXE):
         return False
@@ -1004,9 +1004,9 @@ def build(a):
             run([sys.executable, os.path.join("tools", "recomp.py"), "all", os.path.join("dump", "exefs"),
                  "--out", "build", "--jobs", str(jobs)],
                 "The build failed (see above). If the PC ran out of memory, build with fewer jobs at a time: open "
-                "PowerShell in this folder and run  & \".\\launchers\\Build WindowSmash.bat\" --jobs 4")
+                "PowerShell in this folder and run  & \".\\launchers\\Build NativeSmash.bat\" --jobs 4")
     if LINUX:
-        log(f"\nDone: {exe} is ready. Start the game with ./play-ssbu.sh, or WindowSmash in your applications menu.")
+        log(f"\nDone: {exe} is ready. Start the game with ./play-ssbu.sh, or NativeSmash in your applications menu.")
     elif MACOS:
         log(f"\nDone: {exe} is ready. Start the game with Play SSBU.command, or Play SSBU in ~/Applications (Spotlight finds it).")
     else:
@@ -1034,10 +1034,10 @@ def build_linux_program(jobs):
 
 
 def build_mac_program(jobs):
-    """build-mac/WindowSmash.app: the game's C generated into build/, then compiled and linked for
+    """build-mac/NativeSmash.app: the game's C generated into build/, then compiled and linked for
     macOS, with the Mac kept from sleeping while this runs (an idle Mac would stop the build)."""
-    rebuild = '"launchers/Build WindowSmash.command"'
-    if not os.path.isfile(os.path.join(ROOT, "launchers", "Build WindowSmash.command")):
+    rebuild = '"launchers/Build NativeSmash.command"'
+    if not os.path.isfile(os.path.join(ROOT, "launchers", "Build NativeSmash.command")):
         rebuild = (os.path.relpath(sys.executable, ROOT) if sys.executable.startswith(ROOT + os.sep) else sys.executable) + \
             " tools/build_game.py"
     retry = (f"If the Mac ran out of memory, build with fewer jobs at a time: in Terminal, in this folder, run  "
@@ -1057,7 +1057,7 @@ def build_mac_program(jobs):
 
 
 def main():
-    launcher = "Install WindowSmash.command" if MACOS else "launchers\\Build WindowSmash.bat"
+    launcher = "Install NativeSmash.command" if MACOS else "launchers\\Build NativeSmash.bat"
     ap = argparse.ArgumentParser(description=f"Build the game from your own files ({launcher}).")
     ap.add_argument("--game", help=f"the folder with the game's files (asked; default {FOLDERS['game'][1]})")
     ap.add_argument("--keys", help=f"the folder with prod.keys and title.keys (asked; default {FOLDERS['keys'][1]})")

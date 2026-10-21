@@ -2,9 +2,11 @@
 
 [← README](README.md)
 
-## WindowSmash's own source
+## NativeSmash's source, and where it comes from
 
-No project-wide license has been specified for the WindowSmash source outside the separately identified third-party material below.
+NativeSmash is a fork of [WindowSmash](https://github.com/SNO2207/WindowSmash) by SNO2207, which made the project this one is built on: the recompiler, the runtime, the renderers and most of the tools are theirs. NativeSmash adds its own launcher, installer, configurable keyboard, FSR 1 upscaling and fixes for Intel graphics, and keeps the history of the original so that every change stays credited to whoever made it.
+
+No project-wide license has been specified for the WindowSmash source, and none has been added here: its code stays under whatever rights its authors keep. Outside the separately identified third-party material below, nothing in this repository grants you a license beyond what GitHub's terms give for viewing and forking a public repository. If you are the author of WindowSmash and want this fork changed or taken down, please open an issue.
 
 ## libvpx
 

@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NativeSmash</title>
+<meta name="description" content="NativeSmash: Super Smash Bros. Ultimate nativo en PC, con tu propia copia del juego. Launcher moderno, controles configurables y escalado FSR.">
+<meta name="theme-color" content="#0b0d1c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236d7dff'/%3E%3Cstop offset='1' stop-color='%23a66bff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M20 46V18l24 28V18' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0d1c;
+    --bg2: #12152b;
+    --ink: #f2f4fb;
+    --muted: #a3aac6;
+    --edge: rgba(255,255,255,.13);
+    --veil: rgba(255,255,255,.055);
+    --a: #6d7dff;
+    --b: #a66bff;
+    --ok: #62e3a4;
+    --soon: #ffc56b;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; color: var(--ink); background: var(--bg); overflow-x: hidden;
+    font: 16px/1.6 "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(900px 600px at 78% -8%, rgba(166,107,255,.30), transparent 60%),
+      radial-gradient(800px 560px at 6% 12%, rgba(109,125,255,.26), transparent 62%),
+      linear-gradient(180deg, var(--bg), var(--bg2) 60%, var(--bg));
+  }
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible { outline: 3px solid #a9b4ff; outline-offset: 3px; border-radius: 10px; }
+  .wrap { width: min(1120px, 100% - 40px); margin-inline: auto; }
+
+  /* top bar */
+  header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(14px); background: rgba(11,13,28,.62); border-bottom: 1px solid var(--edge); }
+  .bar { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 18px; text-decoration: none; }
+  .logo { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, var(--a), var(--b)); display: grid; place-items: center; }
+  .logo svg { width: 18px; height: 18px; }
+  nav { display: flex; align-items: center; gap: 6px; }
+  nav a.link { text-decoration: none; color: var(--muted); padding: 8px 12px; border-radius: 10px; font-size: 15px; }
+  nav a.link:hover { color: var(--ink); background: var(--veil); }
+  .lang { display: inline-flex; border: 1px solid var(--edge); border-radius: 999px; padding: 3px; margin-left: 6px; }
+  .lang button { all: unset; cursor: pointer; padding: 5px 11px; border-radius: 999px; font-size: 13px; color: var(--muted); }
+  .lang button[aria-pressed="true"] { background: var(--veil); color: var(--ink); box-shadow: inset 0 0 0 1px var(--edge); }
+
+  /* buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; text-decoration: none; cursor: pointer;
+    padding: 14px 26px; border-radius: 999px; font-weight: 700; font-size: 17px; border: 0; color: white;
+    background: linear-gradient(135deg, var(--a), var(--b)); box-shadow: 0 10px 34px -8px rgba(125,110,255,.75);
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -8px rgba(125,110,255,.9); }
+  .btn svg { width: 20px; height: 20px; }
+  .btn.soft { background: var(--veil); box-shadow: inset 0 0 0 1px var(--edge); font-weight: 600; }
+  .btn.soft:hover { background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px var(--edge); }
+
+  /* hero */
+  .hero { padding: 76px 0 40px; text-align: center; }
+  .pill { display: inline-block; font-size: 13px; letter-spacing: .04em; color: #cfd5ff; padding: 6px 14px; border-radius: 999px; background: rgba(109,125,255,.16); box-shadow: inset 0 0 0 1px rgba(150,160,255,.3); }
+  h1 { font-size: clamp(34px, 11.5vw, 86px); line-height: 1.02; margin: 22px 0 18px; letter-spacing: -.03em; font-weight: 800; }
+  h1 span { background: linear-gradient(135deg, #8d9bff, #c39bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { max-width: 640px; margin: 0 auto; color: var(--muted); font-size: clamp(17px, 2.4vw, 20px); }
+  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-top: 34px; }
+  .note { margin-top: 16px; font-size: 13.5px; color: var(--muted); }
+  .shot { position: relative; margin: 54px auto 0; max-width: 960px; }
+  .shot::before { content: ""; position: absolute; inset: 8% 6% -4%; background: linear-gradient(135deg, var(--a), var(--b)); filter: blur(70px); opacity: .45; z-index: 0; border-radius: 40px; }
+  .shot img { position: relative; z-index: 1; width: 100%; height: auto; border-radius: 22px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.7), 0 0 0 1px var(--edge); display: block; }
+
+  section { padding: 76px 0 8px; }
+  h2 { font-size: clamp(28px, 4.4vw, 40px); letter-spacing: -.02em; margin: 0 0 10px; line-height: 1.15; }
+  .sub { color: var(--muted); max-width: 640px; margin: 0 0 34px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 16px; }
+  .card { background: var(--veil); border-radius: 20px; padding: 24px; box-shadow: inset 0 0 0 1px var(--edge); }
+  .card h3 { margin: 14px 0 6px; font-size: 19px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .ico { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: linear-gradient(135deg, rgba(109,125,255,.3), rgba(166,107,255,.3)); box-shadow: inset 0 0 0 1px rgba(160,170,255,.35); }
+  .ico svg { width: 22px; height: 22px; }
+  .tag { float: right; font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+  .tag.ok { color: var(--ok); background: rgba(98,227,164,.12); box-shadow: inset 0 0 0 1px rgba(98,227,164,.35); }
+  .tag.soon { color: var(--soon); background: rgba(255,197,107,.12); box-shadow: inset 0 0 0 1px rgba(255,197,107,.35); }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; margin-top: 40px; }
+  .two img { width: 100%; height: auto; border-radius: 18px; box-shadow: 0 24px 60px -18px rgba(0,0,0,.7), 0 0 0 1px var(--edge); display: block; }
+  .two h3 { font-size: 24px; margin: 0 0 8px; }
+  .two p { color: var(--muted); margin: 0 0 12px; }
+  .two.flip > :first-child { order: 2; }
+
+  .steps { counter-reset: s; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 16px; padding: 0; list-style: none; margin: 0; }
+  .steps li { counter-increment: s; background: var(--veil); border-radius: 20px; padding: 24px 24px 24px 24px; box-shadow: inset 0 0 0 1px var(--edge); position: relative; }
+  .steps li::before { content: counter(s); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; font-weight: 800; background: linear-gradient(135deg, var(--a), var(--b)); margin-bottom: 12px; }
+  .steps b { display: block; font-size: 18px; margin-bottom: 4px; }
+  .steps span { color: var(--muted); font-size: 15px; }
+  .req { margin-top: 22px; color: var(--muted); font-size: 15px; }
+  .req code { background: var(--veil); padding: 2px 8px; border-radius: 8px; color: var(--ink); }
+
+  .final { text-align: center; padding: 84px 0 60px; }
+  .final .cta { margin-top: 26px; }
+
+  footer { border-top: 1px solid var(--edge); padding: 34px 0 54px; color: var(--muted); font-size: 14px; }
+  footer .cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px; }
+  footer p { margin: 0 0 10px; }
+  footer a { color: #c9d0ff; }
+
+  [data-l]:not([data-l="es"]) { display: none; }
+  html[lang="en"] [data-l="es"] { display: none; }
+  html[lang="en"] [data-l="en"] { display: revert; }
+
+  @media (max-width: 820px) {
+    .two, footer .cols { grid-template-columns: 1fr; }
+    .two.flip > :first-child { order: 0; }
+    nav a.link, nav .btn.soft { display: none; }
+    .bar { gap: 8px; }
+    .brand { font-size: 16px; gap: 9px; }
+    .lang { margin-left: 0; }
+    .lang button { padding: 5px 9px; }
+    .hero { padding-top: 48px; }
+    .btn { padding: 13px 22px; font-size: 16px; }
+    .cta .btn { justify-content: center; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="#top"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 19V5l10 14V5"/></svg></span>NativeSmash</a>
+    <nav>
+      <a class="link" href="#funciones"><span data-l="es">Funciones</span><span data-l="en">Features</span></a>
+      <a class="link" href="#instalar"><span data-l="es">Cómo se instala</span><span data-l="en">How to install</span></a>
+      <a class="link" href="#creditos"><span data-l="es">Créditos</span><span data-l="en">Credits</span></a>
+      <a class="btn soft" style="padding:9px 18px;font-size:15px" href="https://github.com/gabs5115/NativeSmash" rel="noopener">GitHub</a>
+      <div class="lang" role="group" aria-label="Idioma / Language">
+        <button type="button" data-set="es" aria-pressed="true">ES</button>
+        <button type="button" data-set="en" aria-pressed="false">EN</button>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <span class="pill"><span data-l="es">Proyecto de la comunidad · sin el juego incluido</span><span data-l="en">Community project · game not included</span></span>
+    <h1>Native<span>Smash</span></h1>
+    <p class="lead">
+      <span data-l="es">Super Smash Bros. Ultimate funcionando de forma nativa en tu PC con Windows, construido a partir de tu propia copia del juego.</span>
+      <span data-l="en">Super Smash Bros. Ultimate running natively on your Windows PC, built from your own copy of the game.</span>
+    </p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/gabs5115/NativeSmash/releases/latest" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 21h16"/></svg>
+        <span data-l="es">Descargar desde GitHub</span><span data-l="en">Download from GitHub</span>
+      </a>
+      <a class="btn soft" href="https://github.com/gabs5115/NativeSmash" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+        <span data-l="es">Ver el código</span><span data-l="en">View the source</span>
+      </a>
+    </div>
+    <p class="note"><span data-l="es">Necesitas tu propia copia de Super Smash Bros. Ultimate, de tu consola. NativeSmash no la incluye.</span><span data-l="en">You need your own copy of Super Smash Bros. Ultimate from your console. NativeSmash does not include it.</span></p>
+    <div class="shot"><img src="img/launcher-play.webp" width="1160" height="680" alt="El launcher de NativeSmash, en la página Jugar"></div>
+  </div>
+
+  <section id="funciones"><div class="wrap">
+    <h2><span data-l="es">Hecho para jugar bien</span><span data-l="en">Made to play well</span></h2>
+    <p class="sub"><span data-l="es">Lo que ya funciona y lo que viene en camino.</span><span data-l="en">What already works and what is on its way.</span></p>
+    <div class="grid">
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="3"/><path d="M8 21h8"/></svg></div>
+        <h3><span data-l="es">Un launcher moderno</span><span data-l="en">A modern launcher</span></h3>
+        <p><span data-l="es">Una sola ventana para jugar, ajustar el video y las salas en línea. Guarda tu configuración.</span><span data-l="en">One window to play, set up video and online rooms. It saves your settings.</span></p></article>
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></div>
+        <h3><span data-l="es">Controles a tu gusto</span><span data-l="en">Controls your way</span></h3>
+        <p><span data-l="es">Elige cada tecla del teclado desde el launcher: pulsa una acción y luego la tecla. Los mandos funcionan al conectarlos.</span><span data-l="en">Pick every keyboard key from the launcher: choose an action, then press the key. Controllers work as soon as they are plugged in.</span></p></article>
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+        <h3><span data-l="es">Sin tirones por shaders</span><span data-l="en">No shader stutter</span></h3>
+        <p><span data-l="es">Los shaders se guardan en disco y se preparan al arrancar, con una barra de carga, para que el juego no se congele.</span><span data-l="en">Shaders are kept on disk and prepared at start-up, with a loading bar, so the game does not freeze.</span></p></article>
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg></div>
+        <h3><span data-l="es">Arreglos para gráficas Intel</span><span data-l="en">Fixes for Intel graphics</span></h3>
+        <p><span data-l="es">Menús, retratos, el % de daño y los colores se ven bien en gráficas Intel integradas a 60 fps.</span><span data-l="en">Menus, portraits, damage % and colours look right on integrated Intel graphics at 60 fps.</span></p></article>
+      <article class="card"><span class="tag soon"><span data-l="es">Pronto</span><span data-l="en">Soon</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4M14 4h6v6M4 14v6h6"/></svg></div>
+        <h3><span data-l="es">Escalado FSR</span><span data-l="en">FSR upscaling</span></h3>
+        <p><span data-l="es">FidelityFX Super Resolution 1 de AMD, activable desde el launcher, para más fotogramas en PCs justos o pantallas grandes.</span><span data-l="en">AMD FidelityFX Super Resolution 1, switched on from the launcher, for more frames on modest PCs or big screens.</span></p></article>
+      <article class="card"><span class="tag soon"><span data-l="es">Pronto</span><span data-l="en">Soon</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg></div>
+        <h3><span data-l="es">Un instalador guiado</span><span data-l="en">A guided installer</span></h3>
+        <p><span data-l="es">Te pide tu juego, tus claves y tu firmware y te recomienda las versiones que funcionan mejor.</span><span data-l="en">It asks for your game, your keys and your firmware, and recommends the versions that work best.</span></p></article>
+    </div>
+
+    <div class="two">
+      <div>
+        <h3><span data-l="es">Todo en un solo lugar</span><span data-l="en">All in one place</span></h3>
+        <p><span data-l="es">Elige el tamaño de la ventana, el ritmo de imagen y la tarjeta gráfica. Cada cambio se guarda solo cuando le das a Jugar.</span><span data-l="en">Pick the window size, frame pacing and graphics card. Each change is saved only when you press Play.</span></p>
+      </div>
+      <img src="img/launcher-video.webp" width="1160" height="680" alt="La página de video del launcher" loading="lazy">
+    </div>
+    <div class="two flip">
+      <div>
+        <h3><span data-l="es">Tus teclas, tus reglas</span><span data-l="en">Your keys, your rules</span></h3>
+        <p><span data-l="es">Pulsa una acción, luego la tecla que quieras. Si repites una tecla, la otra acción la suelta. Las teclas del propio juego (Esc, F1 a F6 y F11) quedan protegidas.</span><span data-l="en">Pick an action, then the key you want. If you reuse a key, the other action lets it go. The game's own keys (Esc, F1 to F6 and F11) are protected.</span></p>
+      </div>
+      <img src="img/launcher-pads.webp" width="1160" height="680" alt="La página de controles del launcher" loading="lazy">
+    </div>
+  </div></section>
+
+  <section id="instalar"><div class="wrap">
+    <h2><span data-l="es">Cómo se instala</span><span data-l="en">How to install</span></h2>
+    <p class="sub"><span data-l="es">NativeSmash se construye en tu PC con tus propios archivos. Nada del juego viaja con el programa.</span><span data-l="en">NativeSmash is built on your PC from your own files. Nothing of the game ships with the program.</span></p>
+    <ol class="steps">
+      <li><b><span data-l="es">Prepara tus archivos</span><span data-l="en">Get your files ready</span></b><span><span data-l="es">Tu copia de Super Smash Bros. Ultimate (versión 13.0.3), las claves y el firmware de tu propia Switch.</span><span data-l="en">Your copy of Super Smash Bros. Ultimate (version 13.0.3), plus the keys and firmware from your own Switch.</span></span></li>
+      <li><b><span data-l="es">Descarga e instala</span><span data-l="en">Download and install</span></b><span><span data-l="es">Baja NativeSmash desde GitHub y ejecuta el instalador: reconoce tus archivos y construye el juego.</span><span data-l="en">Get NativeSmash from GitHub and run the installer: it recognises your files and builds the game.</span></span></li>
+      <li><b><span data-l="es">Abre el launcher y juega</span><span data-l="en">Open the launcher and play</span></b><span><span data-l="es">Ajusta tus controles y el video, y pulsa Jugar. Al primer arranque se preparan los shaders.</span><span data-l="en">Set your controls and video, then press Play. The first start prepares the shaders.</span></span></li>
+    </ol>
+    <p class="req"><span data-l="es">Requisitos: Windows 10 u 11 de 64 bits, una tarjeta gráfica compatible con Direct3D 11 y, mejor, 8 GB de memoria o más. Para jugar en línea todos deben tener la misma versión del juego.</span><span data-l="en">Requirements: 64-bit Windows 10 or 11, a Direct3D 11 graphics card and, ideally, 8 GB of memory or more. To play online everyone needs the same game version.</span></p>
+  </div></section>
+
+  <div class="wrap final">
+    <h2><span data-l="es">¿Listo para probarlo?</span><span data-l="en">Ready to try it?</span></h2>
+    <div class="cta">
+      <a class="btn" href="https://github.com/gabs5115/NativeSmash/releases/latest" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 21h16"/></svg>
+        <span data-l="es">Descargar desde GitHub</span><span data-l="en">Download from GitHub</span>
+      </a>
+    </div>
+  </div>
+</main>
+
+<footer id="creditos"><div class="wrap cols">
+  <div>
+    <p><strong>NativeSmash</strong> — <span data-l="es">proyecto no oficial de la comunidad, basado en</span><span data-l="en">an unofficial community project, based on</span> <a href="https://github.com/SNO2207/WindowSmash" rel="noopener">WindowSmash</a> <span data-l="es">de SNO2207, a quien va todo el crédito por el trabajo de base. También usa FidelityFX Super Resolution de AMD (licencia MIT).</span><span data-l="en">by SNO2207, who deserves all the credit for the groundwork. It also uses AMD FidelityFX Super Resolution (MIT license).</span></p>
+  </div>
+  <div>
+    <p><span data-l="es">NativeSmash no incluye ni distribuye ningún archivo del juego, claves ni firmware. No está afiliado a Nintendo. Super Smash Bros. es una marca de Nintendo.</span><span data-l="en">NativeSmash does not include or distribute any game file, key or firmware. It is not affiliated with Nintendo. Super Smash Bros. is a trademark of Nintendo.</span></p>
+  </div>
+</div></footer>
+
+<script>
+  (function () {
+    var buttons = document.querySelectorAll('.lang button');
+    function set(l) {
+      document.documentElement.lang = l;
+      buttons.forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.set === l ? 'true' : 'false'); });
+      document.title = 'NativeSmash';
+      try { localStorage.setItem('ns-lang', l); } catch (e) {}
+    }
+    buttons.forEach(function (b) { b.addEventListener('click', function () { set(b.dataset.set); }); });
+    var saved = null;
+    try { saved = localStorage.getItem('ns-lang'); } catch (e) {}
+    if (saved === 'en' || saved === 'es') set(saved);
+    else if (!/^es/i.test(navigator.language || 'es')) set('en');
+  })();
+</script>
+</body>
+</html>

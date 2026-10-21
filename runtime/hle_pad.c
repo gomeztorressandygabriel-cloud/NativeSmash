@@ -91,6 +91,7 @@ static struct {
     int keyboard_slot;            /* -1: no keyboard */
     int background;
     int rumble;                   /* 0: no pad rumbles ([general] rumble) */
+    int key[KEY_COUNT];           /* [keyboard]: a virtual-key code, -1 none, 0 the default */
     char pin[PAD_SLOTS][96];
     DevCfg def, dev[32];
     int ndev;
@@ -205,6 +206,46 @@ static void config_line(DevCfg *dc, const char *key, char *value, int line) {
     } else fprintf(stderr, "[input] controllers.ini line %d: unknown setting '%s'\n", line, key);
 }
 
+/* ---- the keyboard ([keyboard]) --------------------------------------------------------- */
+static const struct { const char *name; int vk; } KEY_ACTIONS[KEY_COUNT] = {
+    {"a", 'Z'}, {"b", 'X'}, {"x", 'C'}, {"y", 'V'}, {"l", 'A'}, {"r", 'S'}, {"zl", 'Q'}, {"zr", 'W'},
+    {"plus", 13}, {"minus", 8}, {"left", 37}, {"right", 39}, {"up", 38}, {"down", 40},
+    {"rs_left", 'J'}, {"rs_right", 'L'}, {"rs_up", 'I'}, {"rs_down", 'K'},
+};
+
+/* A key's name as the file spells it (a letter, a digit, F1..F12, Left, Return, Numpad5, Comma, ...). */
+static const struct { const char *name; int vk; } KEY_NAMES[] = {
+    {"Backspace", 8}, {"Tab", 9}, {"Return", 13}, {"Enter", 13}, {"Space", 32}, {"PageUp", 33}, {"PageDown", 34},
+    {"End", 35}, {"Home", 36}, {"Left", 37}, {"Up", 38}, {"Right", 39}, {"Down", 40}, {"Insert", 45}, {"Delete", 46},
+    {"LShift", 0xA0}, {"RShift", 0xA1}, {"LCtrl", 0xA2}, {"RCtrl", 0xA3},
+    {"Semicolon", 0xBA}, {"Equals", 0xBB}, {"Comma", 0xBC}, {"Minus", 0xBD}, {"Period", 0xBE}, {"Slash", 0xBF},
+    {"Grave", 0xC0}, {"LBracket", 0xDB}, {"Backslash", 0xDC}, {"RBracket", 0xDD}, {"Quote", 0xDE},
+};
+
+/* The key a name stands for: its virtual-key code, -1 for "none", 0 for a name that is none. Escape (the
+ * settings menu), F1..F6 (the overlay and debug keys) and F11 (full screen) are the game's own and are not taken. */
+static int key_from_name(const char *n) {
+    if (!_stricmp(n, "none") || !*n) return -1;
+    if (n[1] == 0 && ((n[0] >= 'a' && n[0] <= 'z') || (n[0] >= 'A' && n[0] <= 'Z') || (n[0] >= '0' && n[0] <= '9')))
+        return n[0] >= 'a' ? n[0] - 32 : n[0];
+    if ((n[0] == 'F' || n[0] == 'f') && atoi(n + 1) >= 7 && atoi(n + 1) <= 12 && atoi(n + 1) != 11) return 0x70 + atoi(n + 1) - 1;
+    if (!_strnicmp(n, "Numpad", 6) && n[6] >= '0' && n[6] <= '9' && !n[7]) return 0x60 + n[6] - '0';
+    for (u32 i = 0; i < sizeof KEY_NAMES / sizeof *KEY_NAMES; i++)
+        if (!_stricmp(n, KEY_NAMES[i].name)) return KEY_NAMES[i].vk;
+    return 0;
+}
+
+static void config_key(const char *key, const char *value, int line) {
+    for (int a = 0; a < KEY_COUNT; a++) {
+        if (_stricmp(key, KEY_ACTIONS[a].name)) continue;
+        int vk = key_from_name(value);
+        if (!vk) fprintf(stderr, "[input] controllers.ini line %d: '%s' is not a key (F1 to F6, F11 and Escape are the game's)\n", line, value);
+        else cfg.key[a] = vk;
+        return;
+    }
+    fprintf(stderr, "[input] controllers.ini line %d: unknown keyboard action '%s'\n", line, key);
+}
+
 static void config_parse(FILE *f) {
     char buf[512];
     int section = 0, line = 0;   /* 0 none, 1 general, 2 players, 3 device */
@@ -222,6 +263,7 @@ static void config_parse(FILE *f) {
             section = 0;
             if (!_stricmp(name, "general")) section = 1;
             else if (!_stricmp(name, "players")) section = 2;
+            else if (!_stricmp(name, "keyboard")) section = 4;
             else if (!_strnicmp(name, "device", 6) && (name[6] == ' ' || name[6] == '\t' || !name[6])) {
                 char *what = trim(name + 6);
                 section = 3;
@@ -248,7 +290,8 @@ static void config_parse(FILE *f) {
             int n = atoi(key);
             if (n >= 1 && n <= PAD_SLOTS) snprintf(cfg.pin[n - 1], sizeof cfg.pin[n - 1], "%s", value);
             else fprintf(stderr, "[input] controllers.ini line %d: players are 1-8, not '%s'\n", line, key);
-        } else if (section == 3 && dc) config_line(dc, key, value, line);
+        } else if (section == 4) config_key(key, value, line);
+        else if (section == 3 && dc) config_line(dc, key, value, line);
         else if (section) fprintf(stderr, "[input] controllers.ini line %d: unknown setting '%s'\n", line, key);
     }
 }
@@ -933,6 +976,11 @@ int pad_get(u32 slot, PadState *out) {
 
 int pad_keyboard_slot(void) { pad_start(); return cfg.keyboard_slot; }
 int pad_background(void) { pad_start(); return cfg.background; }
+int pad_keyboard_vk(int action) {
+    pad_start();
+    if (action < 0 || action >= KEY_COUNT) return 0;
+    return cfg.key[action] < 0 ? 0 : cfg.key[action] ? cfg.key[action] : KEY_ACTIONS[action].vk;
+}
 int pad_rumble_on(void) { pad_start(); return cfg.rumble; }
 
 void pad_rumble(u32 slot, int side, float amplitude) {

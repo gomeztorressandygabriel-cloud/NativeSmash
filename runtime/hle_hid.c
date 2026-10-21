@@ -88,22 +88,23 @@ static u64 scripted_buttons(i32 *lx, i32 *ly) {
 int gfx_window_focused(void);
 static u64 keyboard_buttons(i32 *lx, i32 *ly, i32 *rx, i32 *ry) {
     if (!gfx_window_focused()) return 0;
-    static const struct { int vk, n; } keys[] = {
-        {'Z', B_A}, {'X', B_B}, {'C', B_X}, {'V', B_Y}, {'A', B_L}, {'S', B_R}, {'Q', B_ZL}, {'W', B_ZR},
-        {VK_RETURN, B_PLUS}, {VK_BACK, B_MINUS},
-    };
+    /* the keys are controllers.ini's [keyboard] (pad_keyboard_vk), these by default */
+    static const int button[] = {B_A, B_B, B_X, B_Y, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS};
     u64 buttons = 0;
     int alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-    for (u32 i = 0; i < sizeof keys / sizeof *keys; i++)
-        if (GetAsyncKeyState(keys[i].vk) & 0x8000 && !(alt && keys[i].vk == VK_RETURN)) buttons |= 1ull << keys[i].n;
-    if (GetAsyncKeyState(VK_LEFT) & 0x8000) *lx = -32767;
-    if (GetAsyncKeyState(VK_RIGHT) & 0x8000) *lx = 32767;
-    if (GetAsyncKeyState(VK_UP) & 0x8000) *ly = 32767;
-    if (GetAsyncKeyState(VK_DOWN) & 0x8000) *ly = -32767;
-    if (GetAsyncKeyState('J') & 0x8000) *rx = -32767;
-    if (GetAsyncKeyState('L') & 0x8000) *rx = 32767;
-    if (GetAsyncKeyState('I') & 0x8000) *ry = 32767;
-    if (GetAsyncKeyState('K') & 0x8000) *ry = -32767;
+    for (int a = 0; a < KEY_LEFT; a++) {
+        int vk = pad_keyboard_vk(a);
+        if (vk && GetAsyncKeyState(vk) & 0x8000 && !(alt && vk == VK_RETURN)) buttons |= 1ull << button[a];
+    }
+    int vk;
+    if ((vk = pad_keyboard_vk(KEY_LEFT)) && GetAsyncKeyState(vk) & 0x8000) *lx = -32767;
+    if ((vk = pad_keyboard_vk(KEY_RIGHT)) && GetAsyncKeyState(vk) & 0x8000) *lx = 32767;
+    if ((vk = pad_keyboard_vk(KEY_UP)) && GetAsyncKeyState(vk) & 0x8000) *ly = 32767;
+    if ((vk = pad_keyboard_vk(KEY_DOWN)) && GetAsyncKeyState(vk) & 0x8000) *ly = -32767;
+    if ((vk = pad_keyboard_vk(KEY_RS_LEFT)) && GetAsyncKeyState(vk) & 0x8000) *rx = -32767;
+    if ((vk = pad_keyboard_vk(KEY_RS_RIGHT)) && GetAsyncKeyState(vk) & 0x8000) *rx = 32767;
+    if ((vk = pad_keyboard_vk(KEY_RS_UP)) && GetAsyncKeyState(vk) & 0x8000) *ry = 32767;
+    if ((vk = pad_keyboard_vk(KEY_RS_DOWN)) && GetAsyncKeyState(vk) & 0x8000) *ry = -32767;
     return buttons;
 }
 

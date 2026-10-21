@@ -215,6 +215,8 @@ Plug in a controller and press a button: each pad becomes the next free player, 
 | + / − | <kbd>Enter</kbd> / <kbd>Backspace</kbd> |
 | Right stick | <kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> |
 
+Those are the defaults. Change any of them on the launcher's **Controls** page (pick an action, then press the key you want), or in `controllers.ini`'s `[keyboard]` section (`a = Space`, `plus = Return`, `rs_up = Numpad8`, `none` for no key). Esc, <kbd>F1</kbd> to <kbd>F6</kbd> and <kbd>F11</kbd> are the game's own and can't be used.
+
 | Key | What it does |
 | :--- | :--- |
 | <kbd>F1</kbd> | Show or hide the overlay (frame rate, online status). |

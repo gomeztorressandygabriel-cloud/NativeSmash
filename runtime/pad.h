@@ -19,6 +19,11 @@ typedef struct PadState {
 void pad_start(void);                                     /* once; the first hid call does it */
 int pad_get(u32 slot, PadState *out);                     /* returns out->connected */
 int pad_keyboard_slot(void);                              /* the keyboard's slot, or -1 */
+/* What the keyboard does, in controllers.ini's [keyboard] (the launcher sets it): one key for each of
+ * these. pad_keyboard_vk is the key as a Windows virtual-key code; 0: no key. */
+enum { KEY_A, KEY_B, KEY_X, KEY_Y, KEY_L, KEY_R, KEY_ZL, KEY_ZR, KEY_PLUS, KEY_MINUS,
+       KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_RS_LEFT, KEY_RS_RIGHT, KEY_RS_UP, KEY_RS_DOWN, KEY_COUNT };
+int pad_keyboard_vk(int action);
 int pad_background(void);                                 /* pads work while the window is not focused */
 int pad_rumble_on(void);                                  /* 0: controllers.ini turns every pad's rumble off */
 /* Rumble on one side (1 left, 2 right) of a slot's pad, amplitude 0..1. */

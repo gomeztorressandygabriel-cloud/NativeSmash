@@ -50,7 +50,9 @@ static struct {
     int loaded;
     char gpu[64];
     float render_scale;   /* 0: auto */
-} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f};
+    int upscale;          /* 1: FSR 1 */
+    float sharpness;
+} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 0, 0.8f};
 
 static const char DEFAULT_INI[] =
     "; display.ini: the game's window and the pacing of its frames. Read when the game starts; the\n"
@@ -128,6 +130,14 @@ static const char DEFAULT_INI[] =
     ";   monitor with window = borderless), at least 1. A bigger picture than the window is shrunk to fit.\n"
 #endif
     "render_scale = 1\n"
+    "\n"
+    "; upscale = off | fsr\n"
+    ";   fsr: a picture smaller than its place in the window (render_scale under 1) is made bigger by AMD's\n"
+    ";   FidelityFX Super Resolution 1 instead of a plain filter: render_scale 0.67 with fsr draws about 2.2\n"
+    ";   times fewer pixels and gives a picture close to the full size. Needs Windows (Direct3D).\n"
+    "upscale = off\n"
+    "; sharpness = 0 to 1: how much the upscaled picture is sharpened. 0: not at all.\n"
+    "sharpness = 0.8\n"
 #ifdef _WIN32
     "\n"
     "; gpu = auto, or part of a graphics card's name (e.g. nvidia, radeon, intel)\n"
@@ -158,6 +168,12 @@ static void parse_render_scale(const char *v) {
     if (!_stricmp(v, "auto")) cfg.render_scale = 0;
     else if (end != v && x >= 0.5 && x <= 4) cfg.render_scale = (float)x;
     else { fprintf(stderr, "[display] render_scale is auto or a number from 0.5 to 4, not '%s': 1 it is\n", v); cfg.render_scale = 1; }
+}
+
+static void parse_upscale(const char *v) {
+    if (!_stricmp(v, "fsr")) cfg.upscale = 1;
+    else if (!_stricmp(v, "off") || !_stricmp(v, "none")) cfg.upscale = 0;
+    else fprintf(stderr, "[display] upscale is off or fsr, not '%s'\n", v);
 }
 
 static char *trim(char *s) {
@@ -197,6 +213,8 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
         else if (!_stricmp(key, "overlay")) cfg.overlay = atoi(value) != 0;
         else if (!_stricmp(key, "gpu")) snprintf(cfg.gpu, sizeof cfg.gpu, "%s", value);
         else if (!_stricmp(key, "render_scale")) parse_render_scale(value);
+        else if (!_stricmp(key, "upscale")) parse_upscale(value);
+        else if (!_stricmp(key, "sharpness")) cfg.sharpness = (float)atof(value);
         else fprintf(stderr, "[display] %s: unknown setting '%s'\n", path, key);
     }
     if (f) fclose(f);
@@ -205,6 +223,10 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     if ((env = getenv("SSBU_PACING")) && *env) parse_pacing(env);
     if ((env = getenv("SSBU_WINDOW_SIZE")) && *env) sscanf(env, "%dx%d", &cfg.width, &cfg.height);
     if ((env = getenv("SSBU_RENDER_SCALE")) && *env) parse_render_scale(env);
+    if ((env = getenv("SSBU_UPSCALE")) && *env) parse_upscale(env);
+    if ((env = getenv("SSBU_SHARPNESS")) && *env) cfg.sharpness = (float)atof(env);
+    if (cfg.sharpness < 0) cfg.sharpness = 0;
+    if (cfg.sharpness > 1) cfg.sharpness = 1;
     if (cfg.width < 320) cfg.width = 320;
     if (cfg.height < 180) cfg.height = 180;
     if (cfg.latency < 1) cfg.latency = 1;
@@ -222,6 +244,8 @@ int display_latency(void) { load(); return cfg.latency; }
 Pacing display_pacing(void) { load(); return cfg.pacing; }
 const char *display_gpu(void) { load(); return cfg.gpu; }
 float display_render_scale(void) { load(); return cfg.render_scale; }
+int display_upscale(void) { load(); return cfg.upscale; }
+float display_sharpness(void) { load(); return cfg.sharpness; }
 
 /* (the settings menu) the render scale it saved: shown from now on, the renderer's own counts
  * only at the next start */

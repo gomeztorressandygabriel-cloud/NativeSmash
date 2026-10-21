@@ -19,6 +19,10 @@ The VP9 decoder of the WebM Project's libvpx, release v1.15.2, is included as so
 
 libopus 1.5.2 (Xiph.Org Foundation and contributors) is included as source in [`third_party/opus/`](third_party/opus/) and compiled into the game when it is built (the game's music is Opus), under its [BSD license](third_party/opus/COPYING). [`third_party/README.md`](third_party/README.md) says which files; none is modified.
 
+## AMD FidelityFX Super Resolution 1
+
+The upscaler's two shader passes are AMD's [FidelityFX Super Resolution 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (`ffx_a.h` and `ffx_fsr1.h`, version 1.20210629, unmodified), copyright (c) 2021 Advanced Micro Devices, Inc., under the MIT license. They are in [`third_party/fsr1/`](third_party/fsr1/), with the license as AMD publishes it ([`license.txt`](third_party/fsr1/LICENSE.txt)). `runtime/fsr1/*.hlsl` includes them; `tools/make_fsr1.py` compiles those to `runtime/gpu_fsr_shaders.h`, which the game carries as bytecode.
+
 ## SDL3
 
 Controller input can use [SDL3](https://www.libsdl.org/) (Simple DirectMedia Layer), copyright Sam Lantinga, under the [zlib license](https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt).

@@ -79,6 +79,11 @@ $Words = @{
     size = @('Tamaño de la ventana', 'Window size'); pacing = @('Ritmo de imagen', 'Frame pacing')
     pacClock = @('60 estable', 'Steady 60'); pacVrr = @('G-Sync / FreeSync', 'G-Sync / FreeSync'); pacDisplay = @('Seguir el monitor', 'Follow the monitor')
     gpu = @('Tarjeta gráfica', 'Graphics card'); gpuAuto = @('La más rápida (auto)', 'The fastest (auto)')
+    upLabel = @('Escalado de imagen (AMD FSR 1)', 'Image upscaling (AMD FSR 1)')
+    upOff = @('Desactivado', 'Off'); upQuality = @('Calidad', 'Quality'); upBalanced = @('Equilibrado', 'Balanced')
+    upPerf = @('Rendimiento', 'Performance'); upUltra = @('Ultra rendimiento', 'Ultra performance')
+    sharpLabel = @('Nitidez', 'Sharpness'); shNone = @('Ninguna', 'None'); shSoft = @('Suave', 'Soft'); shNormal = @('Normal', 'Normal'); shSharp = @('Nítida', 'Sharp')
+    upHelp = @('El juego se dibuja con menos píxeles y FSR 1 de AMD reconstruye la imagen: más fotogramas en PCs justos. Funciona con cualquier tarjeta gráfica y se aplica al abrir el juego.', 'The game is drawn with fewer pixels and AMD FSR 1 rebuilds the picture: more frames on modest PCs. It works with any graphics card and takes effect when the game starts.')
     hideCursor = @('Ocultar el puntero cuando no se mueve', 'Hide the pointer when it stops moving'); overlay = @('Mostrar los fotogramas por segundo (F1)', 'Show the frame rate (F1)')
     shadersTitle = @('Shaders', 'Shaders')
     shadersHelp = @('Los shaders son los programas gráficos del juego. Se preparan la primera vez que se usa cada efecto y se guardan en disco; así cada tirón ocurre una sola vez. Preparar todos de antemano tarda de minutos a horas y evita tirones nuevos.', 'Shaders are the game''s graphics programs. Each one is prepared the first time an effect is used and kept on disk, so each hitch happens only once. Preparing them all ahead takes minutes to hours and avoids new hitches.')
@@ -320,7 +325,8 @@ $xaml = @'
           </StackPanel>
           </ScrollViewer>
 
-          <StackPanel x:Name="PageVideo" Visibility="Collapsed">
+          <ScrollViewer x:Name="PageVideo" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
+          <StackPanel>
             <TextBlock x:Name="VideoTitle" Style="{StaticResource Title}"/>
             <TextBlock x:Name="WindowLabel" Style="{StaticResource Label}"/>
             <WrapPanel x:Name="WindowChips"/>
@@ -332,9 +338,15 @@ $xaml = @'
             <WrapPanel x:Name="PacingChips"/>
             <TextBlock x:Name="GpuLabel" Style="{StaticResource Label}" Margin="0,8,0,8"/>
             <WrapPanel x:Name="GpuChips" MaxWidth="660" HorizontalAlignment="Left"/>
-            <CheckBox x:Name="CursorBox" Style="{StaticResource Switch}" Margin="0,14,0,0"/>
+            <TextBlock x:Name="UpLabel" Style="{StaticResource Label}" Margin="0,8,0,8"/>
+            <WrapPanel x:Name="UpChips" MaxWidth="660" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="SharpLabel" Style="{StaticResource Label}" Margin="0,8,0,8"/>
+            <WrapPanel x:Name="SharpChips" MaxWidth="660" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="UpHelp" Style="{StaticResource Help}" MaxWidth="620" HorizontalAlignment="Left" Margin="0,2,0,0"/>
+            <CheckBox x:Name="CursorBox" Style="{StaticResource Switch}" Margin="0,22,0,0"/>
             <CheckBox x:Name="OverlayBox" Style="{StaticResource Switch}"/>
           </StackPanel>
+          </ScrollViewer>
 
           <StackPanel x:Name="PageShaders" Visibility="Collapsed">
             <TextBlock x:Name="ShadersTitle" Style="{StaticResource Title}"/>
@@ -380,7 +392,7 @@ foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'p
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
                  @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('VideoTitle', 'videoTitle'),
-                 @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('CursorBox', 'hideCursor'),
+                 @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
                  @('GameVersionLabel', 'version'), @('NoVersions', 'noVersions'), @('ToolsLabel', 'tools'), @('GameInstall', 'install'), @('UnlockBtn', 'unlock'),
                  @('FolderBtn', 'openFolder'), @('ReportsBtn', 'openReports'), @('LogBtn', 'openLog'), @('StartingText', 'starting'))) { Say $p[0] $p[1] }
@@ -425,6 +437,25 @@ try {
 $gpuItems += @{ Value = 'warp'; Text = 'WARP (Windows)' }
 if (-not ($gpuItems | Where-Object { [string]::Equals($_.Value, $gpu, [StringComparison]::OrdinalIgnoreCase) })) { $gpuItems += @{ Value = $gpu; Text = $gpu } }
 New-Chips (Find 'GpuChips') $gpuItems $gpu
+
+# FSR 1: the modes are display.ini's upscale = fsr with a render_scale; the sharpness is its sharpness
+$UpPresets = [ordered]@{ off = ''; quality = '0.77'; balanced = '0.67'; performance = '0.59'; ultra = '0.5' }
+$script:upScaleWas = [string](Get-Setting $displayIni '' 'render_scale'); if (-not $script:upScaleWas) { $script:upScaleWas = '1' }
+$script:upFsrWas = ([string](Get-Setting $displayIni '' 'upscale')).Trim().ToLower() -eq 'fsr'
+$upNow = 'off'
+if ($script:upFsrWas) {
+    $x = 0.0; [void][double]::TryParse($script:upScaleWas, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$x)
+    $best = 9.0
+    foreach ($k in $UpPresets.Keys) { if ($k -eq 'off') { continue }; $d = [Math]::Abs([double]::Parse($UpPresets[$k], [Globalization.CultureInfo]::InvariantCulture) - $x); if ($d -lt $best) { $best = $d; $upNow = $k } }
+}
+New-Chips (Find 'UpChips') @(
+    @{ Value = 'off'; Text = (T 'upOff') }, @{ Value = 'quality'; Text = (T 'upQuality') }, @{ Value = 'balanced'; Text = (T 'upBalanced') },
+    @{ Value = 'performance'; Text = (T 'upPerf') }, @{ Value = 'ultra'; Text = (T 'upUltra') }) $upNow
+$sh = [string](Get-Setting $displayIni '' 'sharpness'); if (-not $sh) { $sh = '0.8' }
+$shNow = '0.8'; $shBest = 9.0; $shx = 0.8; [void][double]::TryParse($sh, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$shx)
+foreach ($c in '0', '0.5', '0.8', '1') { $d = [Math]::Abs([double]::Parse($c, [Globalization.CultureInfo]::InvariantCulture) - $shx); if ($d -lt $shBest) { $shBest = $d; $shNow = $c } }
+New-Chips (Find 'SharpChips') @(
+    @{ Value = '0'; Text = (T 'shNone') }, @{ Value = '0.5'; Text = (T 'shSoft') }, @{ Value = '0.8'; Text = (T 'shNormal') }, @{ Value = '1'; Text = (T 'shSharp') }) $shNow
 
 (Find 'NameBox').Text = [string](Get-LineValue $nameFile)
 (Find 'CodeBox').Text = $lobbyCode
@@ -575,6 +606,11 @@ function Get-WindowValues {
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
     }
     foreach ($a in $KeyActions.Keys) { $result["$padsIni|keyboard|$a"] = [string]$script:KeyValue[$a] }
+    $up = Get-Chip (Find 'UpChips')
+    $result["$displayIni||upscale"] = if ($up -eq 'off') { 'off' } else { 'fsr' }
+    # Off gives back the full size a mode had taken; any other render_scale is the person's own
+    $result["$displayIni||render_scale"] = if ($up -ne 'off') { $UpPresets[$up] } elseif ($script:upFsrWas) { '1' } else { $script:upScaleWas }
+    $result["$displayIni||sharpness"] = Get-Chip (Find 'SharpChips')
     $result
 }
 

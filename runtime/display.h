@@ -34,6 +34,11 @@ const char *display_gpu(void);          /* the graphics card to use: "auto", or 
  * (0.5-4; SSBU_RENDER_SCALE). 0 = auto: as many as the picture has pixels in the window at the
  * start (1440p: 1.33), at least 1. */
 float display_render_scale(void);
+/* upscale = fsr (display.ini, SSBU_UPSCALE): a picture smaller than its place in the window is made
+ * bigger by AMD's FidelityFX Super Resolution 1 (gpu_fsr.c) instead of a bilinear filter; sharpness
+ * (0 to 1, SSBU_SHARPNESS) is how much it is sharpened after. 0: off. */
+int display_upscale(void);
+float display_sharpness(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);
 unsigned display_present_flags(void);

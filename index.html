@@ -229,7 +229,7 @@
     <p class="sub"><span data-l="es">NativeSmash se construye en tu PC con tus propios archivos. Nada del juego viaja con el programa.</span><span data-l="en">NativeSmash is built on your PC from your own files. Nothing of the game ships with the program.</span></p>
     <ol class="steps">
       <li><b><span data-l="es">Prepara tus archivos</span><span data-l="en">Get your files ready</span></b><span><span data-l="es">Tu copia de Super Smash Bros. Ultimate (versión 13.0.3), las claves y el firmware de tu propia Switch.</span><span data-l="en">Your copy of Super Smash Bros. Ultimate (version 13.0.3), plus the keys and firmware from your own Switch.</span></span></li>
-      <li><b><span data-l="es">Descarga e instala</span><span data-l="en">Download and install</span></b><span><span data-l="es">Baja NativeSmash desde GitHub y ejecuta el instalador: reconoce tus archivos y construye el juego.</span><span data-l="en">Get NativeSmash from GitHub and run the installer: it recognises your files and builds the game.</span></span></li>
+      <li><b><span data-l="es">Descarga e instala</span><span data-l="en">Download and install</span></b><span><span data-l="es">Baja el zip, extráelo y abre Install NativeSmash: elige tu idioma, reconoce tus archivos y construye el juego.</span><span data-l="en">Download the zip, extract it and open Install NativeSmash: pick your language, and it recognises your files and builds the game.</span></span></li>
       <li><b><span data-l="es">Abre el launcher y juega</span><span data-l="en">Open the launcher and play</span></b><span><span data-l="es">Ajusta tus controles y el video, y pulsa Jugar. Al primer arranque se preparan los shaders.</span><span data-l="en">Set your controls and video, then press Play. The first start prepares the shaders.</span></span></li>
     </ol>
     <p class="req"><span data-l="es">Requisitos: Windows 10 u 11 de 64 bits, una tarjeta gráfica compatible con Direct3D 11 y, mejor, 8 GB de memoria o más. Para jugar en línea todos deben tener la misma versión del juego.</span><span data-l="en">Requirements: 64-bit Windows 10 or 11, a Direct3D 11 graphics card and, ideally, 8 GB of memory or more. To play online everyone needs the same game version.</span></p>
@@ -277,7 +277,9 @@
       .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
       .then(function (rel) {
         if (!rel || !rel.tag_name) return;
+        /* the installer package attached to the release (Install NativeSmash.exe and its folder), else the source zip of the tag */
         var zip = 'https://github.com/' + repo + '/archive/refs/tags/' + encodeURIComponent(rel.tag_name) + '.zip';
+        (rel.assets || []).forEach(function (a) { if (/^NativeSmash-.*\.zip$/i.test(a.name)) zip = a.browser_download_url; });
         document.querySelectorAll('a.dl').forEach(function (a) {
           a.href = zip;
           a.setAttribute('download', '');

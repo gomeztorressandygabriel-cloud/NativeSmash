@@ -38,6 +38,7 @@ float display_render_scale(void);
  * bigger by AMD's FidelityFX Super Resolution 1 (gpu_fsr.c) instead of a bilinear filter; sharpness
  * (0 to 1, SSBU_SHARPNESS) is how much it is sharpened after. 0: off. */
 int display_upscale(void);
+unsigned display_present_interval(void);   /* vsync = on: 1, a present waits for the monitor's refresh; else 0 */
 float display_sharpness(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);

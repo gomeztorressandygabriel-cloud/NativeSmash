@@ -5119,7 +5119,7 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     gpu_times_frame();
     LARGE_INTEGER p0, p1;
     QueryPerformanceCounter(&p0);
-    hr = IDXGISwapChain1_Present(swapchain, 0, display_present_flags());   /* (blocks while the GPU is frames behind) */
+    hr = IDXGISwapChain1_Present(swapchain, display_present_interval(), display_present_flags());   /* (blocks while the GPU is frames behind) */
     QueryPerformanceCounter(&p1);
     gfx_stat_present_ticks += (u64)(p1.QuadPart - p0.QuadPart);
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) check_device(hr, "showing a frame");

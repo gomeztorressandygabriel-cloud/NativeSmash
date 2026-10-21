@@ -52,7 +52,8 @@ static struct {
     float render_scale;   /* 0: auto */
     int upscale;          /* 1: FSR 1 */
     float sharpness;
-} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 0, 0.8f};
+    int vsync;            /* 1: a frame is shown at the monitor's next refresh (never tears) */
+} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 0, 0.8f, 1};
 
 static const char DEFAULT_INI[] =
     "; display.ini: the game's window and the pacing of its frames. Read when the game starts; the\n"
@@ -130,6 +131,12 @@ static const char DEFAULT_INI[] =
     ";   monitor with window = borderless), at least 1. A bigger picture than the window is shrunk to fit.\n"
 #endif
     "render_scale = 1\n"
+    "\n"
+    "; vsync = on | off\n"
+    ";   on: each frame is shown at the monitor's next refresh, so the picture never tears; it comes one refresh later\n"
+    ";   (16.7 ms at 60 Hz). off: each is shown at once: less delay, and the picture can tear (a line across it).\n"
+    ";   Ignored with pacing = vrr on a monitor that allows tearing, which shows each frame the moment it is ready.\n"
+    "vsync = on\n"
     "\n"
     "; upscale = off | fsr\n"
     ";   fsr: a picture smaller than its place in the window (render_scale under 1) is made bigger by AMD's\n"
@@ -214,6 +221,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
         else if (!_stricmp(key, "gpu")) snprintf(cfg.gpu, sizeof cfg.gpu, "%s", value);
         else if (!_stricmp(key, "render_scale")) parse_render_scale(value);
         else if (!_stricmp(key, "upscale")) parse_upscale(value);
+        else if (!_stricmp(key, "vsync")) cfg.vsync = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
         else if (!_stricmp(key, "sharpness")) cfg.sharpness = (float)atof(value);
         else fprintf(stderr, "[display] %s: unknown setting '%s'\n", path, key);
     }
@@ -224,6 +232,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     if ((env = getenv("SSBU_WINDOW_SIZE")) && *env) sscanf(env, "%dx%d", &cfg.width, &cfg.height);
     if ((env = getenv("SSBU_RENDER_SCALE")) && *env) parse_render_scale(env);
     if ((env = getenv("SSBU_UPSCALE")) && *env) parse_upscale(env);
+    if ((env = getenv("SSBU_VSYNC")) && *env) cfg.vsync = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
     if ((env = getenv("SSBU_SHARPNESS")) && *env) cfg.sharpness = (float)atof(env);
     if (cfg.sharpness < 0) cfg.sharpness = 0;
     if (cfg.sharpness > 1) cfg.sharpness = 1;
@@ -509,6 +518,13 @@ unsigned display_present_flags(void) {
     return cfg.pacing == PACING_VRR && tearing ? 0x200u /* DXGI_PRESENT_ALLOW_TEARING */ : 0;
 }
 
+/* The sync interval of a present: 1 (the frame is shown at the monitor's next refresh: it never tears) unless
+ * vsync = off, or vrr pacing with tearing allowed (a VRR monitor shows it the moment it comes). */
+unsigned display_present_interval(void) {
+    load();
+    return !cfg.vsync || (cfg.pacing == PACING_VRR && tearing) ? 0u : 1u;
+}
+
 void *gfx_display_output(void);   /* gpu_d3d11.c: the swap chain's output (IDXGIOutput, referenced), or NULL */
 
 /* The refresh rate of the window's monitor, in Hz (0 unknown). */
@@ -609,7 +625,7 @@ void display_wait_tick(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     long long period = freq.QuadPart / 60;
-    if (now.QuadPart - (base.QuadPart + ticks * freq.QuadPart / 60) > 2 * period) {   /* late by two refreshes: skip, don't burst */
+    if (now.QuadPart - (base.QuadPart + ticks * freq.QuadPart / 60) > period / 2) {   /* late by half a refresh: skip, don't make it up with a burst */
         base = now;
         ticks = 0;
     }

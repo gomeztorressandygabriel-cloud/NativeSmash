@@ -57,6 +57,40 @@ static void queue_unlock(void) {
 DWORD present_queue_holder(u64 *since_ms) { DWORD t = queue_holder; *since_ms = queue_held_since; return t; }
 
 /* ---- the consumer: vsync -------------------------------------------------------- */
+/* SSBU_PACE_LOG=1 (debugging): every 10 s, how steady the refreshes the game sees are, and what was shown at each. */
+static struct { u64 ticks, shown, repeated, backlog, early, late; double min_ms, max_ms, sum_ms; u64 last, since; int max_queued; } pace = {.min_ms = 1e9};
+static void pace_tick(int shown, int queued) {
+    static int on = -1;
+    static LARGE_INTEGER freq;
+    if (on < 0) { on = getenv("SSBU_PACE_LOG") != NULL; QueryPerformanceFrequency(&freq); }
+    if (!on) return;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (pace.last) {
+        double ms = (double)(now.QuadPart - pace.last) * 1000.0 / (double)freq.QuadPart;
+        pace.ticks++;
+        pace.sum_ms += ms;
+        if (ms < pace.min_ms) pace.min_ms = ms;
+        if (ms > pace.max_ms) pace.max_ms = ms;
+        if (ms < 15.0) pace.early++;
+        if (ms > 18.5) pace.late++;
+        if (shown) pace.shown++; else pace.repeated++;
+        if (queued > 1) pace.backlog++;
+        if (queued > pace.max_queued) pace.max_queued = queued;
+    }
+    pace.last = (u64)now.QuadPart;
+    if (!pace.since) pace.since = (u64)now.QuadPart;
+    if ((double)(now.QuadPart - pace.since) / (double)freq.QuadPart >= 10.0 && pace.ticks) {
+        fprintf(stderr, "[pace] %llu refreshes in 10 s (%.2f a second): %.2f ms on average, %.2f to %.2f; under 15 ms: %llu, over 18.5 ms: %llu; "
+                "a new frame at %llu, the last again at %llu; more than one waiting at %llu (most %d)\n",
+                (unsigned long long)pace.ticks, pace.ticks / 10.0, pace.sum_ms / pace.ticks, pace.min_ms, pace.max_ms, (unsigned long long)pace.early,
+                (unsigned long long)pace.late, (unsigned long long)pace.shown, (unsigned long long)pace.repeated, (unsigned long long)pace.backlog, pace.max_queued);
+        u64 keep = pace.last;
+        memset(&pace, 0, sizeof pace);
+        pace.min_ms = 1e9; pace.last = keep; pace.since = (u64)now.QuadPart;
+    }
+}
+
 static DWORD WINAPI vsync_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"vsync");
@@ -78,16 +112,21 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
             memcpy(shown, queue.slots[oldest].buffer, shown_size);
             gpu_mark = queue.slots[oldest].gpu_mark;
         }
+        int waiting = 0;
+        for (int i = 0; i < SLOTS; i++) waiting += queue.slots[i].state == QUEUED;
         queue_unlock();
+        pace_tick(oldest >= 0, waiting + (oldest >= 0));
         /* Shown outside the queue's lock: a present can wait for the graphics card (frames
          * behind), and meanwhile the game queues its next frame and goes on with the one after. */
+        /* The refresh is the game's even when showing the frame takes long (a graphics card behind): signalled
+         * first, so a late present no longer makes the game see two refreshes close together after a long one. */
+        kernel_signal_event(queue.vsync_event);
         if (oldest >= 0) {
             gpu_queue_wait(gpu_mark);   /* the frame drawn: what was submitted before it was queued has run */
             present_frame(shown, shown_size);
             kernel_signal_event(queue.buffer_event);
             WakeAllConditionVariable(&queue.freed);
         }
-        kernel_signal_event(queue.vsync_event);
     }
 }
 

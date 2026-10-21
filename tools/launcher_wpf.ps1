@@ -87,6 +87,9 @@ $Words = @{
     size = @('Tamaño de la ventana', 'Window size'); pacing = @('Ritmo de imagen', 'Frame pacing')
     pacClock = @('60 estable', 'Steady 60'); pacVrr = @('G-Sync / FreeSync', 'G-Sync / FreeSync'); pacDisplay = @('Seguir el monitor', 'Follow the monitor')
     gpu = @('Tarjeta gráfica', 'Graphics card'); gpuAuto = @('La más rápida (auto)', 'The fastest (auto)')
+    vsyncBox = @('Sin cortes en la imagen (sincronizar con el monitor)', 'No tearing (sync with the monitor)')
+    vsyncHelp = @('Activado: la imagen nunca se corta, a cambio de un fotograma más de retraso (16,7 ms). Desactivado: menos retraso, pero puede verse una línea de corte.', 'On: the picture never tears, at the price of one more frame of delay (16.7 ms). Off: less delay, but a tear line can show.')
+    fpsHelp = @('El juego va siempre a 60 fotogramas por segundo, como en la Switch: es el ritmo de todos en línea, así que tu pantalla no afecta a nadie. En un monitor de 120 Hz sigue a 60.', 'The game always runs at 60 frames a second, as on the Switch: it is the pace of everyone online, so your screen affects nobody. On a 120 Hz monitor it still runs at 60.')
     upLabel = @('Escalado de imagen (AMD FSR 1)', 'Image upscaling (AMD FSR 1)')
     upOff = @('Desactivado', 'Off'); upQuality = @('Calidad', 'Quality'); upBalanced = @('Equilibrado', 'Balanced')
     upPerf = @('Rendimiento', 'Performance'); upUltra = @('Ultra rendimiento', 'Ultra performance')
@@ -347,7 +350,10 @@ $xaml = @'
               <TextBox x:Name="HeightBox" Style="{StaticResource Field}" Width="110" MaxLength="4"/></StackPanel>
             <TextBlock x:Name="PacingLabel" Style="{StaticResource Label}"/>
             <WrapPanel x:Name="PacingChips"/>
-            <TextBlock x:Name="GpuLabel" Style="{StaticResource Label}" Margin="0,8,0,8"/>
+            <TextBlock x:Name="FpsHelp" Style="{StaticResource Help}" MaxWidth="640" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+            <CheckBox x:Name="VsyncBox" Style="{StaticResource Switch}" Margin="0,16,0,0"/>
+            <TextBlock x:Name="VsyncHelp" Style="{StaticResource Help}" MaxWidth="640" HorizontalAlignment="Left" Margin="40,0,0,0"/>
+            <TextBlock x:Name="GpuLabel" Style="{StaticResource Label}" Margin="0,18,0,8"/>
             <WrapPanel x:Name="GpuChips" MaxWidth="660" HorizontalAlignment="Left"/>
             <TextBlock x:Name="UpLabel" Style="{StaticResource Label}" Margin="0,8,0,8"/>
             <WrapPanel x:Name="UpChips" MaxWidth="660" HorizontalAlignment="Left"/>
@@ -407,7 +413,7 @@ foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'p
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
                  @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('VideoTitle', 'videoTitle'),
-                 @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
+                 @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
                  @('GameVersionLabel', 'version'), @('NoVersions', 'noVersions'), @('ToolsLabel', 'tools'), @('GameInstall', 'install'), @('UnlockBtn', 'unlock'),
                  @('FolderBtn', 'openFolder'), @('ReportsBtn', 'openReports'), @('LogBtn', 'openLog'), @('StartingText', 'starting'))) { Say $p[0] $p[1] }
@@ -477,6 +483,7 @@ New-Chips (Find 'SharpChips') @(
 (Find 'ServerBox').Text = if ($netMode -eq 'custom') { $lobbyHost } else { '' }
 (Find 'DirectConn').IsChecked = -not ((Get-LineValue $directFile) -match '^(?i)off')
 (Find 'BackgroundBox').IsChecked = (Get-Number (Get-Setting $padsIni 'general' 'background')) -ne 0
+(Find 'VsyncBox').IsChecked = @('off', '0', 'no') -notcontains ([string](Get-Setting $displayIni '' 'vsync')).Trim().ToLower()
 
 # ---- the keyboard's keys (controllers.ini [keyboard]; the game's defaults when a key is not there) -----
 $KeyActions = [ordered]@{
@@ -621,6 +628,7 @@ function Get-WindowValues {
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
     }
     foreach ($a in $KeyActions.Keys) { $result["$padsIni|keyboard|$a"] = [string]$script:KeyValue[$a] }
+    $result["$displayIni||vsync"] = if ((Find 'VsyncBox').IsChecked) { 'on' } else { 'off' }
     $up = Get-Chip (Find 'UpChips')
     $result["$displayIni||upscale"] = if ($up -eq 'off') { 'off' } else { 'fsr' }
     # Off gives back the full size a mode had taken; any other render_scale is the person's own

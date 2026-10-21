@@ -121,6 +121,8 @@ Compare your PC with [what you need](#what-you-need) above. (**Settings → Syst
 
 ### Step 4: Start the installer
 
+**From a release:** the download (`NativeSmash-<version>.zip`) holds just **`Install NativeSmash.exe`** and a folder. Extract the whole zip (right-click, *Extract all*), double-click **`Install NativeSmash.exe`**, and choose your language in the first window. It hides the `NativeSmash` folder, which holds everything else, and starts the installer in it. From the source download (below), use `Install NativeSmash.bat`.
+
 1. Open the NativeSmash folder and double-click **`Install NativeSmash.bat`**.
 2. Windows asks whether to run it (**The publisher could not be verified**): click **Run**. On some PCs a blue **Windows protected your PC** box comes instead: click **More info**, then **Run anyway**. Windows asks this once, about anything downloaded that isn't signed.
 

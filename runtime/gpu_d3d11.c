@@ -750,6 +750,12 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
     warm_first_draws = wv ? atoi(wv) != 0 : ad.VendorId == 0x1002 && !on_dxvk();
     warm_adapter = ad.AdapterLuid;
     gpu_vendor = on_dxvk() ? 0 : ad.VendorId;
+    /* Intel's Direct3D driver miscompiles the translator's plain HLSL - a branchy program's
+     * blocks in a switch, the vertex fetch's switches and local array: on an Iris Xe (drivers
+     * 31.0.101.5186 and 32.0.101.7092) the menus were black, characters' portraits missing,
+     * fighters lit in wrong colours. WARP and DXVK drew the same bytecode right. So with it
+     * the translator writes its variant 3 (gpu_shader.c), kept apart in the disk cache. */
+    if (gpu_vendor == 0x8086) shader_set_hlsl_variant(3);
     /* The back buffer is the window's inside (display.ini sizes the window). Where the system
      * allows it, the swap chain may tear, which VRR pacing asks for at each Present. */
     IDXGIFactory5 *factory5;
@@ -1255,7 +1261,7 @@ static u32 played_files(const char *dir, Found **out) {
     Found *found = NULL;
     u32 n = 0, cap = 0;
     char pattern[1100];
-    snprintf(pattern, sizeof pattern, "%s/v%u_*.dxbc", dir, SHADER_CACHE_VERSION);
+    snprintf(pattern, sizeof pattern, "%s/v%u_*.dxbc", dir, shader_cache_version());
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA(pattern, &fd);
     for (BOOL more = h != INVALID_HANDLE_VALUE; more; more = FindNextFileA(h, &fd)) {
@@ -3345,6 +3351,9 @@ static u32 kept_mapped(u64 va, u64 g, u32 size) {
 }
 
 static ID3D11ShaderResourceView *kept_cb(u64 va, u32 size) {
+    static int off = -1;   /* SSBU_NO_KEPT (debugging): every constant buffer uploaded per draw instead */
+    if (off < 0) off = getenv("SSBU_NO_KEPT") != NULL;
+    if (off) return NULL;
     KeptCb *set = &kept[((va >> 4) * 0x9E3779B97F4A7C15ull >> 56) * KEPT_WAYS], *e = NULL, *lru = &set[0];
     for (u32 w = 0; w < KEPT_WAYS && !e; w++) {
         if (set[w].srv && set[w].va == va && set[w].size == size) e = &set[w];

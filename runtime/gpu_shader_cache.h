@@ -19,6 +19,9 @@
 
 /* Bump when the translator changes what it generates: older files are then ignored. */
 #define SHADER_CACHE_VERSION 10
+/* The DXBC files' version: SHADER_CACHE_VERSION, plus 100 times the HLSL variant the translator
+ * writes (shader_hlsl_variant: v310 for variant 3), so that each variant's files stay apart. */
+static inline unsigned shader_cache_version(void) { return SHADER_CACHE_VERSION + 100u * (unsigned)shader_hlsl_variant(); }
 /* MSL files' version: the translator's, and the MSL dialect's own revision (bump the last
  * digits for a change to MSL alone). */
 #define SHADER_CACHE_MSL_VERSION (SHADER_CACHE_VERSION * 100 + 3)
@@ -44,7 +47,7 @@ static inline u64 shader_cache_hash(u64 hash, const u8 *program, u32 size, int s
 }
 
 static inline void shader_cache_file(char *out, size_t n, const char *dir, int stage, u64 hash, u32 vs_outputs, u64 table_hash) {
-    snprintf(out, n, "%s/v%u_%s_%016llx_%08x_%016llx.dxbc", dir, SHADER_CACHE_VERSION,
+    snprintf(out, n, "%s/v%u_%s_%016llx_%08x_%016llx.dxbc", dir, shader_cache_version(),
              stage == SHADER_VERTEX ? "vs" : stage == SHADER_PIXEL ? "ps" : "cs", (unsigned long long)hash, vs_outputs,
              (unsigned long long)table_hash);
 }
@@ -83,6 +86,9 @@ static inline int shader_cache_unplayed(const char *path) {
 static inline HRESULT shader_cache_compile(const char *hlsl, const char *name, int stage, ID3DBlob **code, ID3DBlob **errors) {
     const char *target = stage == SHADER_VERTEX ? "vs_5_0" : stage == SHADER_PIXEL ? "ps_5_0" : "cs_5_0";
     UINT flags = strstr(hlsl, "npc_") ? D3DCOMPILE_SKIP_OPTIMIZATION : D3DCOMPILE_OPTIMIZATION_LEVEL1;
+    /* (variant 8: IEEE strictness - the bytecode then does not allow the driver to refactor
+     * floating-point arithmetic) */
+    if (shader_hlsl_variant() & 8) flags |= D3DCOMPILE_IEEE_STRICTNESS;
     *code = *errors = NULL;
     HRESULT hr = D3DCompile(hlsl, strlen(hlsl), name, NULL, NULL, "main", target, flags, 0, code, errors);
     if (FAILED(hr) && flags != D3DCOMPILE_SKIP_OPTIMIZATION) {

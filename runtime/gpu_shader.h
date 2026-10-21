@@ -45,6 +45,11 @@ typedef struct ShaderInfo {
 #define SB_FIRST 0x110
 #define SB_END   0x610
 
+/* The HLSL variant the translator writes (bits, gpu_shader.c), set by the renderer for its card
+ * before any translation; SSBU_SHADER_VARIANT overrides. 0: the plain HLSL. */
+void shader_set_hlsl_variant(int bits);
+int shader_hlsl_variant(void);
+
 /* Translate one program (the 0x50-byte header, then code). For a pixel shader,
  * `vs_outputs` is the generic-attribute mask the paired vertex shader writes: the pixel
  * shader's input signature is made identical to it, as Direct3D requires. Returns

@@ -190,6 +190,7 @@ typedef struct Ctx {
     u8 reg_used[256], pred_used[8];
     ShaderInfo *info;
     int dispatch;                 /* blocks in a switch loop */
+    int chain;                    /* (HLSL) the blocks as an if/else chain instead of a switch (shader_variant) */
     u8 *leader;                   /* per instruction: starts a block */
     u32 out_attr_mask;            /* vertex: generic attributes written (from AST) */
     int uses_cc;
@@ -731,7 +732,22 @@ static int flow_true(Ctx *c, const Insn *in, const char **cond) {
     return 1;
 }
 
-static void goto_pc(Ctx *c, u32 target) { line(c, "npc_ = 0x%xu; break;", target); }
+/* Variants of the HLSL the translator writes, for drivers that miscompile the plain one (bits;
+ * shader_hlsl_variant): 1, the vertex fetch without a switch, a local array or a loop; 2, a
+ * branchy program's blocks as an if/else chain, not a switch; 4, f16tof32 of a masked low half.
+ * The renderer picks them for the card (gpu_d3d11.c: Intel's Direct3D driver drew menus black
+ * and fighters in wrong colours from the plain HLSL); SSBU_SHADER_VARIANT=<bits> overrides. Each
+ * variant has its files apart in the disk cache (shader_cache_version). */
+static int variant_set = -1;
+void shader_set_hlsl_variant(int bits) { variant_set = bits; }
+int shader_hlsl_variant(void) {
+    static int env = -2;
+    if (env == -2) { const char *e = getenv("SSBU_SHADER_VARIANT"); env = e && *e ? atoi(e) : -1; }
+    return env >= 0 ? env : variant_set > 0 ? variant_set : 0;
+}
+#define shader_variant shader_hlsl_variant
+static const char *block_end(Ctx *c) { return c->chain ? "" : " break;"; }
+static void goto_pc(Ctx *c, u32 target) { line(c, "npc_ = 0x%xu;%s", target, block_end(c)); }
 
 /* ---- instructions ------------------------------------------------------------------- */
 /* A constant shift count: Direct3D's shifts use its low 5 bits, MSL's (C++'s) by 32 or more
@@ -1468,22 +1484,22 @@ static int emit_flow(Ctx *c, const Insn *in, u32 next) {
     case OP_BRA:
         if (!taken) return 0;
         if (!guard) { goto_pc(c, branch_target(in)); return 1; }
-        line(c, "npc_ = %s ? 0x%xu : 0x%xu; break;", guard, branch_target(in), next);   /* (fxc mishandles break in an if) */
+        line(c, "npc_ = %s ? 0x%xu : 0x%xu;%s", guard, branch_target(in), next, block_end(c));   /* (fxc mishandles break in an if) */
         return 1;
     case OP_SYNC: case OP_BRK: {
         if (!taken) return 0;
         const char *pop = in->op == OP_SYNC ? "ssp_ = ssp_ - 1u; npc_ = ssy_[ssp_ & 15u];" : "psp_ = psp_ - 1u; npc_ = pbk_[psp_ & 15u];";
-        if (!guard) line(c, "%s break;", pop);
+        if (!guard) line(c, "%s%s", pop, block_end(c));
         else {   /* as selects: fxc fails internally on assignments under the condition */
             const char *sp = in->op == OP_SYNC ? "ssp_" : "psp_", *stack = in->op == OP_SYNC ? "ssy_" : "pbk_";
-            line(c, "{ bool g_ = %s; uint t_ = %s - 1u; uint to_ = %s[t_ & 15u]; %s = g_ ? t_ : %s; npc_ = g_ ? to_ : 0x%xu; } break;",
-                 guard, sp, stack, sp, sp, next);
+            line(c, "{ bool g_ = %s; uint t_ = %s - 1u; uint to_ = %s[t_ & 15u]; %s = g_ ? t_ : %s; npc_ = g_ ? to_ : 0x%xu; }%s",
+                 guard, sp, stack, sp, sp, next, block_end(c));
         }
         return 1;
     }
     case OP_BRX:
-        line(c, "{ uint t_ = %s + 0x%xu; npc_ = (t_ & 31u) == 16u ? t_ + 8u : t_; } break;", R(c, BITS(in->w, 8, 8)),
-             in->addr + 8 + (u32)branch_offset(in->w));
+        line(c, "{ uint t_ = %s + 0x%xu; npc_ = (t_ & 31u) == 16u ? t_ + 8u : t_; }%s", R(c, BITS(in->w, 8, 8)),
+             in->addr + 8 + (u32)branch_offset(in->w), block_end(c));
         return 1;
     case OP_EXIT:
         if (!taken) return 0;
@@ -1589,13 +1605,15 @@ static void emit_body(Ctx *c) {
     line(c, "%sfor (uint guard_ = 0u; guard_ < 1000000u; guard_++) {", c->msl ? "" : "[loop] ");
     c->indent++;
     line(c, "uint npc_ = pc_;");
-    line(c, "switch (pc_) {");
-    int open = 0, ended = 0;
+    c->chain = !c->msl && (shader_variant() & 2);
+    if (!c->chain) line(c, "switch (pc_) {");
+    int open = 0, ended = 0, blocks = 0;
     for (u32 i = 0; i < c->n; i++) {
         const Insn *in = &c->ins[i];
         if (c->leader[i]) {
             if (open) { if (!ended) goto_pc(c, in->addr); c->indent--; line(c, "}"); }
-            line(c, "case 0x%xu: {", in->addr);
+            if (c->chain) line(c, "%sif (pc_ == 0x%xu) {", blocks++ ? "else " : "", in->addr);
+            else line(c, "case 0x%xu: {", in->addr);
             c->indent++;
             open = 1; ended = 0;
             if (ssy_target[i]) line(c, "if (ssp_ > 0u && ssy_[(ssp_ - 1u) & 15u] == 0x%xu) ssp_ = ssp_ - 1u;", in->addr);
@@ -1614,12 +1632,12 @@ static void emit_body(Ctx *c) {
         c->indent--;
         line(c, "}");
     }
-    line(c, "default: {");
+    line(c, c->chain ? "else {" : "default: {");
     c->indent++;
     emit_exit(c);
     c->indent--;
     line(c, "}");
-    line(c, "}");
+    if (!c->chain) line(c, "}");
     line(c, "pc_ = npc_;");
     c->indent--;
     line(c, "}");
@@ -1669,6 +1687,51 @@ static const char VERTEX_FETCH[] =
     "    }\n"
     "    o[i] = r;\n"
     "  }\n"
+    "  if ((fmt >> 31) != 0u) o = o.zyxw;\n"
+    "  return o;\n"
+    "}\n";
+
+/* (variant 1, shader_variant: the same decoding without a switch, a local array indexed at run
+ * time or a loop - written for Intel's Direct3D driver) */
+static const char VERTEX_FETCH_FLAT[] =
+    "uint word_(uint4 w, uint w4, uint i) { return i == 0u ? w.x : i == 1u ? w.y : i == 2u ? w.z : i == 3u ? w.w : w4; }\n"
+    "uint decode_comp_(uint4 w, uint w4, uint sh, uint i, uint bits, bool packed, uint type) {\n"
+    "  uint cb = packed && i == 3u ? 2u : bits;\n"
+    "  uint bo = sh + (packed ? i * 10u : i * bits), wi = bo >> 5, s = bo & 31u;\n"
+    "  uint v = word_(w, w4, wi) >> s;\n"
+    "  if (s + cb > 32u) v |= word_(w, w4, wi + 1u) << (32u - s);\n"
+    "  if (cb < 32u) v &= (1u << cb) - 1u;\n"
+    "  int sv = cb < 32u ? ((int)(v << (32u - cb))) >> (32u - cb) : asint(v);\n"
+    "  float scale = cb < 32u ? (float)((1u << cb) - 1u) : 4294967295.0f;\n"
+    "  if (type == 1u) return asuint(max((float)sv / (scale * 0.5f - 0.5f), -1.0f));\n"
+    "  if (type == 2u) return asuint((float)v / scale);\n"
+    "  if (type == 3u) return asuint(sv);\n"
+    "  if (type == 5u) return asuint((float)v);\n"
+    "  if (type == 6u) return asuint((float)sv);\n"
+    "  if (type == 7u) return cb == 16u ? asuint(f16tof32(v)) : v;\n"
+    "  return v;\n"
+    "}\n"
+    "uint4 decode_attr(%s b, uint addr, uint fmt) {\n"
+    "  /* %s*/\n"
+    "  uint size = (fmt >> 21) & 0x3Fu, type = (fmt >> 27) & 7u, n = 0u, bits = 32u;\n"
+    "  bool packed = false;\n"
+    "  if (size == 0x01u) { n = 4u; bits = 32u; } else if (size == 0x02u) { n = 3u; bits = 32u; }\n"
+    "  else if (size == 0x03u) { n = 4u; bits = 16u; } else if (size == 0x04u) { n = 2u; bits = 32u; }\n"
+    "  else if (size == 0x05u) { n = 3u; bits = 16u; } else if (size == 0x0Au) { n = 4u; bits = 8u; }\n"
+    "  else if (size == 0x0Fu) { n = 2u; bits = 16u; } else if (size == 0x12u) { n = 1u; bits = 32u; }\n"
+    "  else if (size == 0x13u) { n = 3u; bits = 8u; } else if (size == 0x18u) { n = 2u; bits = 8u; }\n"
+    "  else if (size == 0x1Bu) { n = 1u; bits = 16u; } else if (size == 0x1Du) { n = 1u; bits = 8u; }\n"
+    "  else if (size == 0x32u) { n = 2u; bits = 8u; } else if (size == 0x33u) { n = 4u; bits = 8u; }\n"
+    "  else if (size == 0x34u) { n = 1u; bits = 8u; } else if (size == 0x30u) { n = 4u; bits = 10u; packed = true; }\n"
+    "  if (n == 0u) return uint4(0u, 0u, 0u, 0x3F800000u);\n"
+    "  uint base = addr & ~3u, sh = (addr & 3u) * 8u;\n"
+    "  uint4 w = b.Load4(base); uint w4 = b.Load(base + 16u);\n"
+    "  bool is_float = type == 7u || type == 1u || type == 2u || type == 5u || type == 6u;\n"
+    "  uint4 o = uint4(0u, 0u, 0u, is_float ? 0x3F800000u : 1u);\n"
+    "  if (n > 0u) o.x = decode_comp_(w, w4, sh, 0u, bits, packed, type);\n"
+    "  if (n > 1u) o.y = decode_comp_(w, w4, sh, 1u, bits, packed, type);\n"
+    "  if (n > 2u) o.z = decode_comp_(w, w4, sh, 2u, bits, packed, type);\n"
+    "  if (n > 3u) o.w = decode_comp_(w, w4, sh, 3u, bits, packed, type);\n"
     "  if ((fmt >> 31) != 0u) o = o.zyxw;\n"
     "  return o;\n"
     "}\n";
@@ -1743,7 +1806,7 @@ static void put_fetch(Str *out, u32 n) {
     put(out, "uint4 fetch%u(uint vid, uint iid) {\n"
              "  uint4 a = params.attr[%u];\n"
              "  if ((a.x & 0x40u) != 0u || a.w == 0u) return uint4(0u, 0u, 0u, 0x3F800000u);\n"
-             "  uint index = a.z != 0u ? params.base.y + iid / a.z : vid;\n"
+             "  uint index = a.z != 0u ? params.base.y + iid / max(a.z, 1u) : vid;\n"
              "  return decode_attr(vb%u, index * a.y + ((a.x >> 7) & 0x3FFFu), a.x);\n"
              "}\n", n, n, n);
 }
@@ -1806,6 +1869,9 @@ static const char ALPHA_PASS[] =
 static void hlsl_out(Ctx *c, Str *out) {
     ShaderInfo *info = c->info;
     int stage = c->stage;
+    /* (variant 4, shader_variant: f16tof32 of the low half only, masked - the high half is not
+     * always ignored, by some drivers) */
+    if (shader_variant() & 4) put(out, "#define f16tof32(x) (f16tof32((uint)(x) & 0xFFFFu))\n");
     put(out, "cbuffer Params : register(b0) { struct { uint4 attr[32]; float4 fix; float4 frag; uint4 base; uint4 swz[16]; uint4 sb[32]; } params; };\n");
     put_swz(out, stage);
     put_scale(c, out);
@@ -1851,7 +1917,7 @@ static void hlsl_out(Ctx *c, Str *out) {
     put(out, "};\n");
 
     if (stage == SHADER_VERTEX) {
-        put(out, VERTEX_FETCH, "ByteAddressBuffer", "[unroll] ");
+        put(out, shader_variant() & 1 ? VERTEX_FETCH_FLAT : VERTEX_FETCH, "ByteAddressBuffer", "[unroll] ");
         for (u32 n = 0; n < 32; n++) {
             if (!(info->inputs >> n & 1)) continue;
             put(out, "ByteAddressBuffer vb%u : register(t%u);\n", n, 18 + n);

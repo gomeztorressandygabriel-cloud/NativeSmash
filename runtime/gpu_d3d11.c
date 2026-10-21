@@ -754,8 +754,9 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
      * blocks in a switch, the vertex fetch's switches and local array: on an Iris Xe (drivers
      * 31.0.101.5186 and 32.0.101.7092) the menus were black, characters' portraits missing,
      * fighters lit in wrong colours. WARP and DXVK drew the same bytecode right. So with it
-     * the translator writes its variant 3 (gpu_shader.c), kept apart in the disk cache. */
-    if (gpu_vendor == 0x8086) shader_set_hlsl_variant(3);
+     * the translator writes its variant 131 (gpu_shader.c: also no vector read at an address that
+     * is not a multiple of 16 - stages lit right then), kept apart in the disk cache. */
+    if (gpu_vendor == 0x8086) shader_set_hlsl_variant(131);
     /* The back buffer is the window's inside (display.ini sizes the window). Where the system
      * allows it, the swap chain may tear, which VRR pacing asks for at each Present. */
     IDXGIFactory5 *factory5;

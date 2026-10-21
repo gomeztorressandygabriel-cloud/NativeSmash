@@ -263,6 +263,8 @@ static const char *cbuf(Ctx *c, u32 bank, u32 offset) {
         while (k < c->info->sb_count && c->info->sb_offset[k] != o) k++;
         if (k == c->info->sb_count && k < 16) c->info->sb_offset[c->info->sb_count++] = o;
     }
+    if (!c->msl && (shader_hlsl_variant() & 128))   /* (variant 128: vector reads at 16-byte aligned addresses only) */
+        return tmp("cb%u.Load4(%uu).%c", bank, offset & ~15u, "xyzw"[(offset >> 2) & 3]);
     return tmp("cb%u.Load(%uu)", bank, offset & ~3u);
 }
 
@@ -1291,11 +1293,13 @@ static void emit_insn(Ctx *c, const Insn *in) {
             else if (c->info->cbuf_extent[idx] < end) c->info->cbuf_extent[idx] = end;
         } else if (off >= 0 && c->info->cbuf_extent[idx] < ((u32)off & ~7u) + 8) c->info->cbuf_extent[idx] = ((u32)off & ~7u) + 8;
         line(c, "{ uint addr_ = %s + %du;", R(c, ra), off);
-        if (size == 4) set_u(c, d, tmp("cb%u.Load(addr_ & ~3u)", idx));
-        else if (size == 5) { set_u(c, d, tmp("cb%u.Load(addr_ & ~7u)", idx)); set_u(c, d == RZ ? RZ : d + 1, tmp("cb%u.Load((addr_ & ~7u) + 4u)", idx)); }
+        const char *ld = !c->msl && (shader_variant() & 128) ? "cbw_(cb%u, %s)" : "cb%u.Load(%s)";
+        if (size == 4) set_u(c, d, tmp(ld, idx, "addr_ & ~3u"));
+        else if (size == 5) { set_u(c, d, tmp(ld, idx, "addr_ & ~7u")); set_u(c, d == RZ ? RZ : d + 1, tmp(ld, idx, "(addr_ & ~7u) + 4u")); }
         else {
             u32 bits = size < 2 ? 8 : 16, sg = size & 1;
-            const char *word = tmp("(cb%u.Load(addr_ & ~3u) >> ((addr_ & 3u) * 8u))", idx);
+            const char *word = tmp(!c->msl && (shader_variant() & 128) ? "(cbw_(cb%u, addr_ & ~3u) >> ((addr_ & 3u) * 8u))"
+                                                                       : "(cb%u.Load(addr_ & ~3u) >> ((addr_ & 3u) * 8u))", idx);
             set_u(c, d, sg ? tmp("asuint(((int)(%s << %u)) >> %u)", word, 32 - bits, 32 - bits) : tmp("(%s & 0x%xu)", word, (1u << bits) - 1));
         }
         line(c, "}");
@@ -1725,7 +1729,9 @@ static const char VERTEX_FETCH_FLAT[] =
     "  else if (size == 0x34u) { n = 1u; bits = 8u; } else if (size == 0x30u) { n = 4u; bits = 10u; packed = true; }\n"
     "  if (n == 0u) return uint4(0u, 0u, 0u, 0x3F800000u);\n"
     "  uint base = addr & ~3u, sh = (addr & 3u) * 8u;\n"
-    "  uint4 w = b.Load4(base); uint w4 = b.Load(base + 16u);\n"
+    "  uint4 w, q0 = b.Load4(base & ~15u), q1 = b.Load4((base & ~15u) + 16u); uint w4, k = (base >> 2) & 3u;\n"
+    "  if (k == 0u) { w = q0; w4 = q1.x; } else if (k == 1u) { w = uint4(q0.yzw, q1.x); w4 = q1.y; }\n"
+    "  else if (k == 2u) { w = uint4(q0.zw, q1.xy); w4 = q1.z; } else { w = uint4(q0.w, q1.xyz); w4 = q1.w; }\n"
     "  bool is_float = type == 7u || type == 1u || type == 2u || type == 5u || type == 6u;\n"
     "  uint4 o = uint4(0u, 0u, 0u, is_float ? 0x3F800000u : 1u);\n"
     "  if (n > 0u) o.x = decode_comp_(w, w4, sh, 0u, bits, packed, type);\n"
@@ -1877,6 +1883,8 @@ static void hlsl_out(Ctx *c, Str *out) {
     /* (variant 4, shader_variant: f16tof32 of the low half only, masked - the high half is not
      * always ignored, by some drivers) */
     if (shader_variant() & 4) put(out, "#define f16tof32(x) (f16tof32((uint)(x) & 0xFFFFu))\n");
+    if (shader_variant() & 128)
+        put(out, "uint cbw_(ByteAddressBuffer b, uint a) { uint4 q = b.Load4(a & ~15u); uint k = (a >> 2) & 3u; return k == 0u ? q.x : k == 1u ? q.y : k == 2u ? q.z : q.w; }\n");
     put(out, "cbuffer Params : register(b0) { struct { uint4 attr[32]; float4 fix; float4 frag; uint4 base; uint4 swz[16]; uint4 sb[32]; } params; };\n");
     put_swz(out, stage);
     put_scale(c, out);

@@ -55,7 +55,8 @@ static struct {
     int vsync;            /* 1: a frame is shown at the monitor's next refresh (never tears) */
     int texture_quality;  /* -1 auto, 0 high, 1 medium, 2 low (the biggest mip levels left out) */
     int frameskip;        /* 1: frames are skipped when the graphics card is behind */
-} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 0, 0.8f, 1, -1, 1};
+    int monitor;          /* 1: the monitor (monitor.h) writes build\\monitor.csv */
+} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 0, 0.8f, 1, -1, 1, 0};
 
 static const char DEFAULT_INI[] =
     "; display.ini: the game's window and the pacing of its frames. Read when the game starts; the\n"
@@ -145,6 +146,10 @@ static const char DEFAULT_INI[] =
     ";   FidelityFX Super Resolution 1 instead of a plain filter: render_scale 0.67 with fsr draws about 2.2\n"
     ";   times fewer pixels and gives a picture close to the full size. Needs Windows (Direct3D).\n"
     "upscale = off\n"
+    "; monitor = off | on\n"
+    ";   on: writes build\\monitor.csv, a row a second with the frame rate, the processor, the memory and the graphics card\n"
+    ";   (and shows it over the picture with F2), to find what slows the game down. Off: nothing is measured.\n"
+    "monitor = off\n"
     "; frameskip = on | off\n"
     ";   on: when the graphics card cannot draw 60 frames a second, some frames are not drawn (the game goes on at full\n"
     ";   speed and the picture shows fewer frames) instead of the game slowing down. off: every frame is drawn.\n"
@@ -241,6 +246,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
         else if (!_stricmp(key, "render_scale")) parse_render_scale(value);
         else if (!_stricmp(key, "upscale")) parse_upscale(value);
         else if (!_stricmp(key, "texture_quality")) parse_texture_quality(value);
+        else if (!_stricmp(key, "monitor")) cfg.monitor = !(!_stricmp(value, "off") || !_stricmp(value, "0") || !_stricmp(value, "no"));
         else if (!_stricmp(key, "frameskip")) cfg.frameskip = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
         else if (!_stricmp(key, "vsync")) cfg.vsync = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
         else if (!_stricmp(key, "sharpness")) cfg.sharpness = (float)atof(value);
@@ -254,6 +260,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     if ((env = getenv("SSBU_RENDER_SCALE")) && *env) parse_render_scale(env);
     if ((env = getenv("SSBU_UPSCALE")) && *env) parse_upscale(env);
     if ((env = getenv("SSBU_TEXTURE_QUALITY")) && *env) parse_texture_quality(env);
+    if ((env = getenv("SSBU_MONITOR")) && *env) cfg.monitor = !(!_stricmp(env, "off") || !_stricmp(env, "0") || !_stricmp(env, "no"));
     if ((env = getenv("SSBU_FRAMESKIP")) && *env) cfg.frameskip = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
     if ((env = getenv("SSBU_VSYNC")) && *env) cfg.vsync = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
     if ((env = getenv("SSBU_SHARPNESS")) && *env) cfg.sharpness = (float)atof(env);
@@ -280,6 +287,7 @@ int display_upscale(void) { load(); return cfg.upscale; }
 float display_sharpness(void) { load(); return cfg.sharpness; }
 int display_texture_quality(void) { load(); return cfg.texture_quality; }
 int display_frameskip(void) { load(); return cfg.frameskip; }
+int display_monitor(void) { load(); return cfg.monitor; }
 
 /* (the settings menu) the render scale it saved: shown from now on, the renderer's own counts
  * only at the next start */

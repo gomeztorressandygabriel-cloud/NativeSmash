@@ -19,6 +19,7 @@
 #include "net.h"
 #include "pad.h"
 #include "cpu_sched.h"
+#include "monitor.h"
 #include "gpu_shader.h"
 #include "gpu_shader_cache.h"
 #include "gpu_texture.h"
@@ -1856,6 +1857,30 @@ static void first_used(const Shader *s) {
     u32 k = recent_first_next++ % RECENT_FIRSTS;
     recent_firsts[k].ns = rt_clock_ns();
     snprintf(recent_firsts[k].name, sizeof recent_firsts[k].name, "%s", s->name);
+}
+
+/* What the monitor asks of the renderer once a second (monitor.h). */
+void gfx_monitor_stats(unsigned long long *gpu_used, unsigned long long *gpu_budget, unsigned *textures, unsigned long long *texture_bytes_out,
+                       unsigned long long *surface_bytes_out, unsigned long long *shaders) {
+    DXGI_QUERY_VIDEO_MEMORY_INFO info;
+    if (mem_adapter && SUCCEEDED(IDXGIAdapter3_QueryVideoMemoryInfo(mem_adapter, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) {
+        *gpu_used = info.CurrentUsage;
+        *gpu_budget = info.Budget;
+    }
+    if (!ready) return;
+    EnterCriticalSection(&lock);
+    *textures = textures_held();
+    *texture_bytes_out = texture_bytes;
+    u64 surf = 0;
+    for (u32 i = 0; i < nsurfaces; i++) {
+        if (!surfaces[i].tex) continue;
+        D3D11_TEXTURE2D_DESC sd;
+        ID3D11Texture2D_GetDesc(surfaces[i].tex, &sd);
+        surf += (u64)sd.Width * sd.Height * sd.ArraySize * sd.SampleDesc.Count * 4;
+    }
+    *surface_bytes_out = surf;
+    *shaders = gfx_stat_shaders;
+    LeaveCriticalSection(&lock);
 }
 
 void gfx_status_lines(void) {
@@ -5257,7 +5282,7 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     if (profile_at == -1) profile_at = getenv("SSBU_PROFILE_AT") ? atof(getenv("SSBU_PROFILE_AT")) : -2;
     if (profile_at >= 0 && rt_now_ns() > (u64)(profile_at * 1e9)) { profile_at = -2; keys |= 32; }
     if (keys & 32) profile_start(10.0);   /* F6 */
-    static char detail[1800], hint[640];
+    static char detail[4200], hint[640];
     static u64 last_ns, last_presented, last_drawn, last_dispatched, last_skipped, last_watch, last_busy, last_upload, last_waits, last_composed, last_reused, last_kind[4];
     u64 now = rt_now_ns();
     if (now - last_ns >= 500000000ull) {   /* the details, twice a second */
@@ -5288,6 +5313,11 @@ void gfx_present(u64 guest, u32 width, u32 height) {
                  (gfx_stat_skipped - last_skipped) / secs, gfx_stat_shaders, (long)compiles_pending, (long)prewarm_ready, (long)prewarm_total, ntextures, nsurfaces, nresidents,
                  (gfx_stat_watch_us - last_watch) / 1000.0 / secs, depth_sampling != 0 ? "on" : "off",
                  profile_running() ? "  (profiling...)" : "");
+        {   /* the monitor's last second, below (monitor.h: SSBU_MONITOR=1) */
+            char mon[2048];
+            monitor_text(mon, sizeof mon);
+            if (mon[0] && strlen(detail) + strlen(mon) + 2 < sizeof detail) { strcat(detail, "\n"); strcat(detail, mon); }
+        }
         char net[512];
         net_status(net, sizeof net);
         snprintf(hint, sizeof hint, "F2 details  Esc settings%s%s%s%s", depth_sampling == 0 ? "  depth sampling OFF" : "",

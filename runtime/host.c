@@ -17,6 +17,7 @@
 #include "display.h"
 #include "settings.h"
 #include "cpu_sched.h"
+#include "monitor.h"
 #ifdef _WIN32
 #include <dbghelp.h>
 #else
@@ -1140,6 +1141,7 @@ static DWORD WINAPI crash_test(void *seconds) {
 
 int main(int argc, char **argv) {
     cpu_sched_process();
+    if (display_monitor()) monitor_start();
     const char *dir = argc >= 2 ? argv[1] : NULL;
     int options = 2;   /* (where the options after it start) */
 #ifdef _WIN32

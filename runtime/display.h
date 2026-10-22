@@ -45,6 +45,8 @@ float display_sharpness(void);
 int display_texture_quality(void);
 /* frameskip = on (display.ini, SSBU_FRAMESKIP): ipc_vi.c leaves some frames' drawing out while the graphics card is behind. */
 int display_frameskip(void);
+/* monitor = on (display.ini, SSBU_MONITOR): monitor.h measures everything once a second and writes build\monitor.csv. */
+int display_monitor(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);
 unsigned display_present_flags(void);

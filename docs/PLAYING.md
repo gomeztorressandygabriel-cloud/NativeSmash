@@ -13,6 +13,7 @@ Everything about playing once the game is built: how to start it, the controls, 
 - [Window and display](#window-and-display)
 - [60 fps, and what about 120](#60-fps-and-what-about-120)
 - [Shaders and first-time stutter](#shaders-and-first-time-stutter)
+- [Finding what slows the game down](#finding-what-slows-the-game-down)
 - [Low frame rate](#low-frame-rate)
 - [Where your files are](#where-your-files-are)
 - [Problem reports](#problem-reports)
@@ -175,6 +176,9 @@ The first start also writes **`display.ini`**, which sets how the game starts. T
 | `upscale` | `fsr`: a picture smaller than its place in the window (`render_scale` under 1) is made bigger by AMD's FidelityFX Super Resolution 1 instead of a plain filter, which keeps the picture close to the full size while the graphics card draws fewer pixels: `render_scale = 0.67` is about 2.2 times fewer. It works on any graphics card. The launcher's **Video** page sets both with one choice (Quality 0.77, Balanced 0.67, Performance 0.59, Ultra performance 0.5). `off`: the plain filter. | `off` |
 | `sharpness` | `0` to `1`: how much the upscaled picture is sharpened. `0`: not at all. | `0.8` |
 | `vsync` | `on`: each picture is shown in step with the monitor's refresh, so it never tears, at the price of one more frame of delay (16.7 ms). `off`: less delay, but a tear line can show. | `on` |
+| `frameskip` | `on`: when the game makes fewer than 60 frames a second in a heavy scene, some frames are not drawn (nor shown) so that the game goes on at full speed instead of in slow motion; with a graphics card that keeps up it does nothing. `off`: every frame is drawn. | `on` |
+| `texture_quality` | How big the game's textures are kept in graphics memory. `medium` leaves out the biggest size of each large texture (a quarter of its memory), `low` the two biggest; at a `render_scale` under 1 the difference is hard to see. `auto`: `medium` with under 12 GB of RAM, else `high`. | `auto` |
+| `monitor` | `on`: writes `build\monitor.csv` (a row a second: frame rate, how busy each thread is, the processor's use, clock and temperature, memory, graphics memory, disk reads) and `build\monitor_now.txt` (the last second), and shows it over the picture with <kbd>F2</kbd>. For finding what slows the game down. | `off` |
 
 `controllers.ini` and `display.ini` apply to every game version started from the same folder. A `display.ini` written by an older version has no `gpu` or `render_scale` line; the game then uses `auto` and `1`. Add the line yourself to use it, or delete `display.ini` to get a new one with every setting. `render_scale` is read when the game starts: change it, then start the game again.
 
@@ -189,6 +193,17 @@ Showing 120 pictures a second would take *frame interpolation*: inventing a pict
 The game's graphics programs (*shaders*) are prepared the first time each one is used, so a new effect can show a moment late, or stutter, the first time you see it. NativeSmash keeps every prepared shader in `dump\shadercache\` and loads them in the background each time the game starts, so each stutter happens only once.
 
 To prepare them all before playing, double-click **`launchers\Prepare Shaders.bat`**. It runs once per game version, at low priority so the PC stays usable, and shows a progress bar with the time left. A first run compiles about 40,000 shaders (for 13.0.5): about half an hour on a 16-thread processor, an hour or two on a 4- to 8-thread one. You can close it at any time and start it again later; what's done stays done, so a later run takes minutes. It needs Python and Visual Studio, as for [building](BUILDING.md).
+
+## Finding what slows the game down
+
+Start the game with `monitor = on` in [`display.ini`](#window-and-display) (or `SSBU_MONITOR=1`), play, and look at <kbd>F2</kbd> or at `build\monitor_now.txt`. The lines say:
+
+- **game / shown / skipped:** the frames the game makes a second (60 is full speed), the ones shown, and the ones left out by `frameskip`.
+- **main thread / gpu thread:** how much of one processor core each takes. The game's logic is one thread: if the main thread is at 90-100 % and the game is under 60, the processor is the limit, not the graphics card.
+- **cores:** the use and clock of the fast and the slow cores and the temperature. A laptop's processor and graphics share one power budget: when the clock falls in a heavy scene, the game slows down.
+- **memory:** the game's, what the PC has left and how many pages it reads from the disk a second. When the PC has almost nothing left and the disk reads climb, it has run out of memory and everything slows: close other programs.
+
+These options only change how the game is run, never the game itself: `SSBU_PRIORITY=normal` (the game runs at high priority), `SSBU_CPU_QOS=0` and `SSBU_CPU_PLACE=0` (power throttling and which cores a thread prefers), `SSBU_UPLOAD_RINGS=0` (how data goes to the graphics card; with Intel's driver turning it off made the memory grow), `SSBU_TEXTURE_MB`, `SSBU_SHADER_PREWARM_KEEP`, `SSBU_SHADER_WAIT_MAX`.
 
 ## Low frame rate
 

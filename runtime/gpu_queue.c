@@ -33,6 +33,12 @@ static CONDITION_VARIABLE work = CONDITION_VARIABLE_INIT, progress = CONDITION_V
 static int enabled = -1;   /* -1 not decided yet */
 static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
 volatile int gpu_skip_draws;
+static volatile LONGLONG busy_ticks;   /* time spent running submissions (the monitor) */
+unsigned long long gpu_busy_ns_total(void) {
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    return (unsigned long long)((double)busy_ticks * 1e9 / (double)f.QuadPart);
+}
 static volatile int skip_next;   /* the submissions queued from now on skip their draws */
 void gpu_set_skip(int on) { skip_next = on; }
 
@@ -48,7 +54,11 @@ static DWORD WINAPI gpu_thread(LPVOID unused) {
         cpu_sched_sample();
         ReleaseSRWLockExclusive(&lock);
         gpu_skip_draws = j->skip;
+        LARGE_INTEGER b0, b1;
+        QueryPerformanceCounter(&b0);
         gpu_submit(j->channel, j->entries, j->count);   /* (the job stays put until `done` passes it) */
+        QueryPerformanceCounter(&b1);
+        busy_ticks += b1.QuadPart - b0.QuadPart;
         gpu_skip_draws = 0;
         AcquireSRWLockExclusive(&lock);
         u32 id = j->syncpoint;

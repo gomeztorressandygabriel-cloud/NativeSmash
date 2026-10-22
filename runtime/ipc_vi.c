@@ -60,6 +60,14 @@ static volatile LONG lag_streak;           /* refreshes in a row that waited for
 static int skip_now;                       /* the frame being submitted now has its draws left out */
 static u64 skipped_frames, queued_frames;
 void present_skip_stats(u64 *skipped, u64 *queued) { *skipped = skipped_frames; *queued = queued_frames; }
+static volatile LONGLONG interval_sum_us, interval_max_us;   /* (the monitor reads and clears them each second) */
+static volatile LONG interval_n;
+void present_interval_stats(double *avg_ms, double *max_ms) {
+    LONGLONG sum = InterlockedExchange64(&interval_sum_us, 0), mx = InterlockedExchange64(&interval_max_us, 0);
+    LONG n = InterlockedExchange(&interval_n, 0);
+    *avg_ms = n ? (double)sum / 1000.0 / n : 0;
+    *max_ms = (double)mx / 1000.0;
+}
 
 /* Who holds the queue's lock, and since when (freeze reports: an SRW lock has no owner field). */
 static volatile DWORD queue_holder;
@@ -273,6 +281,7 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
             u64 now_ns = rt_now_ns(), draws = gpu_stat_draws + gpu_stat_skipped_draws;
             if (last_queue_ns && now_ns - last_queue_ns < 100000000ull) {
                 interval_ms = interval_ms * 0.9 + (double)(now_ns - last_queue_ns) / 1e6 * 0.1;
+                { LONGLONG us = (LONGLONG)((now_ns - last_queue_ns) / 1000); InterlockedAdd64(&interval_sum_us, us); InterlockedIncrement(&interval_n); if (us > interval_max_us) interval_max_us = us; }
                 draws_per_frame = draws_per_frame * 0.9 + (double)(draws - last_draws) * 0.1;
             }
             last_queue_ns = now_ns; last_draws = draws;

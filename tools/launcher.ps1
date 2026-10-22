@@ -42,6 +42,7 @@ $PublicLobby = 'smash.recomps.wtf:39421'   # (the online_server.txt the port com
 $Defaults = @{
     window = 'windowed'; width = '1280'; height = '720'; pacing = 'clock'; latency = '3'
     hide_cursor = '1'; overlay = '1'; gpu = 'auto'; render_scale = '1'; keyboard_player = '1'; background = '1'
+    texture_quality = 'auto'
 }
 # What Play SSBU.bat clears, so the files count (the variables win over them in the game).
 $ClearedVars = @('SSBU_DATA_ROOT', 'SSBU_INPUT', 'SSBU_NET_HOST', 'SSBU_NET_RELAY', 'SSBU_NET_BIND',

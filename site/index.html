@@ -128,6 +128,17 @@
     .cta .btn { justify-content: center; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+  /* what's new: the notes of the newest releases, read from GitHub */
+  .notes { display: grid; gap: 14px; margin-top: 26px; }
+  .note { background: var(--veil); border-radius: 20px; padding: 22px 24px; box-shadow: inset 0 0 0 1px var(--edge); }
+  .note h3 { margin: 0 0 2px; font-size: 20px; }
+  .note .date { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+  .note p, .note li { color: var(--muted); font-size: 15px; margin: 0 0 10px; }
+  .note ul { margin: 0 0 10px; padding-left: 20px; }
+  .note b { color: var(--ink); font-weight: 600; }
+  .note code { background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 6px; font-size: 13px; color: var(--ink); }
+  .note summary { cursor: pointer; font-weight: 600; font-size: 18px; }
+  .note details[open] summary { margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -137,6 +148,7 @@
     <a class="brand" href="#top"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 19V5l10 14V5"/></svg></span>NativeSmash</a>
     <nav>
       <a class="link" href="#funciones"><span data-l="es">Funciones</span><span data-l="en">Features</span></a>
+      <a class="link" href="#novedades"><span data-l="es">Novedades</span><span data-l="en">What's new</span></a>
       <a class="link" href="#instalar"><span data-l="es">Cómo se instala</span><span data-l="en">How to install</span></a>
       <a class="link" href="#creditos"><span data-l="es">Créditos</span><span data-l="en">Credits</span></a>
       <a class="btn soft" style="padding:9px 18px;font-size:15px" href="https://github.com/gomeztorressandygabriel-cloud/NativeSmash" rel="noopener">GitHub</a>
@@ -206,6 +218,22 @@
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/></svg></div>
         <h3><span data-l="es">Actualizaciones desde GitHub</span><span data-l="en">Updates from GitHub</span></h3>
         <p><span data-l="es">El launcher avisa cuando hay una versión nueva y la instala con un clic, sin tocar tus ajustes.</span><span data-l="en">The launcher tells you when a new version is out and installs it in one click, without touching your settings.</span></p></article>
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M7 10v4M5 12h4M16 11h.01M18 13h.01"/></svg></div>
+        <h3><span data-l="es">Mandos configurables</span><span data-l="en">Configurable controllers</span></h3>
+        <p><span data-l="es">Elige cómo juega cada mando desde el launcher: estilo, zona muerta, vibración, gatillos y cada botón, pulsándolo en el propio mando.</span><span data-l="en">Choose how each controller plays from the launcher: style, dead zone, rumble, triggers and every button, by pressing it on the controller itself.</span></p></article>
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18V8m5 10V4m5 14v-6m5 6V9"/></svg></div>
+        <h3><span data-l="es">Memoria estable</span><span data-l="en">Steady memory</span></h3>
+        <p><span data-l="es">Arreglamos una fuga de memoria en gráficas Intel y el juego descarga los shaders que no usa: ya no se ralentiza con el paso del tiempo.</span><span data-l="en">We fixed a memory leak on Intel graphics and the game lets go of the shaders it is not using: it no longer slows down as time goes by.</span></p></article>
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div>
+        <h3><span data-l="es">Monitor de rendimiento</span><span data-l="en">Performance monitor</span></h3>
+        <p><span data-l="es">Un monitor opcional mide cada segundo los fotogramas, el procesador, la memoria y la gráfica, para encontrar qué frena el juego en tu PC.</span><span data-l="en">An optional monitor measures the frames, the processor, the memory and the graphics card every second, to find what slows the game down on your PC.</span></p></article>
+      <article class="card"><span class="tag ok"><span data-l="es">Listo</span><span data-l="en">Ready</span></span>
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#c9d0ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 12h18M12 3v18"/></svg></div>
+        <h3><span data-l="es">Calidad de texturas</span><span data-l="en">Texture quality</span></h3>
+        <p><span data-l="es">Automática, Alta, Media o Baja: en un PC con poca RAM las texturas ocupan menos y el juego va más desahogado.</span><span data-l="en">Automatic, High, Medium or Low: on a PC with little RAM the textures take less and the game breathes easier.</span></p></article>
     </div>
 
     <div class="two">
@@ -222,6 +250,13 @@
       </div>
       <img src="img/launcher-pads.webp" width="1160" height="680" alt="La página de controles del launcher" loading="lazy">
     </div>
+  </div></section>
+
+  <section id="novedades"><div class="wrap">
+    <h2><span data-l="es">Novedades</span><span data-l="en">What's new</span></h2>
+    <p class="sub"><span data-l="es">Lo que trae cada versión, leído directamente de GitHub.</span><span data-l="en">What each version brings, read straight from GitHub.</span></p>
+    <div class="notes" id="notes"><div class="note"><p><span data-l="es">Cargando las novedades…</span><span data-l="en">Loading what's new…</span></p></div></div>
+    <p style="margin-top:14px"><a href="https://github.com/gomeztorressandygabriel-cloud/NativeSmash/releases" rel="noopener"><span data-l="es">Ver todas las versiones en GitHub</span><span data-l="en">See every version on GitHub</span></a></p>
   </div></section>
 
   <section id="instalar"><div class="wrap">
@@ -288,6 +323,50 @@
         });
       })
       .catch(function () {});
+  })();
+  /* What's new: the notes of the newest releases, from GitHub. A release's text has a Spanish part and an English one
+     (after "**Español**" and "**English**"); each is shown in its language. Nothing here changes with a new version. */
+  (function () {
+    var repo = 'gomeztorressandygabriel-cloud/NativeSmash', box = document.getElementById('notes');
+    if (!box) return;
+    function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function inline(t) { return esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<i>$1</i>').replace(/`([^`]+)`/g, '<code>$1</code>'); }
+    function markdown(text) {
+      var out = '', list = false;
+      text.split('\n').forEach(function (line) {
+        line = line.trim();
+        var li = /^[-*]\s+(.*)$/.exec(line);
+        if (list && !li) { out += '</ul>'; list = false; }
+        if (!line) return;
+        if (li) { if (!list) { out += '<ul>'; list = true; } out += '<li>' + inline(li[1]) + '</li>'; }
+        else if (!/^#/.test(line)) out += '<p>' + inline(line) + '</p>';
+      });
+      return out + (list ? '</ul>' : '');
+    }
+    function part(body, lang) {
+      var es = body.indexOf('**Español**'), en = body.indexOf('**English**');
+      if (es < 0 || en < 0) return body;
+      return lang === 'es' ? body.slice(es + 11, en) : body.slice(en + 11);
+    }
+    function date(iso, lang) {
+      try { return new Date(iso).toLocaleDateString(lang === 'es' ? 'es' : 'en', { year: 'numeric', month: 'long', day: 'numeric' }); } catch (e) { return ''; }
+    }
+    fetch('https://api.github.com/repos/' + repo + '/releases?per_page=4', { headers: { Accept: 'application/vnd.github+json' } })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (list) {
+        var html = '';
+        list.filter(function (r) { return !r.draft; }).forEach(function (r, i) {
+          ['es', 'en'].forEach(function (lang) {
+            var inner = '<h3>' + esc(r.name || r.tag_name) + '</h3><p class="date">' + date(r.published_at, lang) + '</p>' + markdown(part(r.body || '', lang));
+            html += '<div class="note" data-l="' + lang + '">' + (i === 0 ? inner
+              : '<details><summary>' + esc(r.name || r.tag_name) + '</summary><p class="date">' + date(r.published_at, lang) + '</p>' + markdown(part(r.body || '', lang)) + '</details>') + '</div>';
+          });
+        });
+        if (html) box.innerHTML = html;
+      })
+      .catch(function () {
+        box.innerHTML = '<div class="note"><p><span data-l="es">No se pudieron cargar las novedades. Míralas en GitHub.</span><span data-l="en">The notes could not be loaded. See them on GitHub.</span></p></div>';
+      });
   })();
 </script>
 </body>

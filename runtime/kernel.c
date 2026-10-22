@@ -18,6 +18,7 @@
 
 #include "host.h"
 #include "gpu.h"   /* (gpu_memory_unmapping) */
+#include "cpu_sched.h"
 
 #ifdef __APPLE__
 void rt_upnp_remove(void);   /* (linux/upnp.c: the netplay relay's port mapping, if it made one) */
@@ -231,6 +232,7 @@ static DWORD WINAPI thread_main(LPVOID param) {
 #endif
     desc[127] = 0;
     SetThreadDescription(GetCurrentThread(), desc);
+    cpu_sched_thread(CPU_ROLE_GAME);
 #ifndef _WIN32
     jmp_buf out;
     exit_point = &out;

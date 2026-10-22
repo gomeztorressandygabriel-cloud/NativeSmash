@@ -16,6 +16,7 @@
 #include "clock.h"
 #include "display.h"
 #include "settings.h"
+#include "cpu_sched.h"
 #ifdef _WIN32
 #include <dbghelp.h>
 #else
@@ -48,6 +49,8 @@ extern u64 gpu_stat_batches, gpu_stat_lists, gpu_stat_draws, gpu_stat_dispatches
     gfx_stat_shaders, gfx_stat_shader_failures, gfx_stat_textures, gfx_stat_unpacked, gfx_stat_watch_us, gfx_skip_shader, gfx_skip_topology,
     gfx_skip_target, gfx_stat_unmap_dropped;
 u64 present_frames(void);
+void present_skip_stats(u64 *skipped, u64 *queued);   /* (ipc_vi.c: frame skipping) */
+extern u64 gpu_stat_skipped_draws;
 void gfx_report_compiles(void (*line)(const char *text));
 void gfx_status_lines(void);
 #ifdef _WIN32
@@ -943,9 +946,64 @@ static void call_initializers(Cpu *c) {
     phase = "start-up after static constructors";
 }
 
+#ifdef _WIN32
+/* SSBU_MEM_REPORT=1: with each status line, which blocks of the process's private memory grew since the last one (by the
+ * block an allocation starts at): the biggest growers, with their size, to tell what leaks (a heap of the game's own, a
+ * driver's, one of the host's tables) apart from the guest's memory. */
+typedef struct MemBlock { u64 base, bytes; } MemBlock;
+#define MEM_BLOCKS 65536
+static void memory_growth_report(void) {
+    static MemBlock *prev, *cur;
+    static u32 nprev;
+    if (!getenv("SSBU_MEM_REPORT")) return;
+    if (!cur) { cur = calloc(MEM_BLOCKS, sizeof *cur); prev = calloc(MEM_BLOCKS, sizeof *prev); }
+    if (!cur || !prev) return;
+    u32 ncur = 0;
+    u64 total = 0;
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    MEMORY_BASIC_INFORMATION mbi;
+    for (char *a = (char *)si.lpMinimumApplicationAddress; a < (char *)si.lpMaximumApplicationAddress && VirtualQuery(a, &mbi, sizeof mbi);
+         a = (char *)mbi.BaseAddress + mbi.RegionSize) {
+        if (mbi.State != MEM_COMMIT || mbi.Type != MEM_PRIVATE) continue;
+        total += mbi.RegionSize;
+        u64 base = (u64)mbi.AllocationBase;
+        if (ncur && cur[ncur - 1].base == base) { cur[ncur - 1].bytes += mbi.RegionSize; continue; }   /* (regions of one block follow each other) */
+        if (ncur < MEM_BLOCKS) { cur[ncur].base = base; cur[ncur].bytes = mbi.RegionSize; ncur++; }
+    }
+    HANDLE heaps[256];
+    DWORD nheaps = GetProcessHeaps(256, heaps);
+    struct { u64 base, grew, bytes; } top[8];
+    memset(top, 0, sizeof top);
+    u64 grown = 0;
+    u32 pi = 0, fresh = 0;
+    for (u32 i = 0; i < ncur; i++) {   /* (both lists are in address order) */
+        while (pi < nprev && prev[pi].base < cur[i].base) pi++;
+        u64 before = pi < nprev && prev[pi].base == cur[i].base ? prev[pi].bytes : 0;
+        if (!before) fresh++;
+        if (cur[i].bytes <= before) continue;
+        u64 g = cur[i].bytes - before;
+        grown += g;
+        for (int k = 0; k < 8; k++)
+            if (g > top[k].grew) { memmove(&top[k + 1], &top[k], (7 - k) * sizeof top[0]); top[k].base = cur[i].base; top[k].grew = g; top[k].bytes = cur[i].bytes; break; }
+    }
+    fprintf(stderr, "[mem] private memory %.0f MB in %u blocks (%u new since the last report); grew by %.1f MB\n", total / 1048576.0, ncur, nprev ? fresh : 0, nprev ? grown / 1048576.0 : 0.0);
+    for (int k = 0; nprev && k < 8 && top[k].grew >= (2u << 20); k++) {
+        const char *kind = "";
+        for (DWORD h = 0; h < nheaps; h++) if ((u64)heaps[h] == top[k].base) kind = " (a heap of the process)";
+        fprintf(stderr, "[mem]   %#llx: +%.1f MB, now %.1f MB%s\n", (unsigned long long)top[k].base, top[k].grew / 1048576.0, top[k].bytes / 1048576.0, kind);
+    }
+    memcpy(prev, cur, ncur * sizeof *cur);
+    nprev = ncur;
+}
+#else
+static void memory_growth_report(void) {}
+#endif
+
 static DWORD WINAPI guest_main(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"guest main thread");
+    cpu_sched_thread(CPU_ROLE_MAIN);
     u32 handle;
     Cpu *c = kernel_main_thread(&handle);
     u64 start = rt_symbol("_ZN2nn4init5StartEmmPFvvES2_");
@@ -970,6 +1028,14 @@ static void print_status(void) {
             gfx_stat_drawn, gfx_stat_skipped, gfx_skip_shader, gfx_skip_topology, gfx_skip_target, gfx_stat_shaders, gfx_stat_shader_failures, gfx_stat_textures, gfx_stat_unpacked,
             gfx_stat_watch_us / 1000, gfx_stat_unmap_dropped);
     gfx_status_lines();
+    cpu_sched_status();
+    {
+        u64 sk, qd;
+        present_skip_stats(&sk, &qd);
+        if (qd) fprintf(stderr, "[status] frameskip: the game made %llu frames, %llu left out (%.0f%%), %llu draws\n", (unsigned long long)qd, (unsigned long long)sk,
+                        100.0 * sk / (qd ? qd : 1), (unsigned long long)gpu_stat_skipped_draws);
+    }
+    memory_growth_report();
     u32 fiber_slots, fibers_finalized;
     u64 fibers_made;
     fiber_counts(&fiber_slots, &fibers_finalized, &fibers_made);
@@ -1073,6 +1139,7 @@ static DWORD WINAPI crash_test(void *seconds) {
 }
 
 int main(int argc, char **argv) {
+    cpu_sched_process();
     const char *dir = argc >= 2 ? argv[1] : NULL;
     int options = 2;   /* (where the options after it start) */
 #ifdef _WIN32

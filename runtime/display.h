@@ -40,6 +40,11 @@ float display_render_scale(void);
 int display_upscale(void);
 unsigned display_present_interval(void);   /* vsync = on: 1, a present waits for the monitor's refresh; else 0 */
 float display_sharpness(void);
+/* texture_quality (display.ini, SSBU_TEXTURE_QUALITY): -1 auto, 0 high, 1 medium, 2 low: how many of the biggest mip levels of a
+ * large texture the renderer leaves out (gpu_d3d11.c texture_skip). */
+int display_texture_quality(void);
+/* frameskip = on (display.ini, SSBU_FRAMESKIP): ipc_vi.c leaves some frames' drawing out while the graphics card is behind. */
+int display_frameskip(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);
 unsigned display_present_flags(void);

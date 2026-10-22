@@ -15,6 +15,7 @@
 #include "present.h"
 #include "display.h"
 #include "gpu.h"   /* (gpu_queue_mark / gpu_queue_wait) */
+#include "cpu_sched.h"
 
 #define DISPLAY_ID 1
 #define LAYER_ID 1
@@ -30,7 +31,7 @@ enum {   /* IGraphicBufferProducer transactions */
     ALLOCATE_BUFFERS = 13, SET_PREALLOCATED_BUFFER = 14, GET_BUFFER_HISTORY = 17
 };
 
-typedef struct Slot { int state, has_buffer; u8 buffer[0x400]; u32 buffer_size; u64 queued_at, gpu_mark; } Slot;
+typedef struct Slot { int state, has_buffer, skipped; u8 buffer[0x400]; u32 buffer_size; u64 queued_at, gpu_mark; } Slot;   /* (skipped: its draws were left out) */
 static struct {
     Slot slots[SLOTS];
     u32 buffer_event, vsync_event;
@@ -41,6 +42,24 @@ static struct {
 } queue = {.lock = SRWLOCK_INIT};
 
 u64 present_frames(void) { return queue.frames; }
+extern u64 gpu_stat_draws;
+
+/* ---- frame skipping --------------------------------------------------------------------------
+ * The game runs at one step a frame; when the graphics card is late, a frame waits for it and the game, which has no
+ * free buffer to draw the next into, slows down. Instead, while the card is behind, every other frame is left out: its
+ * draws and clears are not run (gpu_set_skip: the submissions after the last present are marked), and it is not shown
+ * (the display keeps the frame before). "Behind" is how long the display waited for the card to finish the frame it was
+ * about to show: over 2 ms on two refreshes in a row; or the card has over a frame of submissions still to run; or, which
+ * is what the player feels, the game itself is making fewer than 60 frames a second (the interval between the frames it
+ * queues, over 17.6 ms on average, back under 16.6 to stop) in a scene with many draws (in a menu, a video or a loading
+ * screen a slow rate is the game's own, and nothing is left out). The card's and the processor's power are shared on a
+ * laptop: with fewer draws to run the processor keeps a higher clock, and the game's own thread with it. Never two skipped
+ * frames in a row, so at the worst the picture moves at 30 frames a second while the game goes on at full speed.
+ * display.ini: frameskip = off turns it off. */
+static volatile LONG lag_streak;           /* refreshes in a row that waited for the card (the vsync thread) */
+static int skip_now;                       /* the frame being submitted now has its draws left out */
+static u64 skipped_frames, queued_frames;
+void present_skip_stats(u64 *skipped, u64 *queued) { *skipped = skipped_frames; *queued = queued_frames; }
 
 /* Who holds the queue's lock, and since when (freeze reports: an SRW lock has no owner field). */
 static volatile DWORD queue_holder;
@@ -94,14 +113,18 @@ static void pace_tick(int shown, int queued) {
 static DWORD WINAPI vsync_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"vsync");
+    cpu_sched_thread(CPU_ROLE_GAME);
     timeBeginPeriod(1);
     static u8 shown[sizeof queue.slots[0].buffer];
     u64 gpu_mark = 0;
     for (;;) {
         display_wait_tick();   /* the next refresh (display.ini's pacing) */
+        cpu_sched_sample();
         queue_lock();
-        int oldest = -1;
+        int oldest = -1, dropped = 0;
         u32 shown_size = 0;
+        for (int i = 0; i < SLOTS; i++)   /* (a frame skipped is not shown: its buffer is free at once) */
+            if (queue.slots[i].state == QUEUED && queue.slots[i].skipped) { queue.slots[i].state = FREE; dropped++; }
         for (int i = 0; i < SLOTS; i++)
             if (queue.slots[i].state == QUEUED && (oldest < 0 || queue.slots[i].queued_at < queue.slots[oldest].queued_at)) oldest = i;
         if (oldest >= 0) {
@@ -121,8 +144,15 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
         /* The refresh is the game's even when showing the frame takes long (a graphics card behind): signalled
          * first, so a late present no longer makes the game see two refreshes close together after a long one. */
         kernel_signal_event(queue.vsync_event);
+        if (dropped) { kernel_signal_event(queue.buffer_event); WakeAllConditionVariable(&queue.freed); }
         if (oldest >= 0) {
+            LARGE_INTEGER w0, w1, wf;
+            QueryPerformanceCounter(&w0);
             gpu_queue_wait(gpu_mark);   /* the frame drawn: what was submitted before it was queued has run */
+            QueryPerformanceCounter(&w1);
+            QueryPerformanceFrequency(&wf);
+            if ((double)(w1.QuadPart - w0.QuadPart) * 1000.0 / (double)wf.QuadPart > 2.0) InterlockedIncrement(&lag_streak);
+            else InterlockedExchange(&lag_streak, 0);
             present_frame(shown, shown_size);
             kernel_signal_event(queue.buffer_event);
             WakeAllConditionVariable(&queue.freed);
@@ -226,6 +256,31 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
             queue.slots[slot].state = QUEUED;
             queue.slots[slot].queued_at = rt_now_ns();
             queue.slots[slot].gpu_mark = gpu_queue_mark();
+            queue.slots[slot].skipped = skip_now;   /* (the draws submitted for this frame were left out, if the skip was on) */
+            queued_frames++;
+            if (skip_now) skipped_frames++;
+            static int allowed = -1;
+            static u64 last_mark;
+            static double frame_jobs = 24;   /* (submissions a frame has, on average) */
+            u64 mark = queue.slots[slot].gpu_mark;
+            if (mark > last_mark && mark - last_mark < 4096) frame_jobs = frame_jobs * 0.9 + (double)(mark - last_mark) * 0.1;
+            last_mark = mark;
+            if (allowed < 0) allowed = display_frameskip() && gpu_threaded();
+            u64 backlog = mark - gpu_queue_done();
+            static u64 last_queue_ns, last_draws;
+            static double interval_ms = 16.7, draws_per_frame;
+            static int slow;
+            u64 now_ns = rt_now_ns(), draws = gpu_stat_draws + gpu_stat_skipped_draws;
+            if (last_queue_ns && now_ns - last_queue_ns < 100000000ull) {
+                interval_ms = interval_ms * 0.9 + (double)(now_ns - last_queue_ns) / 1e6 * 0.1;
+                draws_per_frame = draws_per_frame * 0.9 + (double)(draws - last_draws) * 0.1;
+            }
+            last_queue_ns = now_ns; last_draws = draws;
+            if (!slow && interval_ms > 17.6 && draws_per_frame > 500) slow = 1;
+            else if (slow && (interval_ms < 16.6 || draws_per_frame < 300)) slow = 0;
+            int behind = (double)backlog > frame_jobs * 1.25 + 2 || lag_streak >= 2 || slow;
+            skip_now = allowed && behind && !skip_now;   /* the next frame: left out when the card is behind, never two in a row */
+            gpu_set_skip(skip_now);
         }
         queue_output(out);
         w32(out, 0);

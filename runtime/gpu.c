@@ -28,7 +28,7 @@ typedef struct Engine { u32 cls; u32 regs[0x1000]; u32 i2m_pos; Mme *mme; CbBind
 typedef struct Channel { Engine *sub[8]; u32 fifo[0x40]; } Channel;
 
 static Channel channels[256];
-u64 gpu_stat_lists, gpu_stat_batches, gpu_stat_draws, gpu_stat_methods, gpu_stat_dispatches;
+u64 gpu_stat_lists, gpu_stat_batches, gpu_stat_draws, gpu_stat_methods, gpu_stat_dispatches, gpu_stat_skipped_draws;
 
 static u64 guest(u64 va) {
     u64 g = gpu_va_to_guest(va);
@@ -345,10 +345,12 @@ static void engine_method(Channel *ch, Engine *e, u32 method, u32 arg) {
             e->regs[0x8E3] += 4;
             break;
         }
-        case 0x585: gpu_stat_draws++; gfx_draw(e->regs, e->cb, e->indexed); break;
+        case 0x585:
+            if (gpu_skip_draws) { gpu_stat_skipped_draws++; break; }   /* (a frame skipped: see gpu_set_skip) */
+            gpu_stat_draws++; gfx_draw(e->regs, e->cb, e->indexed); break;
         case M_DRAW_INDEX_COUNT: e->indexed = 1; break;                                /* indexed draw follows */
         case M_VERTEX_ARRAY_COUNT: e->indexed = 0; break;
-        case 0x674: gfx_clear(e->regs, arg); break;                                  /* clear surface */
+        case 0x674: if (!gpu_skip_draws) gfx_clear(e->regs, arg); break;             /* clear surface */
         }
         break;
     case CLASS_COMPUTE:

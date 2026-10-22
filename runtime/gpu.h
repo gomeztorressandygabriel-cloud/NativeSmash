@@ -23,8 +23,14 @@ void gpu_submit(u32 channel, const u64 *entries, u32 count);
 int gpu_threaded(void);                                   /* is there one (SSBU_GPU_THREAD=0: no) */
 void gpu_queue_submit(u32 channel, const u64 *entries, u32 count, u32 syncpoint, u32 fence);
 u64 gpu_queue_mark(void);                                 /* submissions queued so far */
+u64 gpu_queue_done(void);                                 /* submissions run so far */
 void gpu_queue_wait(u64 mark);                            /* until that many have run */
 void gpu_queue_drain(void);                               /* until everything queued has run */
+/* Frame skipping (ipc_vi.c decides, gpu_queue.c carries it, gpu.c obeys): submissions queued while the skip is on get their
+ * draws and clears left out when they run, so a graphics card that can't keep up does not slow the game down. */
+void gpu_set_skip(int on);
+extern volatile int gpu_skip_draws;                       /* the submission running now has its draws left out */
+extern u64 gpu_stat_skipped_draws;
 void gpu_memory_unmapping(u64 addr, u64 size);            /* guest memory about to be decommitted (hle_nv.c) */
 /* Until sync point `id` reaches `threshold` (or `timeout_ms` passes; ~0u: no limit): 1 reached. */
 int gpu_syncpt_wait(u32 id, u32 threshold, u32 timeout_ms);

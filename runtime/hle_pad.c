@@ -33,6 +33,7 @@
 #include <stdio.h>
 
 #include "pad.h"
+#include "cpu_sched.h"
 #ifdef SSBU_HAVE_SDL3
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_gamepad.h>
@@ -933,6 +934,7 @@ static DWORD WINAPI input_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"input");
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    cpu_sched_thread(CPU_ROLE_GAME);
     HANDLE timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!timer) timer = CreateWaitableTimerExW(NULL, NULL, 0, TIMER_ALL_ACCESS);
     int sdl = sdl_start();

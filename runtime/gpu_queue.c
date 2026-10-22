@@ -19,11 +19,12 @@
 #include <stdio.h>
 
 #include "gpu.h"
+#include "cpu_sched.h"
 
 #define JOBS 4096        /* submissions queued at most (the submitter waits beyond) */
 #define INLINE 16        /* GPFIFO entries kept in the job itself; more are allocated */
 
-typedef struct Job { u32 channel, count, syncpoint, fence; u64 *entries; u64 inline_entries[INLINE]; } Job;
+typedef struct Job { u32 channel, count, syncpoint, fence; u8 skip; u64 *entries; u64 inline_entries[INLINE]; } Job;
 
 static Job jobs[JOBS];
 static u64 queued, done;   /* submissions so far: queued, and run (jobs[n % JOBS] is number n) */
@@ -31,17 +32,24 @@ static SRWLOCK lock = SRWLOCK_INIT;
 static CONDITION_VARIABLE work = CONDITION_VARIABLE_INIT, progress = CONDITION_VARIABLE_INIT;
 static int enabled = -1;   /* -1 not decided yet */
 static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
+volatile int gpu_skip_draws;
+static volatile int skip_next;   /* the submissions queued from now on skip their draws */
+void gpu_set_skip(int on) { skip_next = on; }
 
 static DWORD WINAPI gpu_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"gpu");
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    cpu_sched_thread(CPU_ROLE_GPU);
     for (;;) {
         AcquireSRWLockExclusive(&lock);
         while (done == queued) SleepConditionVariableSRW(&work, &lock, INFINITE, 0);
         Job *j = &jobs[done % JOBS];
+        cpu_sched_sample();
         ReleaseSRWLockExclusive(&lock);
+        gpu_skip_draws = j->skip;
         gpu_submit(j->channel, j->entries, j->count);   /* (the job stays put until `done` passes it) */
+        gpu_skip_draws = 0;
         AcquireSRWLockExclusive(&lock);
         u32 id = j->syncpoint;
         if (id < SYNCPT_MAX && (i32)(j->fence - gpu_syncpt_min[id]) > 0) gpu_syncpt_min[id] = j->fence;
@@ -78,6 +86,7 @@ void gpu_queue_submit(u32 channel, const u64 *entries, u32 count, u32 syncpoint,
     j->count = count;
     j->syncpoint = syncpoint;
     j->fence = fence;
+    j->skip = (u8)skip_next;
     j->entries = count <= INLINE ? j->inline_entries : malloc(sizeof *entries * count);
     if (!j->entries) { j->entries = j->inline_entries; j->count = count = 0; }
     memcpy(j->entries, entries, sizeof *entries * count);   /* (the driver reuses its array) */
@@ -89,6 +98,13 @@ void gpu_queue_submit(u32 channel, const u64 *entries, u32 count, u32 syncpoint,
 u64 gpu_queue_mark(void) {
     AcquireSRWLockShared(&lock);
     u64 n = queued;
+    ReleaseSRWLockShared(&lock);
+    return n;
+}
+
+u64 gpu_queue_done(void) {
+    AcquireSRWLockShared(&lock);
+    u64 n = done;
     ReleaseSRWLockShared(&lock);
     return n;
 }

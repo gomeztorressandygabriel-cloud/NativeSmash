@@ -558,7 +558,7 @@ New-Chips (Find 'SharpChips') @(
 (Find 'DirectConn').IsChecked = -not ((Get-LineValue $directFile) -match '^(?i)off')
 (Find 'BackgroundBox').IsChecked = (Get-Number (Get-Setting $padsIni 'general' 'background')) -ne 0
 (Find 'VsyncBox').IsChecked = @('off', '0', 'no') -notcontains ([string](Get-Setting $displayIni '' 'vsync')).Trim().ToLower()
-(Find 'FskipBox').IsChecked = @('off', '0', 'no') -notcontains ([string](Get-Setting $displayIni '' 'frameskip')).Trim().ToLower()
+(Find 'FskipBox').IsChecked = @('on', '1', 'yes') -contains ([string](Get-Setting $displayIni '' 'frameskip')).Trim().ToLower()
 
 # ---- the keyboard's keys (controllers.ini [keyboard]; the game's defaults when a key is not there) -----
 $KeyActions = [ordered]@{

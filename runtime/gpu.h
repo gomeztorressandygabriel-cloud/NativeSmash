@@ -24,6 +24,7 @@ int gpu_threaded(void);                                   /* is there one (SSBU_
 void gpu_queue_submit(u32 channel, const u64 *entries, u32 count, u32 syncpoint, u32 fence);
 u64 gpu_queue_mark(void);                                 /* submissions queued so far */
 u64 gpu_queue_done(void);                                 /* submissions run so far */
+unsigned long long gpu_busy_ns_total(void);               /* time the graphics thread has spent running submissions */
 void gpu_queue_wait(u64 mark);                            /* until that many have run */
 void gpu_queue_drain(void);                               /* until everything queued has run */
 /* Frame skipping (ipc_vi.c decides, gpu_queue.c carries it, gpu.c obeys): submissions queued while the skip is on get their

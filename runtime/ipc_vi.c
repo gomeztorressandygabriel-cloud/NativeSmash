@@ -49,13 +49,13 @@ extern u64 gpu_stat_draws;
  * free buffer to draw the next into, slows down. Instead, while the card is behind, every other frame is left out: its
  * draws and clears are not run (gpu_set_skip: the submissions after the last present are marked), and it is not shown
  * (the display keeps the frame before). "Behind" is how long the display waited for the card to finish the frame it was
- * about to show: over 2 ms on two refreshes in a row; or the card has over a frame of submissions still to run; or, which
- * is what the player feels, the game itself is making fewer than 60 frames a second (the interval between the frames it
- * queues, over 17.6 ms on average, back under 16.6 to stop) in a scene with many draws (in a menu, a video or a loading
- * screen a slow rate is the game's own, and nothing is left out). The card's and the processor's power are shared on a
- * laptop: with fewer draws to run the processor keeps a higher clock, and the game's own thread with it. Never two skipped
- * frames in a row, so at the worst the picture moves at 30 frames a second while the game goes on at full speed.
- * display.ini: frameskip = off turns it off. */
+ * about to show: over 2 ms on two refreshes in a row; or the card has over a frame of submissions still to run; or the game
+ * is making fewer than 60 frames a second (the interval between the frames it queues, over 17.6 ms on average) in a scene
+ * with many draws while the graphics thread is busy over 75% of the time (what is slow is then the drawing: in a menu, a
+ * video, a loading screen, or a scene where the processor is the limit, as an 8-player battle on a laptop, leaving frames out
+ * only halves what is shown and the game goes no faster). The card's and the processor's power are shared on a laptop: with
+ * fewer draws to run the processor keeps a higher clock. At most one frame in four is left out. display.ini: frameskip = off
+ * turns it off. */
 static volatile LONG lag_streak;           /* refreshes in a row that waited for the card (the vsync thread) */
 static int skip_now;                       /* the frame being submitted now has its draws left out */
 static u64 skipped_frames, queued_frames;
@@ -277,18 +277,26 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
             u64 backlog = mark - gpu_queue_done();
             static u64 last_queue_ns, last_draws;
             static double interval_ms = 16.7, draws_per_frame;
-            static int slow;
+            static int slow, since_skip;
+            static u64 busy_at_ns, busy_total_ns;
+            static double busy_frac;
             u64 now_ns = rt_now_ns(), draws = gpu_stat_draws + gpu_stat_skipped_draws;
+            if (now_ns - busy_at_ns >= 500000000ull) {   /* how much of the time the graphics thread worked, half a second at a time */
+                u64 busy = gpu_busy_ns_total();
+                if (busy_at_ns) busy_frac = (double)(busy - busy_total_ns) / (double)(now_ns - busy_at_ns);
+                busy_at_ns = now_ns; busy_total_ns = busy;
+            }
             if (last_queue_ns && now_ns - last_queue_ns < 100000000ull) {
                 interval_ms = interval_ms * 0.9 + (double)(now_ns - last_queue_ns) / 1e6 * 0.1;
                 { LONGLONG us = (LONGLONG)((now_ns - last_queue_ns) / 1000); InterlockedAdd64(&interval_sum_us, us); InterlockedIncrement(&interval_n); if (us > interval_max_us) interval_max_us = us; }
                 draws_per_frame = draws_per_frame * 0.9 + (double)(draws - last_draws) * 0.1;
             }
             last_queue_ns = now_ns; last_draws = draws;
-            if (!slow && interval_ms > 17.6 && draws_per_frame > 500) slow = 1;
-            else if (slow && (interval_ms < 16.6 || draws_per_frame < 300)) slow = 0;
+            if (!slow && interval_ms > 17.6 && draws_per_frame > 500 && busy_frac > 0.75) slow = 1;
+            else if (slow && (interval_ms < 16.6 || draws_per_frame < 300 || busy_frac < 0.55)) slow = 0;
             int behind = (double)backlog > frame_jobs * 1.25 + 2 || lag_streak >= 2 || slow;
-            skip_now = allowed && behind && !skip_now;   /* the next frame: left out when the card is behind, never two in a row */
+            since_skip = skip_now ? 0 : since_skip + 1;
+            skip_now = allowed && behind && since_skip >= 3;   /* the next frame: left out when the card is behind, one in four at most */
             gpu_set_skip(skip_now);
         }
         queue_output(out);

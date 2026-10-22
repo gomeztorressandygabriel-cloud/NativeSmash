@@ -40,6 +40,7 @@ static HWND window;
 static ID3D11Device *dev, *compile_dev;
 static IDXGIAdapter3 *mem_adapter;   /* (asked for the graphics memory in use: gfx_status_lines) */
 static u64 texture_bytes, texture_budget, textures_dropped, textures_reduced, texture_saved;   /* (see "textures") */
+static u64 shaders_let_go;   /* shader objects released for being idle, and not made again yet (shaders_trim_idle) */
 static u32 textures_held(void);
 static void residents_totals(u32 *count, u64 *bytes);
 static const GUID iid_adapter3 = {0x645967a4, 0x1392, 0x4310, {0xa7, 0x98, 0x80, 0x53, 0xce, 0x3e, 0x93, 0xfd}};
@@ -1019,7 +1020,8 @@ typedef struct Shader {
     u64 hash, table_hash;
     u32 vs_outputs;
     int stage;
-    volatile LONG state;   /* 0 compiling, 1 ready, 2 failed */
+    volatile LONG state;   /* 0 compiling, 1 ready, 2 failed, 3 let go for being idle (made again from the disk cache when a draw asks) */
+    u64 used_frame;        /* the frame a draw last asked for it (shaders_trim_idle) */
     void *obj;             /* ID3D11VertexShader, ID3D11PixelShader or ID3D11ComputeShader */
     char *hlsl;            /* while compiling */
     char name[64];
@@ -1248,6 +1250,7 @@ static LONG make_ready(struct Compiler *me, Shader *s) {
         free(code);
         if (ok) { cache_touch(path); return 1; }
     }
+    if (!s->hlsl) return 2;   /* (one made again from its cache file that could not be read: nothing to compile) */
     me->step = STEP_FXC;
     ID3DBlob *code = NULL, *errors = NULL;
     HRESULT hr = shader_cache_compile(s->hlsl, s->name, s->stage, &code, &errors);
@@ -1879,7 +1882,7 @@ void gfx_monitor_stats(unsigned long long *gpu_used, unsigned long long *gpu_bud
         surf += (u64)sd.Width * sd.Height * sd.ArraySize * sd.SampleDesc.Count * 4;
     }
     *surface_bytes_out = surf;
-    *shaders = gfx_stat_shaders;
+    *shaders = gfx_stat_shaders - shaders_let_go;   /* (the ones with an object now) */
     LeaveCriticalSection(&lock);
 }
 
@@ -1928,6 +1931,8 @@ void gfx_status_lines(void) {
             private_bytes() / 1048576.0, pc, gpu, held, tex_bytes / 1048576.0, budget, (unsigned long long)dropped,
             (unsigned long long)textures_reduced, texture_saved / 1048576.0);
     debug_report_live();
+    fprintf(stderr, "[status] shaders: %llu made, %llu let go for being idle, %llu with an object now\n", (unsigned long long)gfx_stat_shaders,
+            (unsigned long long)shaders_let_go, (unsigned long long)(gfx_stat_shaders - shaders_let_go));
     fprintf(stderr, "[status] graphics: %u images drawn to, %.0f MB (%u of 16 MB or more, the biggest %.0f MB); %u buffers kept, %.0f MB\n",
             nsurf, surf_bytes / 1048576.0, big, biggest / 1048576.0, nres, res_bytes / 1048576.0);
 }
@@ -2034,7 +2039,23 @@ static u64 fingerprint(int stage, const u8 *p, u32 size) {   /* 32 words spread 
 
 /* The shader for the program at guest address g, ready (state 1) or not. alpha_tested: a pixel
  * shader's variant that does the fixed-function alpha test (its own hash, so its own cache file). */
+static Shader *find_shader_ex0(u64 g, int stage, u32 vs_outputs, const CbBinding *stage_cb, const u32 *local, u32 shared, int alpha_tested);
+static void enqueue_shader(Shader *s);
+
+/* The shader for a program, as find_shader_ex0 finds it; asked for now, so not idle; and, if it had been let go, its object
+ * is made again from the disk cache (a few ms on a compiler thread; its draws wait, as those of any new program do). */
 static Shader *find_shader_ex(u64 g, int stage, u32 vs_outputs, const CbBinding *stage_cb, const u32 *local, u32 shared, int alpha_tested) {
+    Shader *s = find_shader_ex0(g, stage, vs_outputs, stage_cb, local, shared, alpha_tested);
+    if (!s) return NULL;
+    s->used_frame = gfx_stat_presented;
+    if (s->state == 3 && InterlockedCompareExchange(&s->state, 0, 3) == 3) {
+        s->cached = 1;
+        enqueue_shader(s);
+    }
+    return s;
+}
+
+static Shader *find_shader_ex0(u64 g, int stage, u32 vs_outputs, const CbBinding *stage_cb, const u32 *local, u32 shared, int alpha_tested) {
     /* a compute program has no header: it is translated as if it had one (never read) */
     const u8 *p = stage == SHADER_COMPUTE ? P(u8, g) - 0x50 : P(u8, g);
     u64 key = (u64)stage | (u64)vs_outputs << 4 | (stage == SHADER_COMPUTE ? ((u64)local[0] ^ (u64)local[1] << 11 ^ (u64)local[2] << 22 ^ (u64)shared << 33) << 36 : 0)
@@ -5056,6 +5077,43 @@ static void check_device(HRESULT hr, const char *doing) {
 void watchdog_present(void);   /* debug_watchdog.c */
 void hitch_present(void);      /* debug_profile.c */
 
+/* Programs not asked for in minutes (the fighters and stages of a match before) let go: their objects held about 0.8 MB each, and a
+ * long battle on an 8 GB PC kept thousands until the PC paged. The cache file stays, so a program asked for again is made in a few
+ * ms. How long counts as idle follows the memory the PC has left: 3 minutes with plenty, 1 under 1 GB, 20 seconds under 400 MB.
+ * Vertex and pixel programs only; a pass takes at most 40. SSBU_SHADER_IDLE=<seconds> sets it, 0 turns it off. Under the renderer's lock. */
+static void shaders_trim_idle(void) {
+    static u64 last_ms;
+    static int fixed = -1;   /* -1 not read yet */
+    u64 now = GetTickCount64();
+    if (now - last_ms < 1000) return;
+    last_ms = now;
+    if (fixed == -1) { const char *e = getenv("SSBU_SHADER_IDLE"); fixed = e ? atoi(e) : -2; }   /* (-2: not set, follow the memory) */
+    if (fixed == 0) return;
+    u64 idle_s = (u64)fixed;
+    if (fixed < 0) {   /* (-2) */
+        MEMORYSTATUSEX ms;
+        ms.dwLength = sizeof ms;
+        u64 avail = GlobalMemoryStatusEx(&ms) ? ms.ullAvailPhys : ~0ull;
+        idle_s = avail < (400ull << 20) ? 20 : avail < (1024ull << 20) ? 60 : 180;
+    }
+    u64 idle_frames = idle_s * 60;
+    u32 done = 0;
+    for (u32 i = 0; i < shader_count && done < 40; i++) {
+        Shader *s = shader_cache[i];
+        if (s->state != 1 || s->stage == SHADER_COMPUTE || !s->obj || !s->drawn || gfx_stat_presented - s->used_frame < idle_frames) continue;
+        char path[1200];
+        cache_path(s, path, sizeof path);
+        if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) continue;   /* (no file to make it again from) */
+        void *o = s->obj;
+        s->obj = NULL;
+        InterlockedExchange(&s->state, 3);
+        bury(o);
+        shaders_let_go++;
+        done++;
+    }
+    if (done) { cur.vs = UNKNOWN_PTR; cur.ps = UNKNOWN_PTR; }   /* (the mirror of what is bound must not match an object made later at the same address) */
+}
+
 void gfx_present(u64 guest, u32 width, u32 height) {
     (void)width; (void)height;
     if (!enter()) return;
@@ -5065,6 +5123,7 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     forget_draw_state();
     gfx_stat_presented++;
     release_graves();
+    shaders_trim_idle();
     note_writes();
     debug_messages();
     static int logged, frames_logged, frames_to_log;

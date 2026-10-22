@@ -56,7 +56,7 @@ static struct {
     int texture_quality;  /* -1 auto, 0 high, 1 medium, 2 low (the biggest mip levels left out) */
     int frameskip;        /* 1: frames are skipped when the graphics card is behind */
     int monitor;          /* 1: the monitor (monitor.h) writes build\\monitor.csv */
-} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 0, 0.8f, 1, -1, 1, 0};
+} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 0, 0.8f, 1, -1, 0, 0};
 
 static const char DEFAULT_INI[] =
     "; display.ini: the game's window and the pacing of its frames. Read when the game starts; the\n"
@@ -152,8 +152,9 @@ static const char DEFAULT_INI[] =
     "monitor = off\n"
     "; frameskip = on | off\n"
     ";   on: when the graphics card cannot draw 60 frames a second, some frames are not drawn (the game goes on at full\n"
-    ";   speed and the picture shows fewer frames) instead of the game slowing down. off: every frame is drawn.\n"
-    "frameskip = on\n"
+    ";   speed and the picture shows fewer frames) instead of the game slowing down; it acts only while the graphics thread is\n"
+    ";   busy over 75% of the time, and leaves out one frame in four at most. off: every frame is drawn.\n"
+    "frameskip = off\n"
     "; texture_quality = auto | high | medium | low\n"
     ";   how big the game's textures are kept in graphics memory. medium leaves out the biggest size of each large\n"
     ";   texture (a quarter of the memory), low the two biggest: at a render_scale under 1 the difference is\n"

@@ -36,6 +36,10 @@
 
 static HWND window;
 static ID3D11Device *dev, *compile_dev;
+static IDXGIAdapter3 *mem_adapter;   /* (asked for the graphics memory in use: gfx_status_lines) */
+static u64 texture_bytes, texture_budget, textures_dropped;   /* (see "textures") */
+static u32 textures_held(void);
+static const GUID iid_adapter3 = {0x645967a4, 0x1392, 0x4310, {0xa7, 0x98, 0x80, 0x53, 0xce, 0x3e, 0x93, 0xfd}};
 static ID3D11DeviceContext *ctx;
 static IDXGISwapChain1 *swapchain;
 static UINT swapchain_flags;
@@ -758,6 +762,16 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
      * the translator writes its variant 131 (gpu_shader.c: also no vector read at an address that
      * is not a multiple of 16 - stages lit right then), kept apart in the disk cache. */
     if (gpu_vendor == 0x8086) shader_set_hlsl_variant(131);
+    /* The textures kept: at most 1 GB on a PC with under 12 GB of RAM (a battle held about 120 MB; a long
+     * session's cache, up to 4096 of them, otherwise keeps growing), else as many as fit the table.
+     * SSBU_TEXTURE_MB=<MB> sets it, 0 for no limit. */
+    const char *tmb = getenv("SSBU_TEXTURE_MB");
+#ifdef _WIN32
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof ms;
+    if (GlobalMemoryStatusEx(&ms) && ms.ullTotalPhys < (12ull << 30)) texture_budget = 1024ull << 20;
+#endif
+    if (tmb) texture_budget = atoi(tmb) > 0 ? (u64)atoi(tmb) << 20 : ~0ull;
     /* The back buffer is the window's inside (display.ini sizes the window). Where the system
      * allows it, the swap chain may tear, which VRR pacing asks for at each Present. */
     IDXGIFactory5 *factory5;
@@ -781,6 +795,7 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
         IDXGIDevice1_SetMaximumFrameLatency(dxgi_dev1, (UINT)display_latency());
         IDXGIDevice1_Release(dxgi_dev1);
     }
+    if (FAILED(IDXGIAdapter_QueryInterface(adapter, &iid_adapter3, (void **)&mem_adapter))) mem_adapter = NULL;
     IDXGIFactory2_Release(factory); IDXGIAdapter_Release(adapter); IDXGIDevice_Release(dxgi_dev);
 
     ID3DBlob *vs = compile_hlsl(BLIT_HLSL, "vs", "vs_5_0"), *ps = compile_hlsl(BLIT_HLSL, "ps", "ps_5_0");
@@ -1068,11 +1083,12 @@ static int create_noted(struct Compiler *me, Shader *s, const void *code, size_t
  * outputs: the generic attributes between the stages (a vertex program's, from its DXBC; a pixel
  * program's, vs_outputs), for its first draw (warm_prewarmed). */
 typedef struct Prewarm { u64 hash, table_hash; u32 vs_outputs, outputs; int stage; LONG state; void *obj; } Prewarm;
-enum { PW_EMPTY, PW_QUEUED, PW_LOADING, PW_READY, PW_TAKEN, PW_FAILED };
+enum { PW_EMPTY, PW_QUEUED, PW_LOADING, PW_READY, PW_TAKEN, PW_FAILED, PW_WARMED };
 #define PREWARM_SLOTS 32768
 static Prewarm *volatile prewarm_table;
 static SRWLOCK prewarm_lock = SRWLOCK_INIT;
 static volatile LONG prewarm_total, prewarm_done, prewarm_ready;
+static int prewarm_keep = 1;   /* the prewarm keeps the objects it makes (else: the driver's cache only, prewarm_main) */
 static volatile LONG prewarm_listed;   /* prewarm_total is final */
 static u64 prewarm_t0, prewarm_bytes0;
 
@@ -1124,7 +1140,21 @@ static void *prewarm_take(const Shader *s) {
 
 static u32 dxbc_outputs(const u8 *code, size_t size);   /* (see "first draws") */
 
-/* (on a compiler thread) one prewarm job: the file, then both devices' objects */
+/* (on a compiler thread) the driver's compile of a program on the compile device only, its object let go:
+ * what is left is the GPU code in the driver's own cache, where the game's load finds it later */
+static int warm_driver(struct Compiler *me, Shader *s, const void *code, size_t size) {
+    me->dxbc = code;
+    me->dxbc_size = size;
+    me->step = STEP_DRIVER;
+    void *warm = NULL;
+    int ok = SUCCEEDED(create_on(compile_dev, s->stage, code, size, &warm));
+    if (warm) IUnknown_Release((IUnknown *)warm);
+    me->dxbc = NULL;
+    return ok;
+}
+
+/* (on a compiler thread) one prewarm job: the file, then both devices' objects (or, prewarm_keep
+ * off, the compile device's only) */
 static void prewarm_job(struct Compiler *me, Shader *s) {
     Prewarm *p = s->prewarm;
     AcquireSRWLockExclusive(&prewarm_lock);
@@ -1132,6 +1162,7 @@ static void prewarm_job(struct Compiler *me, Shader *s) {
     if (go) p->state = PW_LOADING;
     ReleaseSRWLockExclusive(&prewarm_lock);
     void *obj = NULL;
+    int warmed = 0;
     u32 outputs = s->stage == SHADER_PIXEL ? s->vs_outputs : ~0u;
     if (go) {
         char path[1200];
@@ -1143,7 +1174,10 @@ static void prewarm_job(struct Compiler *me, Shader *s) {
             long n = ftell(f);
             fseek(f, 0, SEEK_SET);
             void *code = n > 0 ? malloc(n) : NULL;
-            if (code && fread(code, 1, n, f) == (size_t)n && create_noted(me, s, code, n)) obj = s->obj;
+            if (code && fread(code, 1, n, f) == (size_t)n) {
+                if (!prewarm_keep) warmed = warm_driver(me, s, code, n);
+                else if (create_noted(me, s, code, n)) obj = s->obj;
+            }
             if (obj && s->stage == SHADER_VERTEX) outputs = dxbc_outputs(code, n);
             fclose(f);
             free(code);
@@ -1153,14 +1187,15 @@ static void prewarm_job(struct Compiler *me, Shader *s) {
     if (go && p->state == PW_LOADING) {
         p->outputs = outputs;
         p->obj = obj;
-        p->state = obj ? PW_READY : PW_FAILED;
-        if (obj) prewarm_ready++;
+        p->state = obj ? PW_READY : warmed ? PW_WARMED : PW_FAILED;
+        if (obj || warmed) prewarm_ready++;
         obj = NULL;
     }
     ReleaseSRWLockExclusive(&prewarm_lock);
     if (obj) IUnknown_Release((IUnknown *)obj);   /* the game loaded its own meanwhile */
     if (InterlockedIncrement(&prewarm_done) == prewarm_total)
-        fprintf(stderr, "[gfx] prewarm: %ld of %ld shaders ready in %.1f s; private memory %.0f -> %.0f MB\n", (long)prewarm_ready, (long)prewarm_total,
+        fprintf(stderr, "[gfx] prewarm: %ld of %ld shaders %s in %.1f s; private memory %.0f -> %.0f MB\n", (long)prewarm_ready, (long)prewarm_total,
+                prewarm_keep ? "ready" : "in the driver's cache",
                 (GetTickCount64() - prewarm_t0) / 1000.0, prewarm_bytes0 / 1048576.0, private_bytes() / 1048576.0);
 }
 
@@ -1298,6 +1333,21 @@ static DWORD WINAPI prewarm_main(void *unused) {
     u32 n = played_files(cache_dir(), &found);
     prewarm_t0 = GetTickCount64();
     prewarm_bytes0 = private_bytes();
+    /* With little RAM, the prewarm only has the driver compile each program, on the compile device,
+     * and lets the object go: the driver keeps the GPU code in its own disk cache, and the game's own
+     * load of the program finds it there when it first draws with it. Kept, the objects took about
+     * 0.5 MB a program: on an 8 GB PC with an Iris Xe, 6210 of them took the game from 3.0 to 5.9 GB,
+     * left 0.2 GB of RAM free, and Windows paging in a long session made it jump and slow down; without
+     * them a battle had no slow first draws either. SSBU_SHADER_PREWARM_KEEP=0/1 overrides. */
+    const char *keep = getenv("SSBU_SHADER_PREWARM_KEEP");
+    u64 ram = 0;
+#ifdef _WIN32
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof ms;
+    if (GlobalMemoryStatusEx(&ms)) ram = ms.ullTotalPhys;
+#endif
+    prewarm_keep = keep ? atoi(keep) != 0 : !compile_dev || warm_first_draws || !ram || ram >= (12ull << 30);
+    if (!compile_dev) prewarm_keep = 1;   /* (the driver's cache is warmed through the compile device) */
     Prewarm *table = calloc(PREWARM_SLOTS, sizeof *table);
     prewarm_table = table;
     Prewarm **order = n ? malloc(sizeof *order * n) : NULL;   /* (the entries in queue order) */
@@ -1756,11 +1806,31 @@ static void first_used(const Shader *s) {
 }
 
 void gfx_status_lines(void) {
-    if (!ready || !gfx_stat_first_draws) return;
+    if (!ready) return;
     EnterCriticalSection(&lock);
-    fprintf(stderr, "[status] first draws with a shader: %llu, %llu of them over 4 ms (%.0f ms in all); longest %.1f ms (%s)\n",
-            gfx_stat_first_draws, gfx_stat_first_slow, first_slow_ms, first_longest_ms, first_longest);
+    if (gfx_stat_first_draws)
+        fprintf(stderr, "[status] first draws with a shader: %llu, %llu of them over 4 ms (%.0f ms in all); longest %.1f ms (%s)\n",
+                gfx_stat_first_draws, gfx_stat_first_slow, first_slow_ms, first_longest_ms, first_longest);
+    u32 held = textures_held();
+    u64 tex_bytes = texture_bytes, dropped = textures_dropped;
     LeaveCriticalSection(&lock);
+    /* the memory: the game's own, the PC's, the graphics card's (an integrated one's "shared" is the PC's RAM) */
+    char pc[96] = "", gpu[160] = "";
+#ifdef _WIN32
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof ms;
+    if (GlobalMemoryStatusEx(&ms))
+        snprintf(pc, sizeof pc, "; the PC %.1f of %.1f GB free", ms.ullAvailPhys / 1073741824.0, ms.ullTotalPhys / 1073741824.0);
+#endif
+    DXGI_QUERY_VIDEO_MEMORY_INFO local, shared;
+    if (mem_adapter && SUCCEEDED(IDXGIAdapter3_QueryVideoMemoryInfo(mem_adapter, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local)) &&
+        SUCCEEDED(IDXGIAdapter3_QueryVideoMemoryInfo(mem_adapter, 0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &shared)))
+        snprintf(gpu, sizeof gpu, "; graphics memory %.0f MB (budget %.0f) + %.0f MB shared (budget %.0f)",
+                 local.CurrentUsage / 1048576.0, local.Budget / 1048576.0, shared.CurrentUsage / 1048576.0, shared.Budget / 1048576.0);
+    char budget[48] = "";
+    if (texture_budget != ~0ull) snprintf(budget, sizeof budget, " of %llu MB allowed", (unsigned long long)(texture_budget >> 20));
+    fprintf(stderr, "[status] memory: the game %.0f MB%s%s; textures %u held, %.0f MB%s, %llu dropped\n",
+            private_bytes() / 1048576.0, pc, gpu, held, tex_bytes / 1048576.0, budget, (unsigned long long)dropped);
 }
 
 /* Hand a shader to the compiler threads. A compute program's cache load goes to the front:
@@ -2786,8 +2856,12 @@ typedef struct Texture {
     ID3D11ShaderResourceView *srv;
     ID3D11Texture2D *tex;
     u64 used, asked;       /* (asked: the frame the write watch was last asked about it, gfx_stat_presented) */
+    u64 bytes, frame;      /* what it takes in graphics memory (about); the frame it was last used in */
 } Texture;
 static Texture textures[4096];
+static u64 texture_bytes;              /* what the textures held take, about */
+static u64 texture_budget = ~0ull;     /* above it, the least recently used go (set at init: texture_trim) */
+static u64 textures_dropped;           /* (for the status lines) */
 static u32 ntextures;
 u64 gfx_stat_textures, gfx_stat_watch_us;
 u64 gfx_stat_unpacked;   /* block-compressed textures copied to their exact size (unpack_texture) */
@@ -2875,6 +2949,30 @@ static Texture *texture_find(u64 g, const u32 *tic) {
         if (t->srv && t->guest == g && !memcmp(t->tic, tic, 32)) return t;
     }
     return NULL;
+}
+
+/* Over the budget, the textures least recently used go, but none used in this frame or the one
+ * before (draws still to come may want them again). A texture dropped is read again when the game
+ * next uses it. */
+static void texture_trim(const Texture *keep) {
+    while (texture_bytes > texture_budget) {
+        Texture *lru = NULL;
+        for (u32 i = 0; i < ntextures; i++) {
+            Texture *t = &textures[i];
+            if (!t->srv || t == keep || t->frame + 2 > gfx_stat_presented) continue;
+            if (!lru || t->used < lru->used) lru = t;
+        }
+        if (!lru) return;
+        texture_bytes -= lru->bytes; lru->bytes = 0;
+        ID3D11ShaderResourceView_Release(lru->srv); ID3D11Texture2D_Release(lru->tex); lru->srv = NULL; lru->tex = NULL;
+        textures_dropped++;
+    }
+}
+
+static u32 textures_held(void) {
+    u32 n = 0;
+    for (u32 i = 0; i < ntextures; i++) n += textures[i].srv != NULL;
+    return n;
 }
 
 static void texture_index_put(Texture *t) {
@@ -2993,7 +3091,7 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
     Texture *free_slot = NULL, *lru = NULL, *hit = texture_find(g, tic);
     if (hit) {
         if (watch) texture_ask(hit);
-        if (watch ? !hit->stale : hit->sample_hash == sh) { hit->used = ++tick; return hit->srv; }
+        if (watch ? !hit->stale : hit->sample_hash == sh) { hit->used = ++tick; hit->frame = gfx_stat_presented; return hit->srv; }
         free_slot = hit;   /* contents changed: rebuild in place */
     } else
         for (u32 i = 0; i < ntextures; i++) {   /* a new one: a free slot, else the least recently used */
@@ -3003,7 +3101,7 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
         }
     Texture *t = free_slot;
     if (!t) t = ntextures < 4096 ? &textures[ntextures++] : lru;
-    if (t->srv) { ID3D11ShaderResourceView_Release(t->srv); ID3D11Texture2D_Release(t->tex); t->srv = NULL; }
+    if (t->srv) { texture_bytes -= t->bytes; t->bytes = 0; ID3D11ShaderResourceView_Release(t->srv); ID3D11Texture2D_Release(t->tex); t->srv = NULL; }
     if (t != hit) { t->guest = g; memcpy(t->tic, tic, 32); texture_index_add(t); }
     if (watch) watch_written(g, size, &t->seen);   /* (before reading: a write meanwhile is news next frame) */
     if (d.type == TIC_3D) {   /* level 0 only, which is all a lookup table has */
@@ -3027,7 +3125,9 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
         t->tex = (ID3D11Texture2D *)tex3;   /* only ever released, and skipped by captures */
         t->guest = g; t->size = size; t->watched = watch; t->stale = 0; t->asked = gfx_stat_presented;
         memcpy(t->tic, tic, 32); t->sample_hash = sh; t->used = ++tick;
+        t->bytes = (u64)rowb * rows * d.depth; texture_bytes += t->bytes; t->frame = gfx_stat_presented;
         gfx_stat_textures++;
+        texture_trim(t);
         return t->srv;
     }
     u32 levels = d.levels, max_levels = 1;
@@ -3044,6 +3144,7 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
     }
     D3D11_SUBRESOURCE_DATA *init = calloc(levels * layers, sizeof *init);
     u8 **mem = calloc(levels * layers, sizeof *mem);
+    u64 bytes = 0;
     for (u32 layer = 0; layer < layers; layer++)
         for (u32 l = 0; l < levels; l++) {
             u32 w = (d.width >> l) ? d.width >> l : 1, h = (d.height >> l) ? d.height >> l : 1;
@@ -3060,6 +3161,7 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
             for (u32 y = 0; pbw > bw && y < bh; y++) memset(buf + ((size_t)y * pbw + bw) * d.bytes, 0, (size_t)(pbw - bw) * d.bytes);
             gfx_stat_upload_bytes += (u64)bw * bh * d.bytes;
             gfx_stat_upload_kind[3] += (u64)bw * bh * d.bytes;
+            bytes += (u64)pbw * pbh * d.bytes;
             init[layer * levels + l] = (D3D11_SUBRESOURCE_DATA){buf, pbw * d.bytes, pbw * pbh * d.bytes};
             mem[layer * levels + l] = buf;
         }
@@ -3078,6 +3180,8 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
         sd.Format = unpacked.tex != DXGI_FORMAT_R8G8B8A8_TYPELESS ? unpacked.tex
                   : unpacked.read != d.dxgi ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
         gfx_stat_unpacked++;
+        bytes = 0;
+        for (u32 l = 0; l < levels; l++) bytes += (u64)((d.width >> l) ? d.width >> l : 1) * ((d.height >> l) ? d.height >> l : 1) * 4 * layers;
     }
     switch (shader_type) {
     case TEX_ARRAY_2D: sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY; sd.Texture2DArray.MipLevels = levels; sd.Texture2DArray.ArraySize = layers; break;
@@ -3092,7 +3196,9 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
     }
     t->guest = g; t->size = size; t->watched = watch; t->stale = 0; t->asked = gfx_stat_presented;
     memcpy(t->tic, tic, 32); t->sample_hash = sh; t->used = ++tick;
+    t->bytes = bytes; texture_bytes += bytes; t->frame = gfx_stat_presented;
     gfx_stat_textures++;
+    texture_trim(t);
     return t->srv;
 }
 

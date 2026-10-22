@@ -1037,6 +1037,11 @@ static Shader **shader_cache;
 static u32 shader_count, shader_cap;
 u64 gfx_stat_shaders, gfx_stat_shader_failures;
 static volatile LONG compiles_pending;
+/* The prewarm after the loading screen (the rest of a long list, when the driver's cache was cold) must not take the game's CPU and
+ * power: with 9900 programs to make, three compiler threads at 90% for minutes cut the clock of the cores and the game fell to 50
+ * frames a second with 98 ms spikes. So once the loading screen is over (prewarm_background) one thread does it, and only while
+ * the scene is light (scene_heavy: over 6000 draws a second); what is not warmed is made when a draw asks, as any new program. */
+static volatile LONG prewarm_background, scene_heavy;
 
 /* The compiler threads: a queue of cache loads, one of compiles. Big stacks (the driver's
  * compiler recurses over a program's blocks), below the game's threads in priority. */
@@ -1276,11 +1281,14 @@ static DWORD WINAPI compiler_main(void *arg) {
     cpu_sched_thread(CPU_ROLE_BACKGROUND);
     ULONG guarantee = 64 << 10;   /* room for the crash report, should a compile overflow even this stack */
     SetThreadStackGuarantee(&guarantee);
-    int prewarms = me != &compilers[0];
     for (;;) {
         AcquireSRWLockExclusive(&jobs_lock);
-        while (!job_queue[0].head && !job_queue[1].head && !(prewarms && job_queue[2].head))
-            SleepConditionVariableSRW(&jobs_cv, &jobs_lock, INFINITE, 0);
+        for (;;) {
+            int prewarms = me != &compilers[0];
+            if (prewarm_background) prewarms = me == &compilers[1] && !scene_heavy;
+            if (job_queue[0].head || job_queue[1].head || (prewarms && job_queue[2].head)) break;
+            SleepConditionVariableSRW(&jobs_cv, &jobs_lock, prewarm_background ? 500 : INFINITE, 0);   /* (looks again: the scene may have turned light) */
+        }
         int q = job_queue[0].head ? 0 : job_queue[1].head ? 1 : 2;
         Shader *s = job_queue[q].head;
         if (!(job_queue[q].head = s->next_job)) job_queue[q].tail = NULL;
@@ -5124,6 +5132,15 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     gfx_stat_presented++;
     release_graves();
     shaders_trim_idle();
+    {   /* how heavy the scene is, for the background prewarm */
+        static u64 weight_ms, weight_drawn;
+        u64 t = GetTickCount64();
+        if (t - weight_ms >= 1000) {
+            InterlockedExchange(&scene_heavy, weight_ms && (gfx_stat_drawn - weight_drawn) * 1000 / (t - weight_ms) > 6000);
+            weight_ms = t;
+            weight_drawn = gfx_stat_drawn;
+        }
+    }
     note_writes();
     debug_messages();
     static int logged, frames_logged, frames_to_log;
@@ -5204,6 +5221,7 @@ void gfx_present(u64 guest, u32 width, u32 height) {
         fprintf(stderr, "[gfx] loading screen: %ld of %ld shaders made in %.1f s%s\n", (long)prewarm_done, (long)prewarm_total,
                 (GetTickCount64() - t0) / 1000.0, prewarm_done < prewarm_total ? " (the rest while playing)" : "");
     }
+    InterlockedExchange(&prewarm_background, 1);   /* (what the prewarm still has to do, it does behind the game) */
     Surface *src = NULL;
     for (u32 i = 0; i < nsurfaces; i++)
         if (surfaces[i].tex && !surfaces[i].depth && surfaces[i].guest == guest) src = &surfaces[i];

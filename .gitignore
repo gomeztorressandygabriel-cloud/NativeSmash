@@ -83,3 +83,6 @@ Thumbs.db
 language.txt
 dist/
 build_release/
+
+# Android build tools (NDK, JDK, SDK) and the debug key, installed by hand (docs/ANDROID.md)
+/deps/android/

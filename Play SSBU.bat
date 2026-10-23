@@ -31,5 +31,7 @@ if errorlevel 1 (pause & exit /b 1)
 exit /b 0
 :direct
 call tools\pick_version.bat || (pause & exit /b 1)
+rem the log of the last game is kept (build\logs) before this one writes its own
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SSBU_TREE%\tools\keep_logs.ps1" "%SSBU_TREE%\build"
 start "SSBU log" /min cmd /c "%SSBU_TREE%\build\ssbu.exe %SSBU_TREE%\dump\modules --status 30 --online > %SSBU_TREE%\build\play.log 2>&1"
 exit /b 0

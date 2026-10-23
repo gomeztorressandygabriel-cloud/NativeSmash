@@ -222,7 +222,7 @@ All of these are in the NativeSmash folder:
 | :--- | :--- |
 | Your save | `save\`. Another game version keeps its own, for example `v13.0.5\save\`. |
 | Screenshots (<kbd>F3</kbd>) | `screenshots\` |
-| The game's log | `build\play.log` |
+| The game's log | `build\play.log`; the logs (and `monitor.csv`) of the last 10 games are kept in `build\logs`, so one that closed by itself can still be read |
 | Crash and freeze reports | `reports\` |
 | Controller and window settings | `controllers.ini`, `display.ini` |
 | Your online name, lobby and direct connections | `online_name.txt`, `online_server.txt`, `online_direct.txt` |

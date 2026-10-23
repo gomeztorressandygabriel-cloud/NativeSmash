@@ -25,6 +25,8 @@ set "SSBU_NET_NAME=%USERNAME%"
 set /p "SSBU_NET_NAME=Your player name [%SSBU_NET_NAME%]: "
 set "SSBU_NET_ROOM=smash"
 set /p "SSBU_NET_ROOM=Room name - the same as the host's [smash]: "
+rem the log of the last game is kept (build\logs) before this one writes its own
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SSBU_TREE%\tools\keep_logs.ps1" "%SSBU_TREE%\build"
 start "SSBU netplay log" /min cmd /c "%SSBU_TREE%\build\ssbu.exe %SSBU_TREE%\dump\modules --status 30 > %SSBU_TREE%\build\play.log 2>&1"
 echo.
 echo Starting the game, joining room "%SSBU_NET_ROOM%" at %SSBU_NET_RELAY%...

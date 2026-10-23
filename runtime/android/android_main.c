@@ -86,55 +86,66 @@ static void *sampler(void *arg) {
 #include <dirent.h>
 
 #define PROF_SLOTS 16384
-static struct { uintptr_t base; uint32_t off; uint32_t incl, leaf; } prof[PROF_SLOTS];
+#define PROF_GROUPS 4
+static struct { uintptr_t base; uint32_t off; uint32_t incl, leaf; } prof[PROF_GROUPS][PROF_SLOTS];
 static void *volatile pframes[48];
 static volatile int pcount = -1;
 
 static void on_prof(int sig, siginfo_t *si, void *uc) { (void)sig; (void)si; (void)uc; pcount = backtrace((void **)pframes, 48); }
 
-static void prof_note(void *pc, int leaf) {
+static void prof_note(int g, void *pc, int leaf) {
     Dl_info di;
     if (!dladdr(pc, &di) || !di.dli_fbase) return;
     uint32_t off = (uint32_t)((uintptr_t)pc - (uintptr_t)di.dli_fbase);
     uint32_t h = (uint32_t)(((uintptr_t)di.dli_fbase >> 12) * 2654435761u ^ (off >> 2) * 40503u) % PROF_SLOTS;
     for (int tries = 0; tries < 64; tries++, h = (h + 1) % PROF_SLOTS) {
-        if (!prof[h].base) { prof[h].base = (uintptr_t)di.dli_fbase; prof[h].off = off; }
-        if (prof[h].base == (uintptr_t)di.dli_fbase && prof[h].off == off) { if (leaf) prof[h].leaf++; else prof[h].incl++; return; }
+        if (!prof[g][h].base) { prof[g][h].base = (uintptr_t)di.dli_fbase; prof[g][h].off = off; }
+        if (prof[g][h].base == (uintptr_t)di.dli_fbase && prof[g][h].off == off) { if (leaf) prof[g][h].leaf++; else prof[g][h].incl++; return; }
     }
 }
 
-static int prof_threads, prof_errors, prof_timeouts;
-static void prof_report(int samples, const char *what) {
+static int prof_threads[PROF_GROUPS], prof_errors, prof_timeouts;
+static void prof_report(int g, int samples, const char *what) {
     char text[2000];
     for (int pass = 0; pass < 2; pass++) {
-        int len = snprintf(text, sizeof text, "[profile %s] %d samples (threads %d, signal errors %d, no answer %d), %s:", what, samples, prof_threads, prof_errors, prof_timeouts, pass ? "at the top" : "on the stack");
-        for (int k = 0; k < 10; k++) {
+        int len = snprintf(text, sizeof text, "[profile %s] %d samples (threads %d, signal errors %d, no answer %d), %s:", what, samples, prof_threads[g], prof_errors, prof_timeouts, pass ? "at the top" : "on the stack");
+        for (int k = 0; k < 12; k++) {
             int best = -1; uint32_t bv = 0;
-            for (int i = 0; i < PROF_SLOTS; i++) { uint32_t v = pass ? prof[i].leaf : prof[i].incl; if (v > bv) { bv = v; best = i; } }
+            for (int i = 0; i < PROF_SLOTS; i++) { uint32_t v = pass ? prof[g][i].leaf : prof[g][i].incl; if (v > bv) { bv = v; best = i; } }
             if (best < 0) break;
             Dl_info di; const char *name = "?";
-            if (dladdr((void *)(prof[best].base + prof[best].off), &di) && di.dli_fname) { name = strrchr(di.dli_fname, '/'); name = name ? name + 1 : di.dli_fname; }
-            len += snprintf(text + len, sizeof text - (size_t)len, " %s+%#x=%u", name, prof[best].off, bv);
-            if (pass) prof[best].leaf = 0; else prof[best].incl = 0;
+            if (dladdr((void *)(prof[g][best].base + prof[g][best].off), &di) && di.dli_fname) { name = strrchr(di.dli_fname, '/'); name = name ? name + 1 : di.dli_fname; }
+            len += snprintf(text + len, sizeof text - (size_t)len, " %s+%#x=%u", name, prof[g][best].off, bv);
+            if (pass) prof[g][best].leaf = 0; else prof[g][best].incl = 0;
         }
         __android_log_write(ANDROID_LOG_INFO, TAG, text);
     }
-    memset(prof, 0, sizeof prof);
+    memset(prof[g], 0, sizeof prof[g]);
 }
 
+/* arg: thread name parts separated by commas (up to PROF_GROUPS); each thread is counted in the first group whose part its name has */
 static void *profiler(void *arg) {
-    const char *want = arg;
+    static char parts[PROF_GROUPS][48];
+    int ngroups = 0;
+    for (const char *p = arg; *p && ngroups < PROF_GROUPS;) {
+        const char *e = strchr(p, ',');
+        size_t n = e ? (size_t)(e - p) : strlen(p);
+        if (n >= sizeof parts[0]) n = sizeof parts[0] - 1;
+        memcpy(parts[ngroups], p, n); parts[ngroups][n] = 0; ngroups++;
+        p += n + (e ? 1 : 0);
+    }
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
     sa.sa_sigaction = on_prof;
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
     sigaction(SIGRTMIN + 4, &sa, NULL);   /* (not SIGUSR1: the runtime of Android takes it) */
-    int samples = 0;
+    int samples[PROF_GROUPS] = {0};
     time_t last = time(NULL);
     for (;;) {
         DIR *d = opendir("/proc/self/task");
-        int tids[64], n = 0;
+        int tids[64], grp[64], n = 0;
         struct dirent *e;
+        memset(prof_threads, 0, sizeof prof_threads);
         while (d && (e = readdir(d)) && n < 64) {
             int tid = atoi(e->d_name);
             if (tid <= 0) continue;
@@ -142,22 +153,24 @@ static void *profiler(void *arg) {
             snprintf(path, sizeof path, "/proc/self/task/%d/comm", tid);
             FILE *f = fopen(path, "r");
             if (f) { if (fgets(comm, sizeof comm, f)) comm[strcspn(comm, "\n")] = 0; fclose(f); }
-            if (strstr(comm, want)) tids[n++] = tid;
+            for (int g = 0; g < ngroups; g++) if (strstr(comm, parts[g])) { tids[n] = tid; grp[n++] = g; prof_threads[g]++; break; }
         }
         if (d) closedir(d);
-        prof_threads = n;
         for (int i = 0; i < n; i++) {
             pcount = -1;
             if (syscall(SYS_tgkill, getpid(), tids[i], SIGRTMIN + 4)) { prof_errors++; continue; }
             for (int w = 0; w < 2000 && pcount < 0; w++) usleep(500);
             if (pcount <= 0) { prof_timeouts++; continue; }
-            samples++;
-            prof_note(pframes[0], 1);
-            for (int j = 0; j < pcount; j++) prof_note(pframes[j], 0);
-            usleep(20000);
+            samples[grp[i]]++;
+            prof_note(grp[i], pframes[0], 1);
+            for (int j = 0; j < pcount; j++) prof_note(grp[i], pframes[j], 0);
+            usleep(5000);
         }
-        usleep(20000);
-        if (time(NULL) - last >= 20) { prof_report(samples, want); samples = 0; last = time(NULL); }
+        usleep(10000);
+        if (time(NULL) - last >= 20) {
+            for (int g = 0; g < ngroups; g++) { prof_report(g, samples[g], parts[g]); samples[g] = 0; }
+            last = time(NULL);
+        }
     }
     return NULL;
 }
@@ -170,7 +183,7 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
     snprintf(root, sizeof root, "%s", files ? files : ".");
     snprintf(modules, sizeof modules, "%s/dump/modules", root);
     setenv("SSBU_DATA_ROOT", root, 1);
-    setenv("SSBU_PROFILE", "shader compiler", 1);   /* (to find where compiling shaders spends its time) */
+    setenv("SSBU_PROFILE", "dxvk-cs,Thread-3,guest thread,shader compiler", 1);   /* (to find where the frame's time goes: thread name parts, one report each) */
     setenv("VKD3D_SHADER_DEBUG", "err", 1);   /* (vkd3d-shader says "fixme" for every constant it folds: thousands of lines a second into the system log) */
     if (chdir(root)) perror("chdir");
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");   /* (the game is wide: SDL would otherwise follow the window's shape, and the phone's) */

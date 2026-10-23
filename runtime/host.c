@@ -528,6 +528,9 @@ static int fault_is_write(const ucontext_t *uc) {
 }
 #endif
 
+#ifdef __ANDROID__
+void rt_backtrace_fault(void);   /* runtime/android/backtrace.c */
+#endif
 static void on_fault(int sig, siginfo_t *si, void *ucv) {
     ucontext_t *uc = ucv;
 #ifdef __APPLE__
@@ -540,6 +543,7 @@ static void on_fault(int sig, siginfo_t *si, void *ucv) {
 #elif defined(__ANDROID__)
     int writing = fault_is_write(uc);
     if (sig == SIGSEGV && writing && rt_ww_fault(si->si_addr)) return;
+    if (sig == SIGILL || sig == SIGSEGV || sig == SIGBUS) rt_backtrace_fault();   /* (a stack walk that fell over: it gives up, returns from backtrace) */
     u64 addr = (u64)si->si_addr, pc = (u64)uc->uc_mcontext.pc;
     static volatile pid_t reporter;
     pid_t me = gettid(), none = 0;

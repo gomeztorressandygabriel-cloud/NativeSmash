@@ -43,6 +43,8 @@ SAVE = os.path.join("save", "0123456789abcdeffedcba9876543210", "save_data", "sy
 LAYOUTS = {
     "4A3F8ED7DCCE3AD4541A3A2F7622B5B57FC8A55C": ("11.0.0", 0x5B4AF8, 0x53FF40, 0x54FEA8),
     "21450C647B8C5940ED5B68218EA128FD3C5D597D": ("13.0.5", 0x5B4AF8, 0x53FF40, 0x54FEA8),
+    # 13.0.3: the same layout (a real 13.0.3 save passes every check below; before this line the tool refused the version, and a friend's unlock "did nothing")
+    "730C2141EEBF9885E4857E7E50EAE441D46925DF": ("13.0.3", 0x5B4AF8, 0x53FF40, 0x54FEA8),
 }
 STARTERS = {0, 1, 2, 3, 5, 6, 7, 8}   # Mario, Donkey Kong, Link, Samus, Yoshi, Kirby, Fox, Pikachu
 FIGHTERS = ["Mario", "Donkey Kong", "Link", "Samus", "Dark Samus", "Yoshi", "Kirby", "Fox", "Pikachu", "Luigi",

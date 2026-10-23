@@ -63,6 +63,23 @@ CFLAGS = [*BASE_CFLAGS, "/I", RUNTIME]
 # keeps it to deps\msvc.
 LINK_FLAGS = ["-fuse-ld=lld"] if os.path.exists(os.path.join(os.path.dirname(CLANG), "lld-link.exe")) else []
 LINK_OPTIONS = ["/winsysroot:" + WINSYSROOT] if WINSYSROOT else []
+
+
+def _installed_sdk_lib_dirs():
+    r"""The newest Windows SDK installed on this PC (Program Files\Windows Kits\10\Lib\<version>) whose um\x64 holds winmm.lib: its um and
+    ucrt library folders. lld-link finds them through the environment (LIB) or a Visual Studio it can see; with only the SDK installed, or
+    with Visual Studio's C++ tools but a Windows SDK it cannot see, it said "could not open 'winmm.lib'" for every library of the SDK."""
+    for root in (os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), os.environ.get("ProgramFiles", r"C:\Program Files")):
+        found = sorted(glob.glob(os.path.join(root, "Windows Kits", "10", "Lib", "*", "um", "x64", "winmm.lib")),
+                       key=lambda p: [int(x) if x.isdigit() else 0 for x in p.split(os.sep)[-4].split(".")], reverse=True)
+        if found:
+            um = os.path.dirname(found[0])
+            return [um, os.path.join(os.path.dirname(os.path.dirname(um)), "ucrt", "x64")]
+    return []
+
+
+if not WINSYSROOT:
+    LINK_OPTIONS += ["/libpath:" + d for d in _installed_sdk_lib_dirs() if os.path.isdir(d)]
 # the Windows libraries the game links (all from the Windows SDK)
 SYSTEM_LIBS = ("winmm.lib", "user32.lib", "gdi32.lib", "d3d11.lib", "dxgi.lib", "d3dcompiler.lib", "dxguid.lib",
                "ws2_32.lib", "ole32.lib", "oleaut32.lib")
@@ -146,5 +163,10 @@ def link(objs, exe, options=()):
     if r.returncode:
         lines = (r.stdout + r.stderr).splitlines()
         errors = [l for l in lines if "error" in l.lower()] or lines   # (the third-party libraries' CRT warnings drown them)
+        if any("could not open 'winmm.lib'" in l or "could not open 'user32.lib'" in l for l in lines):
+            raise RuntimeError("link failed: the linker cannot find the Windows SDK's libraries (winmm.lib, user32.lib, d3d11.lib...).\n"
+                               "Install the Windows 11 SDK (or Visual Studio Build Tools with its Windows SDK component), or run Install NativeSmash.bat\n"
+                               "again: it downloads a compiler with the SDK's libraries into the NativeSmash folder, with no Visual Studio needed.\n"
+                               + "\n".join(errors)[:1500])
         raise RuntimeError("link failed\n" + "\n".join(errors)[:4000])
     return exe

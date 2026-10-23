@@ -462,7 +462,7 @@ def ask_license(url):
         answer = sys.stdin.readline()
     except (OSError, ValueError):
         answer = ""
-    return answer.strip().lower() in ("yes", "y")
+    return answer.strip().lower() in ("yes", "y", "si", "s\u00ed", "s")
 
 
 def msi_log_error(logfile):

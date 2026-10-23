@@ -216,6 +216,84 @@ function Show-LanguageWindow {
     return $Script:LanguagePicked
 }
 
+# ---- Microsoft's license terms, asked in a window (the console's "type yes" was easy to miss) -------------------------------
+$Script:LicenseXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="NativeSmash" Width="640" Height="520" WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI" TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
+  <Border Margin="14" CornerRadius="22" BorderThickness="1" BorderBrush="#26FFFFFF">
+    <Border.Background>
+      <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF171A33" Offset="0"/><GradientStop Color="#FF0B0D1D" Offset="1"/>
+      </LinearGradientBrush>
+    </Border.Background>
+    <Border.Effect><DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.55"/></Border.Effect>
+    <StackPanel Margin="34,28,34,30">
+      <Image x:Name="Logo" Width="64" Height="64" HorizontalAlignment="Left" Margin="0,0,0,12" RenderOptions.BitmapScalingMode="HighQuality"/>
+      <TextBlock x:Name="Head" Foreground="#FFF2F4FB" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap"/>
+      <TextBlock x:Name="Body" Foreground="#FF9AA1BC" FontSize="15" TextWrapping="Wrap" Margin="0,12,0,0" LineHeight="22"/>
+      <Button x:Name="ReadBtn" Margin="0,16,0,0" HorizontalAlignment="Left" Cursor="Hand" Background="Transparent" BorderThickness="0" Padding="0">
+        <TextBlock x:Name="ReadText" Foreground="#FF8E9BFF" FontSize="15" TextDecorations="Underline"/>
+      </Button>
+      <TextBlock x:Name="Note" Foreground="#FF9AA1BC" FontSize="13" TextWrapping="Wrap" Margin="0,16,0,22"/>
+      <Button x:Name="YesBtn" Content="Acepto" Height="52" Margin="0,0,0,10" FontSize="17" FontWeight="SemiBold" Foreground="White" BorderThickness="0" Cursor="Hand">
+          <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="B" CornerRadius="16" Background="{TemplateBinding Background}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+          <Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF6D7DFF" Offset="0"/><GradientStop Color="#FFA66BFF" Offset="1"/></LinearGradientBrush></Button.Background>
+        </Button>
+      <Button x:Name="NoBtn" Content="No acepto" Height="52"  FontSize="17" FontWeight="SemiBold" Foreground="White" BorderThickness="0" Cursor="Hand">
+          <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="B" CornerRadius="16" Background="{TemplateBinding Background}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Opacity" Value="0.88"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+          <Button.Background><SolidColorBrush Color="#FF2A2E4D"/></Button.Background>
+        </Button>
+    </StackPanel>
+  </Border>
+</Window>
+'@
+
+function Show-LicenseWindow {
+    <# Microsoft's license terms (the Visual Studio Build Tools', whose compiler tools NativeSmash downloads) asked in a window with
+       two buttons and a link to read them. Returns 'yes' or 'no' ('no' also when the window is closed). #>
+    param([string]$Url, [string]$Lang = 'es', [string]$Snapshot)
+    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+    $win = [Windows.Markup.XamlReader]::Parse($Script:LicenseXaml)
+    $es = $Lang -ne 'en'
+    $win.FindName('Head').Text = if ($es) { 'Una cosa más antes de construir el juego' } else { 'One more thing before the game is built' }
+    $win.FindName('Body').Text = if ($es) {
+        'Para construir el juego en tu PC hace falta el compilador y las herramientas de Windows de Microsoft (unos 570 MB). NativeSmash no las incluye: las descarga de los servidores de Microsoft, y solo si aceptas sus términos de licencia (los de las Visual Studio Build Tools).'
+    } else {
+        'Building the game on your PC needs Microsoft''s compiler and Windows tools (about 570 MB). NativeSmash does not include them: it downloads them from Microsoft''s servers, and only if you accept their license terms (those of the Visual Studio Build Tools).'
+    }
+    $win.FindName('ReadText').Text = if ($es) { 'Leer los términos de licencia de Microsoft' } else { 'Read Microsoft''s license terms' }
+    $win.FindName('Note').Text = if ($es) { 'Si no los aceptas, el instalador se detiene y no se descarga nada. Puedes volver a abrirlo cuando quieras.' } else { 'If you do not accept them, the installer stops and nothing is downloaded. You can open it again whenever you like.' }
+    $win.FindName('YesBtn').Content = if ($es) { 'Acepto y continuar' } else { 'I accept and continue' }
+    $win.FindName('NoBtn').Content = if ($es) { 'No acepto' } else { 'I do not accept' }
+    $png = Join-Path (Split-Path -Parent $PSScriptRoot) 'docs\assets\nativesmash-512.png'
+    if (Test-Path -LiteralPath $png) {
+        $bmp = New-Object Windows.Media.Imaging.BitmapImage
+        $bmp.BeginInit(); $bmp.UriSource = New-Object Uri($png); $bmp.CacheOption = 'OnLoad'; $bmp.EndInit()
+        $win.FindName('Logo').Source = $bmp
+        $win.Icon = $bmp
+    }
+    $Script:LicenseAnswer = 'no'
+    $win.FindName('ReadBtn').Add_Click({ if ($Url) { try { Start-Process $Url } catch { } } })
+    $win.FindName('YesBtn').Add_Click({ $Script:LicenseAnswer = 'yes'; $win.Close() })
+    $win.FindName('NoBtn').Add_Click({ $Script:LicenseAnswer = 'no'; $win.Close() })
+    $win.Add_KeyDown({ param($s, $e) if ($e.Key -eq 'Escape') { $win.Close() } })
+    if ($Snapshot) {
+        $win.Add_ContentRendered({
+            $r = New-Object Windows.Media.Imaging.RenderTargetBitmap([int]$win.ActualWidth, [int]$win.ActualHeight, 96, 96, [Windows.Media.PixelFormats]::Pbgra32)
+            $r.Render($win)
+            $enc = New-Object Windows.Media.Imaging.PngBitmapEncoder; $enc.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($r))
+            $fs = [IO.File]::Create($Snapshot); $enc.Save($fs); $fs.Close(); $win.Close()
+        })
+    }
+    [void]$win.ShowDialog()
+    return $Script:LicenseAnswer
+}
+
 function Show-WizardWpf {
     param([hashtable]$Detected, [string]$DefaultName)
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase

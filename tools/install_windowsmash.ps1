@@ -822,7 +822,21 @@ function Invoke-VsModify {
 function Install-PortableCompiler {
     <# tools\msvc_deps.py install, in this window: it shows Microsoft's license terms and asks before it
        downloads anything. 'done', 'declined' or 'failed' (it said why). #>
-    $code = Invoke-Python @((Join-Path $Root 'tools\msvc_deps.py'), 'install')
+    # Microsoft's license terms are asked in a window with two buttons (typing "yes" in this console was easy to miss: a
+    # friend pressed Enter and the installer took it for a no). Without the window (-NoWizard, or it cannot open) the console asks.
+    $arguments = @((Join-Path $Root 'tools\msvc_deps.py'), 'install')
+    if (-not $NoWizard) {
+        try {
+            $url = 'https://go.microsoft.com/fwlink/?LinkId=2327714'
+            $plan = Get-PythonOutput @((Join-Path $Root 'tools\msvc_deps.py'), 'plan')
+            $found = [regex]::Match([string]$plan.Output, 'license terms[^\r\n]*?(https?://\S+)')
+            if ($found.Success) { $url = $found.Groups[1].Value.TrimEnd('.', ',', ')') }
+            $answer = Show-LicenseWindow -Url $url -Lang $Script:Language
+            if ($answer -eq 'yes') { $arguments += '--accept-license' }
+            else { Write-Info "Microsoft's license terms: not accepted"; return 'declined' }
+        } catch { Write-Info "license window: $($_.Exception.Message)" }
+    }
+    $code = Invoke-Python $arguments
     if ($code -eq 0) { return 'done' }
     if ($code -eq 2) { return 'declined' }
     return 'failed'
@@ -849,8 +863,9 @@ function Step-PortableCompiler {
     $how = Install-PortableCompiler
     if ($how -eq 'declined') {
         throw ("Microsoft's license terms were not accepted, so the C runtime and the Windows SDK, which the game is built with, " +
-               "cannot be downloaded. The Visual Studio Build Tools come under the same terms. Run Install NativeSmash.bat again to " +
-               "accept them, or install Visual Studio yourself (setup guide step 4).")
+               "cannot be downloaded. Nothing was downloaded. To go on, open Install NativeSmash again and press 'I accept and continue' " +
+               "in the window about Microsoft's terms (or, in this console, type yes and press Enter when it asks). " +
+               "Or install Visual Studio yourself (setup guide step 4).")
     }
     if ($how -eq 'done') {
         $check = Test-Compiler

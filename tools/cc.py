@@ -149,6 +149,19 @@ def compile_each(jobs_list, jobs=16, started=None, finished=None):
         return [f for f in pool.map(one, jobs_list) if f]
 
 
+def _sysroot_lib_paths():
+    r"""/libpath: for deps\msvc's C runtime and Windows SDK library folders (from its record), when they are there."""
+    if not WINSYSROOT:
+        return []
+    rec = _deps_record(WINSYSROOT) or {}
+    folders = []
+    if rec.get("msvc"):
+        folders.append(os.path.join(WINSYSROOT, "VC", "Tools", "MSVC", rec["msvc"], "lib", "x64"))
+    if rec.get("sdk"):
+        folders += [os.path.join(WINSYSROOT, "Windows Kits", "10", "Lib", rec["sdk"], part, "x64") for part in ("um", "ucrt")]
+    return ["/libpath:" + f for f in folders if os.path.isdir(f)]
+
+
 def link(objs, exe, options=()):
     """Link objects into an executable; `options` go to the linker. The codec libraries built
     from third_party/ are made first if they are missing or stale (a few seconds)."""
@@ -157,8 +170,10 @@ def link(objs, exe, options=()):
     rsp = exe + ".rsp"
     with open(rsp, "w") as f:
         f.write("\n".join(f'"{o}"' for o in objs))
-    r = subprocess.run([CLANG, "/nologo", *LINK_FLAGS, "@" + rsp, "/Fe" + exe, "/link", "/HIGHENTROPYVA:NO", "/MAP:" + exe[:-4] + ".map",
-                        *LINK_OPTIONS, *options, *SYSTEM_LIBS, *EXTRA_LIBS],
+    # With deps\msvc the driver is told the system root too, as for a compile and for the installer's test program (that link finds the
+    # SDK's libraries; /winsysroot: for lld-link alone did not on some PCs: "could not open 'winmm.lib'"), and the library folders are named.
+    r = subprocess.run([CLANG, "/nologo", *LINK_FLAGS, *(["/winsysroot", WINSYSROOT] if WINSYSROOT else []), "@" + rsp, "/Fe" + exe, "/link",
+                        "/HIGHENTROPYVA:NO", "/MAP:" + exe[:-4] + ".map", *LINK_OPTIONS, *_sysroot_lib_paths(), *options, *SYSTEM_LIBS, *EXTRA_LIBS],
                        capture_output=True, text=True)
     if r.returncode:
         lines = (r.stdout + r.stderr).splitlines()

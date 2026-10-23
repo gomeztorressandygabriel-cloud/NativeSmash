@@ -1306,14 +1306,15 @@ function Step-Extras {
     $lnk = Join-Path (Get-DesktopFolder) 'NativeSmash.lnk'
     if (-not $Answers.Shortcut) {
         Write-Info 'shortcut: not wanted'
-    } elseif (Test-Path -LiteralPath $lnk) {
+    } elseif ((Test-Path -LiteralPath $lnk) -and -not $DryRun -and ((New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath -notlike '*.bat')) {
         Write-Info "shortcut: already on the desktop"
     } elseif ($DryRun) {
         Write-Would "put $lnk on the desktop, pointing at Play SSBU.bat"
     } else {
         $ws = New-Object -ComObject WScript.Shell
         $s = $ws.CreateShortcut($lnk)
-        $s.TargetPath = Join-Path $Root 'Play SSBU.bat'
+        $s.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'   # (runs the batch file with no console window)
+        $s.Arguments = '//nologo "' + (Join-Path $Root 'tools\run_hidden.vbs') + '" "' + (Join-Path $Root 'Play SSBU.bat') + '"'
         $s.WorkingDirectory = $Root
         $s.IconLocation = (Join-Path $Root 'docs\assets\nativesmash.ico') + ',0'
         $s.Description = 'Super Smash Bros. Ultimate (NativeSmash)'

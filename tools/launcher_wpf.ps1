@@ -766,6 +766,11 @@ $win.Add_PreviewKeyDown({
     foreach ($a in $KeyActions.Keys) { $script:KeyValue[$a] = $KeyActions[$a]; $script:KeyButton[$a].Content = Show-KeyName $KeyActions[$a] }
     (Find 'KeysNote').Text = ''
 })
+function Start-NativeSmashInstaller([string]$Bat) {
+    # the installer has a window of its own (a bar, the steps; tools\progress_window.ps1): no console shows
+    $env:NATIVESMASH_WINDOW = '1'
+    Start-Process -FilePath $env:ComSpec -ArgumentList ('/c ""' + $Bat + '""') -WorkingDirectory $Root -WindowStyle Hidden
+}
 function Open-Path([string]$Path, [string]$Verb) {
     if (Test-Path -LiteralPath $Path) { Start-Process -FilePath $Path } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
 }
@@ -773,7 +778,7 @@ function Open-Path([string]$Path, [string]$Verb) {
 (Find 'Shell').Add_MouseLeftButtonDown({ param($s, $e) if ($e.OriginalSource -is [Windows.Controls.Border] -or $e.OriginalSource -is [Windows.Controls.Grid]) { try { $win.DragMove() } catch { } } })
 $install = {
     $bat = Join-Path $Root 'Install NativeSmash.bat'
-    if (Test-Path -LiteralPath $bat) { Start-Process -FilePath $bat -WorkingDirectory $Root } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
+    if (Test-Path -LiteralPath $bat) { Start-NativeSmashInstaller $bat } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
 }
 (Find 'InstallBtn').Add_Click($install); (Find 'GameInstall').Add_Click($install)
 (Find 'OpenPads').Add_Click({ if (Test-Path -LiteralPath $padsIni) { Start-Process notepad.exe -ArgumentList "`"$padsIni`"" } })
@@ -860,7 +865,7 @@ $script:updTimer.Add_Tick({
 function Invoke-Update {
     if ([Windows.MessageBox]::Show($win, (T 'updConfirm'), 'NativeSmash', 'YesNo', 'Question') -ne 'Yes') { return }
     $bat = @('Install NativeSmash.bat', 'Install NativeSmash.bat') | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-    if ($bat) { Start-Process -FilePath $bat -WorkingDirectory $Root; $win.Close() } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
+    if ($bat) { Start-NativeSmashInstaller $bat; $win.Close() } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
 }
 (Find 'UpdCheckBtn').Add_Click({ Start-UpdateCheck })
 (Find 'UpdNowBtn').Add_Click({ Invoke-Update })

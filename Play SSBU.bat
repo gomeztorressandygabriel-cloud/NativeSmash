@@ -24,6 +24,8 @@ rem the game starts at once with the version picked last; hold Shift while start
 rem again. If the window cannot open (exit code 2), the game starts as before: with more than one
 rem version built, this asks which one in this window (tools\pick_version.bat).
 cd /d "%~dp0"
+rem Double-clicked, this opens a console window nobody needs: start it again with no window (tools\run_hidden.vbs)
+if not defined NATIVESMASH_HIDDEN if exist tools\run_hidden.vbs (wscript //nologo tools\run_hidden.vbs "%~f0" & exit /b 0)
 powershell -NoProfile -ExecutionPolicy Bypass -STA -File tools\launcher_wpf.ps1 -Auto
 if %errorlevel%==2 powershell -NoProfile -ExecutionPolicy Bypass -File tools\launcher.ps1 -Auto
 if %errorlevel%==2 goto direct

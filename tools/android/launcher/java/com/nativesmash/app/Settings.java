@@ -115,7 +115,7 @@ final class Settings {
         String server = lobbyMode == 2 ? "off" : LOBBY + (lobbyMode == 1 && !lobbyCode.trim().isEmpty() ? " " + lobbyCode.trim() : "");
         write(dir, "online_server.txt", "# written by the NativeSmash launcher\n" + server + "\n");
         write(dir, "online_direct.txt", direct ? "on\n" : "off\n");
-        StringBuilder pad = new StringBuilder("; controllers.ini - written by the NativeSmash launcher\n[general]\nkeyboard_player = 0\n\n[device default]\nlayout = positional\n"
+        StringBuilder pad = new StringBuilder("; controllers.ini - written by the NativeSmash launcher\n[general]\nkeyboard_player = 1\n\n[device default]\nlayout = positional\n"
             + "deadzone = " + deadzone + "\nrumble = " + rumble + "\n");
         for (int i = 0; i < ACTIONS.length; i++) pad.append(ACTIONS[i]).append(" = ").append(keyName(keys[i])).append('\n');
         write(dir, "controllers.ini", pad.toString());

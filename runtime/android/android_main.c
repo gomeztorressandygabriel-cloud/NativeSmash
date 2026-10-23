@@ -88,6 +88,7 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
     snprintf(modules, sizeof modules, "%s/dump/modules", root);
     setenv("SSBU_DATA_ROOT", root, 1);
     if (chdir(root)) perror("chdir");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");   /* (the game is wide: SDL would otherwise follow the window's shape, and the phone's) */
     __android_log_print(ANDROID_LOG_INFO, TAG, "SDL_main: data in %s", root);
     static char log[4096];
     snprintf(log, sizeof log, "%s/play.log", root);

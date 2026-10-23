@@ -85,6 +85,36 @@ index 2c5334d..a747433 100644
      rsInfo.lineWidth                = 1.0f;
  
      // Set up depth clip state. Require depth clip support,
+diff --git a/src/dxvk/dxvk_presenter.cpp b/src/dxvk/dxvk_presenter.cpp
+index f93ae8d..9d37ee1 100644
+--- a/src/dxvk/dxvk_presenter.cpp
++++ b/src/dxvk/dxvk_presenter.cpp
+@@ -108,6 +108,13 @@ namespace dxvk {
+         sync.acquire, VK_NULL_HANDLE, &m_imageIndex);
+     }
+ 
++#ifdef __ANDROID__
++    // NativeSmash on Android: a phone's panel is rotated against the surface's own orientation, so every acquire and present is
++    // "suboptimal" (the compositor turns the picture): recreating the swapchain each time cost most of a frame.
++    if (m_acquireStatus == VK_SUBOPTIMAL_KHR)
++      m_acquireStatus = VK_SUCCESS;
++#endif
++
+     // This is a normal occurence, but may be useful for
+     // debugging purposes in case WSI goes wrong somehow.
+     if (m_acquireStatus != VK_SUCCESS && m_swapchain)
+@@ -260,6 +267,11 @@ namespace dxvk {
+       m_frameCond.notify_one();
+     }
+ 
++#ifdef __ANDROID__
++    if (status == VK_SUBOPTIMAL_KHR)
++      status = VK_SUCCESS;   // (see acquire above)
++#endif
++
+     // On a successful present, try to acquire next image already, in
+     // order to hide potential delays from the application thread.
+     if (status == VK_SUCCESS) {
 diff --git a/src/wsi/sdl2/wsi_platform_sdl2.cpp b/src/wsi/sdl2/wsi_platform_sdl2.cpp
 index 203cb6d..f909835 100644
 --- a/src/wsi/sdl2/wsi_platform_sdl2.cpp

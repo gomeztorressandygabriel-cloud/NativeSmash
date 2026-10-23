@@ -100,6 +100,8 @@ final class Settings {
     void writeFiles(Context c) throws IOException {
         File dir = c.getExternalFilesDir(null);
         if (dir == null) dir = c.getFilesDir();
+        // the folders the game's data goes in, made by the app itself: ones made by `adb push` belong to the shell, and the game could not enter them
+        for (String sub : new String[]{"dump/modules", "dump/fonts", "dump/nro", "save", "cache", "reports"}) new File(dir, sub).mkdirs();
         DisplayMetrics m = c.getResources().getDisplayMetrics();
         int nativeH = Math.min(m.widthPixels, m.heightPixels), nativeW = Math.max(m.widthPixels, m.heightPixels);
         double scale = Math.min(1.0, renderHeight(c) / (double) nativeH);

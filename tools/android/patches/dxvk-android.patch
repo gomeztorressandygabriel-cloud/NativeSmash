@@ -1,0 +1,100 @@
+diff --git a/src/dxvk/dxvk_device_info.cpp b/src/dxvk/dxvk_device_info.cpp
+index 63d89d9..15f8d75 100644
+--- a/src/dxvk/dxvk_device_info.cpp
++++ b/src/dxvk/dxvk_device_info.cpp
+@@ -753,6 +753,8 @@ namespace dxvk {
+     if (m_queueMapping.graphics.family == VK_QUEUE_FAMILY_IGNORED)
+       return std::string("Device does not have a graphics queue");
+ 
++    std::string allMissing;   // (NativeSmash on Android: every missing feature in one message, to see what a phone's GPU lacks)
++
+     for (const auto& f : getFeatureList()) {
+       if (f.featureRequired && !(*f.featureEnabled)) {
+         std::string message = str::format("Device does not support required feature '", f.readableName, "'");
+@@ -760,10 +762,13 @@ namespace dxvk {
+         if (f.extensionEnabled)
+           message += str::format(" (extension: ", f.extensionEnabled->extensionName, ")");
+ 
+-        return message;
++        allMissing += (allMissing.empty() ? "" : "; ") + message;
+       }
+     }
+ 
++    if (!allMissing.empty())
++      return allMissing;
++
+     if (!m_featuresEnabled.extDescriptorHeap.descriptorHeap && m_properties.core.properties.limits.maxPushConstantsSize < MaxTotalPushDataSize)
+       return str::format("Device does not support ", MaxTotalPushDataSize, " of push data");
+ 
+@@ -828,7 +833,7 @@ namespace dxvk {
+       ENABLE_FEATURE(core.features, depthClamp, true),
+       ENABLE_FEATURE(core.features, drawIndirectFirstInstance, false),
+       ENABLE_FEATURE(core.features, dualSrcBlend, true),
+-      ENABLE_FEATURE(core.features, fillModeNonSolid, true),
++      ENABLE_FEATURE(core.features, fillModeNonSolid, false),   // (optional: Mali has none; wireframe falls back to solid)
+       ENABLE_FEATURE(core.features, fragmentStoresAndAtomics, true),
+       ENABLE_FEATURE(core.features, fullDrawIndexUint32, true),
+       ENABLE_FEATURE(core.features, geometryShader, true),
+@@ -837,14 +842,14 @@ namespace dxvk {
+       ENABLE_FEATURE(core.features, largePoints, false),
+       ENABLE_FEATURE(core.features, logicOp, false),
+       ENABLE_FEATURE(core.features, multiDrawIndirect, true),
+-      ENABLE_FEATURE(core.features, multiViewport, true),
++      ENABLE_FEATURE(core.features, multiViewport, false),   // (optional on Android: Mali lacks it)
+       ENABLE_FEATURE(core.features, occlusionQueryPrecise, true),
+       ENABLE_FEATURE(core.features, pipelineStatisticsQuery, false),
+       ENABLE_FEATURE(core.features, robustBufferAccess, true),
+       ENABLE_FEATURE(core.features, sampleRateShading, true),
+       ENABLE_FEATURE(core.features, samplerAnisotropy, true),
+-      ENABLE_FEATURE(core.features, shaderClipDistance, true),
+-      ENABLE_FEATURE(core.features, shaderCullDistance, true),
++      ENABLE_FEATURE(core.features, shaderClipDistance, false),   // (optional on Android: Mali lacks it)
++      ENABLE_FEATURE(core.features, shaderCullDistance, false),   // (optional on Android: Mali lacks it)
+       ENABLE_FEATURE(core.features, shaderFloat64, false),
+       ENABLE_FEATURE(core.features, shaderImageGatherExtended, true),
+       ENABLE_FEATURE(core.features, shaderInt16, true),
+@@ -865,7 +870,7 @@ namespace dxvk {
+       ENABLE_FEATURE(core.features, shaderResourceResidency, false),
+       ENABLE_FEATURE(core.features, shaderResourceMinLod, false),
+       ENABLE_FEATURE(core.features, tessellationShader, false),
+-      ENABLE_FEATURE(core.features, textureCompressionBC, true),
++      ENABLE_FEATURE(core.features, textureCompressionBC, false),   // (optional on Android: Mali lacks it)
+       ENABLE_FEATURE(core.features, variableMultisampleRate, false),
+       ENABLE_FEATURE(core.features, vertexPipelineStoresAndAtomics, false),
+       ENABLE_FEATURE(core.features, wideLines, false),
+@@ -985,7 +990,7 @@ namespace dxvk {
+       ENABLE_EXT_FEATURE(extPageableDeviceLocalMemory, pageableDeviceLocalMemory, false),
+ 
+       /* Robustness, all features effectively required for correctness */
+-      ENABLE_EXT_FEATURE(extRobustness2, robustBufferAccess2, true),
++      ENABLE_EXT_FEATURE(extRobustness2, robustBufferAccess2, false),
+       ENABLE_EXT_FEATURE(extRobustness2, robustImageAccess2, false),
+       ENABLE_EXT_FEATURE(extRobustness2, nullDescriptor, true),
+ 
+diff --git a/src/dxvk/dxvk_graphics.cpp b/src/dxvk/dxvk_graphics.cpp
+index 2c5334d..a747433 100644
+--- a/src/dxvk/dxvk_graphics.cpp
++++ b/src/dxvk/dxvk_graphics.cpp
+@@ -583,7 +583,8 @@ namespace dxvk {
+ 
+     // Set up basic rasterization state
+     rsInfo.depthClampEnable         = VK_TRUE;
+-    rsInfo.polygonMode              = state.rs.polygonMode();
++    rsInfo.polygonMode              = device->features().core.features.fillModeNonSolid
++      ? state.rs.polygonMode() : VK_POLYGON_MODE_FILL;   // (NativeSmash on Android: Mali lacks wireframe fill; the game does not draw it)
+     rsInfo.lineWidth                = 1.0f;
+ 
+     // Set up depth clip state. Require depth clip support,
+diff --git a/src/wsi/sdl2/wsi_platform_sdl2.cpp b/src/wsi/sdl2/wsi_platform_sdl2.cpp
+index 203cb6d..f909835 100644
+--- a/src/wsi/sdl2/wsi_platform_sdl2.cpp
++++ b/src/wsi/sdl2/wsi_platform_sdl2.cpp
+@@ -15,6 +15,8 @@ namespace dxvk::wsi {
+         "SDL2.dll"
+ #elif defined(__APPLE__)
+         "libSDL2-2.0.0.dylib"
++#elif defined(__ANDROID__)
++        "libSDL2.so"   // (the app's own, built by NativeSmash: tools/android/build_android.py)
+ #else
+         "libSDL2-2.0.so.0"
+ #endif

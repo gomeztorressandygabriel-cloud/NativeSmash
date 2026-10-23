@@ -68,3 +68,9 @@ makefiles; the header set from `clang-cl /showIncludes` over the selected source
 the table above and the versions in `tools/codec_libs.py` (`PACKAGE_VERSION`) and `NOTICE.md`, then
 build: `python tools/codec_libs.py --force` compiles both in a few seconds, and
 `tests/test_codec_libs.py` checks the layout.
+
+## bcdec/
+
+`bcdec.h` v0.985 by Sergii "iOrange" Kudlai, unmodified, from https://github.com/iOrange/bcdec (the `main` branch's `bcdec.h`; the Unlicense,
+public domain, which the header states at its end). A single-header decoder of the block-compressed texture formats BC1 to BC7. `runtime/gpu_d3d11.c`
+uses it where the graphics card has no block-compressed textures (phones' Mali GPUs): the textures are decoded by the processor when they are loaded.

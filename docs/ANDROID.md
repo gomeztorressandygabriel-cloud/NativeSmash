@@ -9,6 +9,21 @@ NativeSmash does not run on Android yet. This page says what exists, what was le
 
 - **`NativeSmash-Launcher.apk`** (`tools/android/launcher`, built by `tools/android/build_launcher.py`): the phone launcher. It has the screen resolution (Auto, 540p to 1080p, Native) with FSR, the controls (on-screen touch, or a pad whose buttons are remapped by pressing them), the online settings (name, public lobby, lobby code, offline, direct connections), a compatibility check (the Vulkan one) and a Play button that opens into the game with a circular reveal. What is chosen is saved as it is chosen (and when the app is closed) and written, in the same formats as on the PC (`display.ini`, `controllers.ini`, `online_*.txt`), to the app's folder for the game to read. Play leads to a screen that says the game's engine is not in the app yet. Tested in an Android 15 emulator on this PC (English and Spanish, settings kept after closing the app); not yet on a real phone.
 
+## The game runs on a Pixel 9 Pro XL (2026-10-23)
+
+`NativeSmash-Android.apk` (`python tools/android/build_launcher.py --engine`, after `tools/android/build_android.py`) installs on a Pixel 9 Pro XL (Android 17, Mali-G715) and plays: the title, the
+tutorial fight, the sound and the movies. Found and fixed on the way:
+
+- SDL.h renames `main` to `SDL_main`: the entry called itself (`runtime/android/android_main.c`).
+- DXVK's libraries must have plain sonames (the APK holds `lib*.so`), and it must look for SDL as `libSDL2.so`.
+- The Mali-G715 lacks features DXVK asks for: `fillModeNonSolid`, `multiViewport`, `shaderClipDistance`, `shaderCullDistance`, `robustBufferAccess2` and block-compressed textures
+  (`textureCompressionBC`). `tools/android/patches/dxvk-android.patch` (apply it to DXVK v3.1.1's tree) makes them optional; the textures are decoded by the processor when loaded
+  (`runtime/gpu_d3d11.c`, with `third_party/bcdec`).
+- Files made by `adb push` belong to the shell and the app cannot enter their folders: the launcher makes `dump/` and the others itself, the data is pushed into them.
+- The data on the phone: `python tools/android/make_data.py`, then `adb push` of the three folders into `Android/data/com.nativesmash.app/files/dump/` and of `romfs.bin` beside it.
+
+Not done yet: touch controls (the game has none on screen), the pad names the launcher writes (`controllers.ini` wants SDL's names), speed and memory tuning, shader compilation stutter, and the installer for others.
+
 ## What the research found
 
 - NativeSmash's Linux renderer is Direct3D 11 translated to Vulkan by **DXVK** (x86-64 builds only). DXVK has no first-party Android support, and (its Driver support page) needs Vulkan 1.3 and `VK_EXT_robustness2` with `nullDescriptor` and `robustBufferAccess2`; Direct3D 11's stream output needs `VK_EXT_transform_feedback`. Whether a Mali GPU such as the Pixel 9 Pro XL's Mali-G715 offers those could not be found online: the check app answers it.

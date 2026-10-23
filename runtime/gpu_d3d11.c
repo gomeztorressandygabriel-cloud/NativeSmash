@@ -23,6 +23,9 @@
 #include "gpu_shader.h"
 #include "gpu_shader_cache.h"
 #include "gpu_texture.h"
+#define BCDEC_IMPLEMENTATION
+#define BCDEC_BC4BC5_PRECISE
+#include "../third_party/bcdec/bcdec.h"
 #include <math.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -3183,6 +3186,66 @@ static int unpacked_formats(DXGI_FORMAT f, Unpacked *u) {
     return 1;
 }
 
+/* A graphics card without block-compressed textures (a phone's Mali: Vulkan's textureCompressionBC): they are decoded by the processor as they are loaded,
+ * into the uncompressed format that reads the same (third_party/bcdec). SSBU_BC_SOFT=1 does it on any card (to check it); =0 never. */
+typedef struct SoftBc { int kind; DXGI_FORMAT tex; u32 bpp; int sgn; } SoftBc;
+static int bc_soft = -1;
+static int bc_soft_on(void) {
+    if (bc_soft < 0) {
+        UINT sup = 0;
+        const char *e = getenv("SSBU_BC_SOFT");
+        bc_soft = e ? atoi(e) != 0 : (FAILED(ID3D11Device_CheckFormatSupport(dev, DXGI_FORMAT_BC1_UNORM, &sup)) || !(sup & D3D11_FORMAT_SUPPORT_TEXTURE2D));
+        if (bc_soft) fprintf(stderr, "[gfx] block-compressed textures: decoded by the processor\n");
+    }
+    return bc_soft;
+}
+
+static int bc_soft_format(DXGI_FORMAT f, SoftBc *s) {
+    switch (f) {
+    case DXGI_FORMAT_BC1_UNORM: *s = (SoftBc){1, DXGI_FORMAT_R8G8B8A8_UNORM, 4, 0}; return 1;
+    case DXGI_FORMAT_BC1_UNORM_SRGB: *s = (SoftBc){1, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 4, 0}; return 1;
+    case DXGI_FORMAT_BC2_UNORM: *s = (SoftBc){2, DXGI_FORMAT_R8G8B8A8_UNORM, 4, 0}; return 1;
+    case DXGI_FORMAT_BC2_UNORM_SRGB: *s = (SoftBc){2, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 4, 0}; return 1;
+    case DXGI_FORMAT_BC3_UNORM: *s = (SoftBc){3, DXGI_FORMAT_R8G8B8A8_UNORM, 4, 0}; return 1;
+    case DXGI_FORMAT_BC3_UNORM_SRGB: *s = (SoftBc){3, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 4, 0}; return 1;
+    case DXGI_FORMAT_BC4_UNORM: *s = (SoftBc){4, DXGI_FORMAT_R8_UNORM, 1, 0}; return 1;
+    case DXGI_FORMAT_BC4_SNORM: *s = (SoftBc){4, DXGI_FORMAT_R8_SNORM, 1, 1}; return 1;
+    case DXGI_FORMAT_BC5_UNORM: *s = (SoftBc){5, DXGI_FORMAT_R8G8_UNORM, 2, 0}; return 1;
+    case DXGI_FORMAT_BC5_SNORM: *s = (SoftBc){5, DXGI_FORMAT_R8G8_SNORM, 2, 1}; return 1;
+    case DXGI_FORMAT_BC6H_UF16: *s = (SoftBc){6, DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 0}; return 1;
+    case DXGI_FORMAT_BC6H_SF16: *s = (SoftBc){6, DXGI_FORMAT_R16G16B16A16_FLOAT, 8, 1}; return 1;
+    case DXGI_FORMAT_BC7_UNORM: *s = (SoftBc){7, DXGI_FORMAT_R8G8B8A8_UNORM, 4, 0}; return 1;
+    case DXGI_FORMAT_BC7_UNORM_SRGB: *s = (SoftBc){7, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 4, 0}; return 1;
+    default: return 0;
+    }
+}
+
+/* bw x bh blocks of `block_bytes` each, into w x h pixels (the edge blocks cut to the image) */
+static void bc_soft_decode(const SoftBc *s, const u8 *blocks, u32 bw, u32 bh, u32 w, u32 h, u32 block_bytes, u8 *out) {
+    u8 tmp[16 * 8];
+    for (u32 by = 0; by < bh; by++)
+        for (u32 bx = 0; bx < bw; bx++) {
+            const u8 *b = blocks + ((size_t)by * bw + bx) * block_bytes;
+            switch (s->kind) {
+            case 1: bcdec_bc1(b, tmp, 16); break;
+            case 2: bcdec_bc2(b, tmp, 16); break;
+            case 3: bcdec_bc3(b, tmp, 16); break;
+            case 4: bcdec_bc4(b, tmp, 4, s->sgn); break;
+            case 5: bcdec_bc5(b, tmp, 8, s->sgn); break;
+            case 7: bcdec_bc7(b, tmp, 16); break;
+            case 6: {   /* (RGB halves, widened to RGBA with an alpha of 1) */
+                unsigned short rgb[16 * 3], *px = (unsigned short *)tmp;
+                bcdec_bc6h_half(b, rgb, 4 * 3, s->sgn);
+                for (u32 i = 0; i < 16; i++) { px[i * 4] = rgb[i * 3]; px[i * 4 + 1] = rgb[i * 3 + 1]; px[i * 4 + 2] = rgb[i * 3 + 2]; px[i * 4 + 3] = 0x3C00; }
+                break;
+            }
+            }
+            u32 x0 = bx * 4, y0 = by * 4, cols = w - x0 < 4 ? w - x0 : 4, rows = h - y0 < 4 ? h - y0 : 4;
+            for (u32 y = 0; y < rows; y++)
+                memcpy(out + ((size_t)(y0 + y) * w + x0) * s->bpp, tmp + (size_t)y * 4 * s->bpp, (size_t)cols * s->bpp);
+        }
+}
+
 static ID3D11DeviceContext *unpack_ctx;   /* deferred: the copy runs with the immediate context's state kept (mid-draw) */
 static u32 gfx_debug(void);
 
@@ -3302,7 +3365,10 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
     if (d.type != TIC_CUBE && d.type != TIC_CUBE_ARRAY) td.MiscFlags = 0;
     Unpacked unpacked;
     int unpack = 0;
-    if (d.bw > 1 && ((d.width % 4) || (d.height % 4))) {   /* block-compressed sizes must be multiples of 4 at level 0 */
+    SoftBc soft = {0};
+    int decode = d.bw > 1 && bc_soft_on() && bc_soft_format(d.dxgi, &soft);   /* (no block-compressed textures: decoded here, at their exact size) */
+    if (decode) td.Format = soft.tex;
+    if (!decode && d.bw > 1 && ((d.width % 4) || (d.height % 4))) {   /* block-compressed sizes must be multiples of 4 at level 0 */
         td.Width = (d.width + 3) & ~3u; td.Height = (d.height + 3) & ~3u;
         if (!(gfx_debug() & 128) && (unpack = unpacked_formats(d.dxgi, &unpacked))) td.Format = unpacked.bc;
     }
@@ -3321,6 +3387,17 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
             if (pbh < bh) pbh = bh;
             u8 *buf = pbw > bw || pbh > bh ? calloc(1, (size_t)pbw * pbh * d.bytes + 64) : malloc((size_t)bw * bh * d.bytes + 64);
             texture_read(&d, g, layer, lg, buf);
+            if (decode) {
+                u8 *px = malloc((size_t)w * h * soft.bpp + 64);
+                bc_soft_decode(&soft, buf, bw, bh, w, h, d.bytes, px);
+                free(buf);
+                gfx_stat_upload_bytes += (u64)bw * bh * d.bytes;
+                gfx_stat_upload_kind[3] += (u64)bw * bh * d.bytes;
+                bytes += (u64)w * h * soft.bpp;
+                init[layer * lv + l] = (D3D11_SUBRESOURCE_DATA){px, w * soft.bpp, w * h * soft.bpp};
+                mem[layer * lv + l] = px;
+                continue;
+            }
             for (u32 y = bh; pbw > bw && y-- > 0;)   /* rows spread out to the wider pitch, from the last */
                 memmove(buf + (size_t)y * pbw * d.bytes, buf + (size_t)y * bw * d.bytes, (size_t)bw * d.bytes);
             for (u32 y = 0; pbw > bw && y < bh; y++) memset(buf + ((size_t)y * pbw + bw) * d.bytes, 0, (size_t)(pbw - bw) * d.bytes);
@@ -3338,6 +3415,7 @@ static ID3D11ShaderResourceView *get_texture(const u32 *tic, u32 shader_type, fl
     D3D11_SHADER_RESOURCE_VIEW_DESC sd;
     memset(&sd, 0, sizeof sd);
     sd.Format = d.dxgi == DXGI_FORMAT_R24G8_TYPELESS ? DXGI_FORMAT_R24_UNORM_X8_TYPELESS : d.dxgi;
+    if (decode) sd.Format = soft.tex;
     ID3D11Texture2D *exact = unpack ? unpack_texture(t->tex, &d, lv, layers, td.MiscFlags, &unpacked) : NULL;
     if (exact) {   /* (else the padded one, as before) */
         ID3D11Texture2D_Release(t->tex);

@@ -14,6 +14,7 @@
   <a href="docs/UPDATES.md"><strong>Game updates</strong></a> ·
   <a href="docs/LINUX.md"><strong>Linux</strong></a> ·
   <a href="docs/MACOS.md"><strong>macOS</strong></a> ·
+  <a href="docs/ANDROID.md"><strong>Android (pre-alpha)</strong></a> ·
   <a href="docs/TECHNICAL.md"><strong>How it works</strong></a>
 </p>
 
@@ -261,6 +262,8 @@ Looking for people to play with? Ask on the [Discord server](https://discord.gg/
 | [Third-party notices](NOTICE.md) | see attributions and licenses. |
 
 ## Project status
+
+> **Android: pre-alpha, very, very early.** The game has been played on one phone (a Pixel 9 Pro XL) with on-screen touch controls and its own launcher, at roughly 25-38 frames per second in a 1v1 match. There is no download or installer for Android yet, it is built on a PC from your own copy of the game, and expect crashes and an incomplete picture. Notes in [docs/ANDROID.md](docs/ANDROID.md).
 
 NativeSmash is **experimental**. Menus and matches run and Local Wireless connects, but much of it hasn't been tested widely yet.
 

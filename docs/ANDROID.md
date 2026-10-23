@@ -1,6 +1,6 @@
-# Android (experimental, not playable)
+# Android (pre-alpha: very, very early)
 
-NativeSmash does not run on Android yet. This page says what exists, what was learned, and what is missing.
+A pre-alpha experiment, not something to install: the game has been played on one phone (a Pixel 9 Pro XL), built on a PC from the developer's own copy of the game and copied over. There is no download and no installer for Android, no game file is distributed, and most things are untested. This page says what exists, what was learned, and what is missing.
 
 ## What exists
 

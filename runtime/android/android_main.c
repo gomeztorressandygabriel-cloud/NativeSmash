@@ -184,6 +184,11 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
     snprintf(modules, sizeof modules, "%s/dump/modules", root);
     setenv("SSBU_DATA_ROOT", root, 1);
     setenv("SSBU_PROFILE", "dxvk-cs,Thread-3,guest thread,shader compiler", 1);   /* (to find where the frame's time goes: thread name parts, one report each) */
+    {   /* the Vulkan pipeline cache DXVK keeps (our patch): what the driver compiled in earlier runs is made again in milliseconds */
+        static char cache[4200];
+        snprintf(cache, sizeof cache, "%s/cache/pipelines.bin", root);
+        setenv("NATIVESMASH_PIPELINE_CACHE", cache, 1);
+    }
     setenv("VKD3D_SHADER_DEBUG", "err", 1);   /* (vkd3d-shader says "fixme" for every constant it folds: thousands of lines a second into the system log) */
     if (chdir(root)) perror("chdir");
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");   /* (the game is wide: SDL would otherwise follow the window's shape, and the phone's) */

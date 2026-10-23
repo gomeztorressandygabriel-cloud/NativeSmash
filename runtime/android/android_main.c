@@ -175,6 +175,65 @@ static void *profiler(void *arg) {
     return NULL;
 }
 
+/* Where the game's threads run. The phone's cores are of three kinds (a Pixel 9: cpu 0-3 slow, 4-6 middle, 7 the fast one), and left alone
+ * Android may put the thread that sets the pace on a slow core, or the compilers of shaders on the fast one. Every second the threads are
+ * looked at by name: the game's main thread gets the fast core, the command stream of DXVK and the graphics thread the middle ones, and
+ * the compilers (ours, DXVK's and the driver's) the slow ones. SSBU_CPU_PLACE=0 leaves them alone. Only on a phone with the three kinds. */
+#include <sched.h>
+
+static long cpu_khz(int cpu) {
+    char path[96];
+    snprintf(path, sizeof path, "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu);
+    FILE *f = fopen(path, "r");
+    long v = 0;
+    if (f) { if (fscanf(f, "%ld", &v) != 1) v = 0; fclose(f); }
+    return v;
+}
+
+static void *placer(void *arg) {
+    (void)arg;
+    int n = (int)sysconf(_SC_NPROCESSORS_CONF);
+    if (n < 4 || n > 32) return NULL;
+    long khz[32], top = 0, low = 1L << 40;
+    for (int i = 0; i < n; i++) { khz[i] = cpu_khz(i); if (khz[i] > top) top = khz[i]; if (khz[i] > 0 && khz[i] < low) low = khz[i]; }
+    if (top <= 0 || top == low) return NULL;   /* (cores that are all alike) */
+    cpu_set_t fast, middle, slow, mid_and_fast;
+    CPU_ZERO(&fast); CPU_ZERO(&middle); CPU_ZERO(&slow); CPU_ZERO(&mid_and_fast);
+    for (int i = 0; i < n; i++) {
+        if (khz[i] == top) { CPU_SET(i, &fast); CPU_SET(i, &mid_and_fast); }
+        else if (khz[i] == low) CPU_SET(i, &slow);
+        else { CPU_SET(i, &middle); CPU_SET(i, &mid_and_fast); }
+    }
+    if (!CPU_COUNT(&middle)) middle = fast;
+    static int placed[4096];   /* (tids seen: one try each) */
+    int nplaced = 0;
+    for (;;) {
+        DIR *d = opendir("/proc/self/task");
+        struct dirent *e;
+        while (d && (e = readdir(d))) {
+            int tid = atoi(e->d_name);
+            if (tid <= 0) continue;
+            int seen = 0;
+            for (int i = 0; i < nplaced; i++) if (placed[i] == tid) { seen = 1; break; }
+            if (seen) continue;
+            char path[64], comm[32] = "";
+            snprintf(path, sizeof path, "/proc/self/task/%d/comm", tid);
+            FILE *f = fopen(path, "r");
+            if (f) { if (fgets(comm, sizeof comm, f)) comm[strcspn(comm, "\n")] = 0; fclose(f); }
+            const cpu_set_t *set = NULL;
+            if (!strcmp(comm, "Thread-3")) set = &fast;
+            else if (!strcmp(comm, "dxvk-cs") || !strcmp(comm, "gpu")) set = &middle;
+            else if (strstr(comm, "shader compiler") || !strncmp(comm, "dxvk-shader", 11) || !strcmp(comm, "mali-compiler")) set = &slow;
+            if (!set || nplaced >= 4096) continue;
+            if (!sched_setaffinity(tid, sizeof *set, set)) __android_log_print(ANDROID_LOG_INFO, TAG, "placed %s (%d)", comm, tid);
+            placed[nplaced++] = tid;
+        }
+        if (d) closedir(d);
+        sleep(1);
+    }
+    return NULL;
+}
+
 __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
     (void)argc; (void)argv;
     const char *files = SDL_AndroidGetExternalStoragePath();
@@ -227,6 +286,8 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
         const char *want = getenv("SSBU_PROFILE");
         if (want && *want) { static char name[64]; snprintf(name, sizeof name, "%s", want); pthread_t pt; pthread_create(&pt, NULL, profiler, name); pthread_detach(pt); }
     }
+    {   const char *place = getenv("SSBU_CPU_PLACE");
+        if (!place || atoi(place)) { pthread_t pl; pthread_create(&pl, NULL, placer, NULL); pthread_detach(pl); } }
     __android_log_write(ANDROID_LOG_INFO, TAG, "SDL_main: starting the game");
     char *args[] = { "ssbu", modules, "--status", "30", "--online", NULL };
     return main(5, args);

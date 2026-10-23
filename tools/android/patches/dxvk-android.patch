@@ -1,15 +1,16 @@
 diff --git a/src/dxvk/dxvk_android_cache.h b/src/dxvk/dxvk_android_cache.h
 new file mode 100644
-index 0000000..8d81315
+index 0000000..4e2e226
 --- /dev/null
 +++ b/src/dxvk/dxvk_android_cache.h
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,102 @@
 +#pragma once
 +
 +#include <cstdio>
 +#include <cstdlib>
 +#include <mutex>
 +#include <string>
++#include <pthread.h>
 +#include <thread>
 +#include <vector>
 +
@@ -71,6 +72,7 @@ index 0000000..8d81315
 +      VkPipelineCache handle = cache;
 +
 +      std::thread([keep, handle, path] () {
++        pthread_setname_np(pthread_self(), "ns-pipe-cache");
 +        size_t last = 0;
 +
 +        for (;;) {

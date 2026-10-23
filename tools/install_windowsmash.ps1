@@ -1037,7 +1037,7 @@ function Test-GameFolder {
     }
     $lines = @($scan.summary)
     if (Test-Path -LiteralPath (Join-Path $Folder 'romfs.bin')) { $lines += 'romfs.bin found (the game data, used as it is).' }
-    if ($scan.program) { return @{ Ok = $true; Text = ($lines -join ' ') } }
+    if ($scan.program -or $scan.exefs) { return @{ Ok = $true; Text = ($lines -join ' ') } }
     return @{ Ok = $false; Text = (($lines + @("Problem: $($scan.problem)")) -join ' ') }
 }
 

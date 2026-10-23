@@ -919,13 +919,31 @@ def build(a):
         found = found or find_program(game, keys)
         return found
 
+    def own_exefs():
+        """The game folder's ready `exefs` (with romfs.bin), when no game file holds the program."""
+        import gamefiles
+        return gamefiles.ready_exefs(game) if game and os.path.isfile(os.path.join(game, "romfs.bin")) else None
+
+    def program_or_exefs():
+        try:
+            return the_program()
+        except Failed:
+            if own_exefs():
+                return None
+            raise
+
     log(shown("\n[4/9] Copy the game's program (dump\\exefs)"))
     if exefs_done:
-        if game:
+        if game and program_or_exefs():
             check_same_game(the_program()[2])
         log("  already done")
-    else:
+    elif program_or_exefs():
         extract_exefs(the_program()[2], keys)
+    else:
+        os.makedirs(EXEFS, exist_ok=True)
+        for n in EXEFS_FILES:
+            shutil.copyfile(os.path.join(own_exefs(), n), os.path.join(EXEFS, n))
+        log(f"  no game file holds the program: copied it from {own_exefs()}")
 
     log(shown("\n[5/9] Take the fonts out of your firmware (dump\\fonts)"))
     if fonts_from is None:
@@ -956,7 +974,12 @@ def build(a):
     if aoc_done():
         log("  already done")
     else:
-        _path, title, rec, result = the_program()
+        import gamefiles
+        found_program = program_or_exefs()
+        if found_program:
+            _path, title, rec, result = found_program
+        else:
+            title, rec, result = gamefiles.APP_ID, {"app": f"{gamefiles.APP_ID:016X}"}, {"contents": []}
         dlc = dlc_folder(game, rec, result["contents"])
         if not dlc:
             log(f"  no dlc folder in {game}, and no DLC among its files: no DLC")

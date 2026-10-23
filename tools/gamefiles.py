@@ -31,6 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nca import Nca, nsp_ncas, pfs0_entries, romfs_entries  # noqa: E402
 
 APP_ID = 0x01006A800016E000   # Super Smash Bros. Ultimate
+EXEFS_FILES = ("main", "main.npdm", "rtld", "sdk", "subsdk0")   # the game's program, as dump/exefs holds it
+SYSTEM_FOLDERS = ("firmware",)   # (its .nca files are the Switch's own programs, not a game's: never looked into)
 CONTENT_TYPES = {0: "program", 1: "meta", 2: "control", 3: "manual", 4: "data", 5: "publicdata"}
 ROMFS_STATES = {1: "plain", 3: "encrypted", 4: "patch"}   # an NCA section's encryption type
 
@@ -79,7 +81,7 @@ def list_ncas(folder, depth=1):
                     ncas.append((os.path.join(p, "00"), n))
             elif low.endswith((".nsp", ".xci")) and os.path.isfile(p):
                 nsps.append((p, n))
-            elif os.path.isdir(p) and level < depth:
+            elif os.path.isdir(p) and level < depth and low not in SYSTEM_FOLDERS:
                 visit(p, level + 1)
 
     visit(folder, 0)
@@ -235,6 +237,13 @@ def scan(folder, keys, depth=1):
     return {"folder": os.path.abspath(folder), "contents": contents, "unread": unread}
 
 
+def ready_exefs(folder):
+    """The folder's `exefs` subfolder when it holds the game's program already taken out (the five
+    files of dump/exefs: from an earlier install, say), else None. With romfs.bin it is all a build needs."""
+    path = os.path.join(folder, "exefs")
+    return path if all(os.path.isfile(os.path.join(path, n)) for n in EXEFS_FILES) else None
+
+
 # ---- pure: what to build from -------------------------------------------------------------------
 def pick_program(contents, app=APP_ID):
     """The program record to build from, among a scan's contents: a Program NCA, as a file of its
@@ -322,6 +331,7 @@ def main():
     if not os.path.isdir(a.folder):
         raise SystemExit(f"there is no folder {a.folder}")
     result = scan(a.folder, a.keys)
+    exefs = ready_exefs(a.folder) if os.path.isfile(os.path.join(a.folder, "romfs.bin")) else None
     try:
         program = pick_program(result["contents"])
         problem = early_release(program)
@@ -329,9 +339,18 @@ def main():
             program = None
     except Error as e:
         program, problem = None, str(e)
+        if exefs:   # (the game's data and its program, both ready: no game file is needed)
+            problem = None
+        elif os.path.isfile(os.path.join(a.folder, "romfs.bin")):
+            problem += (". romfs.bin is only the game's data: the build also needs the game's program. Add the game's .xci, "
+                        "or its .nsp (and its update's), or its program .nca, to this folder; or an 'exefs' folder with main, "
+                        "main.npdm, rtld, sdk and subsdk0")
     result["program"] = program
+    result["exefs"] = exefs if not program else None
     result["problem"] = problem
     result["summary"] = summary(result)
+    if result["exefs"]:
+        result["summary"].append("the game's program: the exefs folder (used as it is).")
     if a.json:
         print(json.dumps(result, indent=1))
     else:
@@ -339,9 +358,11 @@ def main():
             print(line)
         if program:
             print(f"build from: {program['path']}")
+        elif result["exefs"]:
+            print(f"build from: {result['exefs']}")
         elif problem:
             print(f"problem: {problem}")
-    return 0 if program else 1
+    return 0 if program or result["exefs"] else 1
 
 
 if __name__ == "__main__":

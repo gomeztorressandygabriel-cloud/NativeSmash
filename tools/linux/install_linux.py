@@ -899,7 +899,7 @@ def scan_game(folder, keys):
     lines = list(scan.get("summary") or [])
     if os.path.isfile(os.path.join(folder, "romfs.bin")):
         lines.append("romfs.bin found (the game data, used as it is).")
-    if scan.get("program"):
+    if scan.get("program") or scan.get("exefs"):
         return True, " ".join(lines)
     return False, " ".join(lines + [f"Problem: {scan.get('problem')}"])
 

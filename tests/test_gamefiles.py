@@ -167,5 +167,21 @@ class FolderTests(unittest.TestCase):
         self.assertEqual(gamefiles.describe_nca(control, 'c', 'c.nca')['type'], 'control')
 
 
+class SystemFolderTests(unittest.TestCase):
+    def test_firmware_folder_is_not_looked_into_and_exefs_is_found(self):
+        with tempfile.TemporaryDirectory() as d:
+            for sub in ('Firmware', 'dlc', 'exefs'):
+                os.makedirs(os.path.join(d, sub))
+            for folder in ('Firmware', 'dlc'):
+                Path(d, folder, 'a.nca').write_bytes(b'x')
+            ncas, _nsps = gamefiles.list_ncas(d)
+            self.assertEqual([n for _p, n in ncas], ['a.nca'])
+            self.assertIn('dlc', ncas[0][0])
+            self.assertIsNone(gamefiles.ready_exefs(d))
+            for n in gamefiles.EXEFS_FILES:
+                Path(d, 'exefs', n).write_bytes(b'x')
+            self.assertEqual(gamefiles.ready_exefs(d), os.path.join(d, 'exefs'))
+
+
 if __name__ == '__main__':
     unittest.main()

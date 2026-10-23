@@ -72,7 +72,7 @@ index 63d89d9..15f8d75 100644
        ENABLE_EXT_FEATURE(extRobustness2, nullDescriptor, true),
  
 diff --git a/src/dxvk/dxvk_graphics.cpp b/src/dxvk/dxvk_graphics.cpp
-index 2c5334d..a747433 100644
+index 2c5334d..897075c 100644
 --- a/src/dxvk/dxvk_graphics.cpp
 +++ b/src/dxvk/dxvk_graphics.cpp
 @@ -583,7 +583,8 @@ namespace dxvk {
@@ -85,6 +85,27 @@ index 2c5334d..a747433 100644
      rsInfo.lineWidth                = 1.0f;
  
      // Set up depth clip state. Require depth clip support,
+@@ -1100,6 +1101,20 @@ namespace dxvk {
+         // Keep pipeline object locked, at worst we're going to stall
+         // a state cache worker and the current thread needs priority.
+         bool canCreateBasePipeline = this->canCreateBasePipeline(state);
++
++#ifdef __ANDROID__
++        // Without pipeline libraries the whole pipeline would be compiled here, on the
++        // command stream thread, and the phone's driver takes tens of milliseconds for
++        // it: a worker compiles it instead, and the draw is skipped until it is ready.
++        if (!canCreateBasePipeline) {
++          instance = m_pipelines.add(state, VK_NULL_HANDLE, VK_NULL_HANDLE, computeAttachmentMask(state));
++          m_stats->numGraphicsPipelines += 1;
++          lock.unlock();
++          m_workers->compileGraphicsPipeline(this, state, DxvkPipelinePriority::High);
++          return instance->getHandle();
++        }
++#endif
++
+         instance = this->createInstance(state, canCreateBasePipeline);
+ 
+         // Unlock here since we may dispatch the pipeline to a worker,
 diff --git a/src/dxvk/dxvk_presenter.cpp b/src/dxvk/dxvk_presenter.cpp
 index f93ae8d..9d37ee1 100644
 --- a/src/dxvk/dxvk_presenter.cpp

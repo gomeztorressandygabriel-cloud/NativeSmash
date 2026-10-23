@@ -249,9 +249,8 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
         setenv("NATIVESMASH_PIPELINE_CACHE", cache, 1);
         snprintf(cache, sizeof cache, "%s/cache", root);
         setenv("DXVK_SHADER_CACHE_PATH", cache, 1);   /* (DXVK's own: the converted shaders, kept for the next start) */
-        setenv("SSBU_COMPILE_THREADS", "4", 0);       /* (the prewarm takes all but the first: three, on the slow cores) */
     }
-    setenv("SSBU_SHADER_PREWARM", "1", 0);   /* (the saved shaders are made ready behind the loading screen, before the first match) */
+    /* (SSBU_SHADER_PREWARM=1 made the saved shaders ready at start, but its threads and the pipelines it asks the driver for slowed the game to half: off) */
     setenv("VKD3D_SHADER_DEBUG", "err", 1);   /* (vkd3d-shader says "fixme" for every constant it folds: thousands of lines a second into the system log) */
     if (chdir(root)) perror("chdir");
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");   /* (the game is wide: SDL would otherwise follow the window's shape, and the phone's) */

@@ -15,6 +15,9 @@ rem The installer may update this folder, this file included, and cmd reads a ba
 rem from here on everything is one block, which cmd reads whole before running it.
 (
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\install_windowsmash.ps1" %*
+    rem Install NativeSmash.exe sets NATIVESMASH_WINDOW: the installer then has a window of its own (a bar,
+    rem the steps) and no console to pause in.
+    if "%NATIVESMASH_WINDOW%"=="1" exit /b %errorlevel%
     if errorlevel 1 (
         echo.
         pause

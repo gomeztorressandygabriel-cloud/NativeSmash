@@ -91,6 +91,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Script:Python = $null            # the Python command: @(exe) or @('py', '-3')
 $Script:WizardSnapshot = $null    # set to a .png path to have the wizard save a picture of itself and accept (tests)
 $Script:Kernel32 = $null          # the type Test-CpuFeature declares IsProcessorFeaturePresent on (made once)
+$Script:Ui = $null                # the progress window (progress_window.ps1), when Install NativeSmash.exe opened this without a console
 
 # ---- what to fetch, and from where -----------------------------------------------------------
 $PythonMinor = '3.14'
@@ -393,9 +394,13 @@ function Get-DiskNeedGb {
 }
 
 # ---- helpers ---------------------------------------------------------------------------------------
-function Write-Step { param([string]$Text) Write-Host ''; Write-Host $Text -ForegroundColor Cyan }
-function Write-Info { param([string]$Text) Write-Host "  $Text" }
-function Write-Warn { param([string]$Text) Write-Host "  $Text" -ForegroundColor Yellow }
+function Write-Step {
+    param([string]$Text)
+    Write-Host ''; Write-Host $Text -ForegroundColor Cyan
+    if ($Script:Ui -and $Text -match '^\[(\d+)/10\]') { Set-ProgressStep $Script:Ui ([int]$Matches[1]) }
+}
+function Write-Info { param([string]$Text) Write-Host "  $Text"; if ($Script:Ui) { Add-ProgressLine $Script:Ui "  $Text" } }
+function Write-Warn { param([string]$Text) Write-Host "  $Text" -ForegroundColor Yellow; if ($Script:Ui) { Add-ProgressLine $Script:Ui "  $Text" } }
 function Write-Would { param([string]$Text) Write-Host "  (dry run) would $Text" -ForegroundColor DarkGray }
 
 function Invoke-Download {
@@ -438,6 +443,12 @@ function Invoke-Python {
     $exe = $Script:Python[0]
     $pre = @()
     if ($Script:Python.Count -gt 1) { $pre = @($Script:Python[1..($Script:Python.Count - 1)]) }
+    if ($Script:Ui) {   # (no console to show it in: the progress window gets every line, and the log)
+        $before = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try { & $exe @pre @Arguments 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; Add-ProgressLine $Script:Ui $line } } finally { $ErrorActionPreference = $before }
+        return $LASTEXITCODE
+    }
     & $exe @pre @Arguments | Out-Host   # (to the window, not into this function's result)
     return $LASTEXITCODE
 }
@@ -831,7 +842,8 @@ function Install-PortableCompiler {
             $plan = Get-PythonOutput @((Join-Path $Root 'tools\msvc_deps.py'), 'plan')
             $found = [regex]::Match([string]$plan.Output, 'license terms[^\r\n]*?(https?://\S+)')
             if ($found.Success) { $url = $found.Groups[1].Value.TrimEnd('.', ',', ')') }
-            $answer = Show-LicenseWindow -Url $url -Lang $Script:Language
+            Set-ProgressVisible $Script:Ui $false
+            try { $answer = Show-LicenseWindow -Url $url -Lang $Script:Language } finally { Set-ProgressVisible $Script:Ui $true }
             if ($answer -eq 'yes') { $arguments += '--accept-license' }
             else { Write-Info "Microsoft's license terms: not accepted"; return 'declined' }
         } catch { Write-Info "license window: $($_.Exception.Message)" }
@@ -1041,6 +1053,7 @@ function Test-GameFolder {
     return @{ Ok = $false; Text = (($lines + @("Problem: $($scan.problem)")) -join ' ') }
 }
 
+. (Join-Path $PSScriptRoot 'progress_window.ps1')   # the progress window, instead of a console (Start-ProgressWindow)
 . (Join-Path $PSScriptRoot 'setup_window.ps1')   # Show-WizardWpf: the setup window of NativeSmash (the plain one below is its fallback)
 
 function Show-Wizard {
@@ -1256,12 +1269,14 @@ function Step-GameFiles {
     }
     $answers = $null
     if (-not $NoWizard) {
+        Set-ProgressVisible $Script:Ui $false
         try { $answers = Show-WizardWpf $detected $default } catch {
             Write-Warn "the setup window could not open ($($_.Exception.Message)); trying the plain one"
             try { $answers = Show-Wizard $detected $default } catch { Write-Warn "the plain window could not open either ($($_.Exception.Message)); asking here instead"; $NoWizard = $true }
         }
         if (-not $NoWizard -and -not $answers) { throw 'Cancelled. Run Install NativeSmash.bat again when you are ready.' }
     }
+    Set-ProgressVisible $Script:Ui $true
     if ($NoWizard) { $answers = Read-Answers $detected $default }
     if (($answers.OnlineName -and $answers.OnlineName -ne $default) -or -not (Test-Path -LiteralPath $nameFile)) {
         [IO.File]::WriteAllText($nameFile, $answers.OnlineName + "`r`n")
@@ -1316,7 +1331,7 @@ function Step-Extras {
         $cmd = Get-FirewallRuleCommand $exe $FirewallRuleName
         Write-Info 'adding the firewall rule: Windows now asks for administrator rights'
         try {
-            $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd)
+            $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd)
             if ($p.ExitCode -eq 0) { Write-Info "firewall rule: $FirewallRuleName" } else { Write-Warn "the firewall rule could not be added (code $($p.ExitCode)); Windows will ask the first time the game goes online" }
         } catch {
             Write-Warn 'no administrator rights given: Windows will ask the first time the game goes online'
@@ -1345,7 +1360,7 @@ function Step-Shaders {
     Write-Step '[10/10] Shaders'
     if (-not $Answers.Shaders) { Write-Info 'not wanted (launchers\Prepare Shaders.bat does it any time)'; return }
     if ($DryRun -or -not $Built) { Write-Would 'start launchers\Prepare Shaders.bat in a window of its own'; return }
-    Start-Process -FilePath (Join-Path $Root 'launchers\Prepare Shaders.bat') -WorkingDirectory $Root
+    Start-Process -FilePath (Join-Path $Root 'launchers\Prepare Shaders.bat') -WorkingDirectory $Root -WindowStyle $(if ($Script:Ui) { 'Hidden' } else { 'Normal' })
     Write-Info 'launchers\Prepare Shaders.bat runs in its own window at low priority; you can play meanwhile, and close it any time'
 }
 
@@ -1374,11 +1389,19 @@ function Main {
         if ($DryRun) { Write-Host '  dry run: saying what each step would do, doing nothing' -ForegroundColor DarkGray }
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $Script:Language = Get-SetupLanguage
+        if ($env:NATIVESMASH_WINDOW -eq '1' -and -not $NoWizard -and -not $DryRun) {
+            # started by Install NativeSmash.exe without a console: a window with a bar shows what is going on instead
+            [Console]::OutputEncoding = [Text.Encoding]::UTF8
+            $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'   # (the tools' lines reach the window as they are written)
+            $Script:Ui = Start-ProgressWindow -Lang $Script:Language -Root $Root -MainPid $PID
+            if ($Script:Ui) { Keep-PcAwake }
+        }
         if (Step-Update) {
             # the rest is the new version's to do: start its installer in this window, as this one was
             Write-Host ''
             Write-Host 'Starting the updated installer' -ForegroundColor Cyan
             try { Stop-Transcript | Out-Null } catch { }
+            [void](Close-Progress $Script:Ui -Silent)   # (the new one opens its own)
             $line = Join-CommandLine (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Root 'tools\install_windowsmash.ps1')) + (Get-RestartArguments $ScriptBound))
             $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $line -NoNewWindow -Wait -PassThru
             return $p.ExitCode
@@ -1399,12 +1422,14 @@ function Main {
         } else {
             Write-Host 'Setup done.' -ForegroundColor Green
         }
+        if ($Script:Ui) { [void](Close-Progress $Script:Ui -Done -ShadersLater:([bool]$answers.Shaders -and $built)) }
         return 0
     } catch {
         Write-Host ''
         Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
         if ($_.ScriptStackTrace) { Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray }
         Write-Host "(everything above is also in $log)"
+        if ($Script:Ui -and (Close-Progress $Script:Ui -Error $_.Exception.Message)) { return 0 }   # (shown in the window: nothing more to tell the starter)
         return 1
     } finally {
         try { Stop-Transcript | Out-Null } catch { }

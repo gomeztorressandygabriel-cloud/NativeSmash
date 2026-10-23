@@ -934,8 +934,13 @@ def build(a):
 
     log(shown("\n[4/9] Copy the game's program (dump\\exefs)"))
     if exefs_done:
-        if game and program_or_exefs():
-            check_same_game(the_program()[2])
+        if game:
+            try:
+                found_program = the_program()
+            except Failed:   # (no game file holds the program: what dump/exefs has is used)
+                found_program = None
+            if found_program:
+                check_same_game(found_program[2])
         log("  already done")
     elif program_or_exefs():
         extract_exefs(the_program()[2], keys)

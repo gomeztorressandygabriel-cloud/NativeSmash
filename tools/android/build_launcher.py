@@ -28,13 +28,12 @@ def engine_libs():
     loader would look for by that name: it is cut to the plain name in place (the string's slot is longer, so the rest is null)."""
     dxvk = os.path.join(b.ANDROID, "build", "dxvk", "src")
     libs = {"libmain.so": os.path.join(GAME, "libmain.so"), "libSDL2.so": os.path.join(b.ANDROID, "install", "arm64", "lib", "libSDL2.so")}
-    for name, folder in (("libdxvk_d3d11.so", "d3d11"), ("libdxvk_dxgi.so", "dxgi")):
-        data = open(os.path.join(dxvk, folder, name), "rb").read()
-        data = data.replace((name + ".0").encode() + b"\x00", name.encode() + b"\x00\x00")
-        patched = os.path.join(WORK, name)
-        with open(patched, "wb") as f:
-            f.write(data)
-        libs[name] = patched
+    if os.path.exists(libs["libmain.so"]):   # (the debug information is most of its size: a stripped copy goes in the app)
+        stripped = os.path.join(WORK, "libmain.so")
+        b.run([os.path.join(os.path.dirname(b.CLANG), "llvm-strip.exe"), "--strip-unneeded", libs["libmain.so"], "-o", stripped])
+        libs["libmain.so"] = stripped
+    for name in ("libdxvk_d3d11.so", "libdxvk_dxgi.so"):   # (with the plain sonames tools/android/build_android.py makes)
+        libs[name] = os.path.join(GAME, "lib", name)
     missing = [n for n, p in libs.items() if not os.path.exists(p)]
     if missing:
         sys.exit("the engine build needs: " + ", ".join(missing) + " (tools/android/build_android.py, docs/ANDROID.md)")
@@ -85,10 +84,9 @@ def main():
         if ENGINE:
             native.update(engine_libs())
         for name, path in native.items():
-            info = zipfile.ZipInfo("lib/arm64-v8a/" + name)
-            info.compress_type = zipfile.ZIP_STORED   # (stored, so that zipalign can page-align it)
-            with open(path, "rb") as f:
-                z.writestr(info, f.read())
+            # (stored, so that zipalign can page-align it; the engine's library is some 1 GB of code, which compresses well and is unpacked at
+            # install. Written from the file, in pieces: this Python is a 32-bit one)
+            z.write(path, "lib/arm64-v8a/" + name, compress_type=zipfile.ZIP_DEFLATED if name == "libmain.so" else zipfile.ZIP_STORED)
     aligned = os.path.join(WORK, "aligned.apk")
     b.run([os.path.join(b.BUILD_TOOLS, "zipalign.exe"), "-f", "-P", "16", "4", unaligned, aligned])
     keystore = os.path.join(b.ANDROID, "debug.keystore")

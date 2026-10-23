@@ -191,7 +191,24 @@ def compile_all(jobs, what):
     return not failures
 
 
+def patched_dxvk():
+    """DXVK's two libraries with plain sonames in OUT/lib: they are built as libdxvk_d3d11.so.0 (and name each other so), which an APK's
+    loader cannot find (it has files named lib*.so). The names are cut in place (the file keeps its size: the three bytes of ".0" and the terminator become nulls), in
+    each library's own soname and in the other's needed entry."""
+    dxvk = os.path.join(A, "build", "dxvk", "src")
+    os.makedirs(os.path.join(OUT, "lib"), exist_ok=True)
+    names = ("libdxvk_d3d11.so", "libdxvk_dxgi.so")
+    for name, folder in zip(names, ("d3d11", "dxgi")):
+        with open(os.path.join(dxvk, folder, name), "rb") as f:
+            data = f.read()
+        for other in names:
+            data = data.replace((other + ".0").encode() + b"\x00", other.encode() + b"\x00\x00\x00")
+        with open(os.path.join(OUT, "lib", name), "wb") as f:
+            f.write(data)
+
+
 def link():
+    patched_dxvk()
     objs = sorted(glob.glob(os.path.join(OUT, "rt", "*.o")))
     for _name, _src, out_dir in modules():
         objs += sorted(glob.glob(os.path.join(out_dir, "*.o")))
@@ -199,11 +216,10 @@ def link():
     rsp = lib + ".rsp"
     with open(rsp, "w") as f:
         f.write("\n".join('"%s"' % o.replace("\\", "/") for o in objs))
-    dxvk = os.path.join(A, "build", "dxvk", "src")
     t0 = time.time()
     cmd = [CLANGXX, *TARGET, "-shared", "-fuse-ld=lld", "@" + rsp, "-o", lib,
            os.path.join(A, "build", "vkd3d", "libvkd3d-shader.a"), os.path.join(OUT, "codecs", "libopus.a"), os.path.join(OUT, "codecs", "libvpx.a"),
-           "-L" + os.path.join(dxvk, "d3d11"), "-L" + os.path.join(dxvk, "dxgi"), "-L" + os.path.join(A, "install", "arm64", "lib"),
+           "-L" + os.path.join(OUT, "lib"), "-L" + os.path.join(A, "install", "arm64", "lib"),
            "-l:libdxvk_d3d11.so", "-l:libdxvk_dxgi.so", "-lSDL2", "-static-libstdc++", "-llog", "-landroid", "-lm", "-ldl",
            "-Wl,-z,max-page-size=16384", "-Wl,--allow-shlib-undefined", "-Wl,--build-id", "-Wl,-Map=" + lib + ".map"]
     r = subprocess.run(cmd, capture_output=True, text=True)

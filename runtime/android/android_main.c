@@ -162,7 +162,7 @@ static void *profiler(void *arg) {
             for (int w = 0; w < 2000 && pcount < 0; w++) usleep(500);
             if (pcount <= 0) { prof_timeouts++; continue; }
             samples[grp[i]]++;
-            prof_note(grp[i], pframes[0], 1);
+            prof_note(grp[i], pframes[pcount > 2 ? 2 : 0], 1);   /* (the first two are the handler and the signal trampoline) */
             for (int j = 0; j < pcount; j++) prof_note(grp[i], pframes[j], 0);
             usleep(5000);
         }
@@ -247,7 +247,11 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
         static char cache[4200];
         snprintf(cache, sizeof cache, "%s/cache/pipelines.bin", root);
         setenv("NATIVESMASH_PIPELINE_CACHE", cache, 1);
+        snprintf(cache, sizeof cache, "%s/cache", root);
+        setenv("DXVK_SHADER_CACHE_PATH", cache, 1);   /* (DXVK's own: the converted shaders, kept for the next start) */
+        setenv("SSBU_COMPILE_THREADS", "4", 0);       /* (the prewarm takes all but the first: three, on the slow cores) */
     }
+    setenv("SSBU_SHADER_PREWARM", "1", 0);   /* (the saved shaders are made ready behind the loading screen, before the first match) */
     setenv("VKD3D_SHADER_DEBUG", "err", 1);   /* (vkd3d-shader says "fixme" for every constant it folds: thousands of lines a second into the system log) */
     if (chdir(root)) perror("chdir");
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");   /* (the game is wide: SDL would otherwise follow the window's shape, and the phone's) */

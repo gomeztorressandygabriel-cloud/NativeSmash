@@ -1,3 +1,28 @@
+diff --git a/src/d3d11/d3d11_shader.cpp b/src/d3d11/d3d11_shader.cpp
+index e50d360..7eee239 100644
+--- a/src/d3d11/d3d11_shader.cpp
++++ b/src/d3d11/d3d11_shader.cpp
+@@ -355,6 +355,20 @@ namespace dxvk {
+ 
+     m_modules.insert({ ShaderKey, module });
+     *pShader = std::move(module);
++
++#ifdef __ANDROID__
++    // NativeSmash on Android: the shader's conversion (the slow part, seconds for the big ones) is done here, on the
++    // thread that creates the shader, not on the command stream thread when the first draw or dispatch needs its layout
++    // (which then waited, and the game with it). The module set's lock is not held: other shaders go on meanwhile.
++    lock.unlock();
++    try {
++      if (pShader->GetShader() != nullptr)
++        pShader->GetShader()->compile();
++    } catch (const DxvkError& e) {
++      Logger::err(e.message());
++    }
++#endif
++
+     return S_OK;
+   }
+ 
 diff --git a/src/dxvk/dxvk_android_cache.h b/src/dxvk/dxvk_android_cache.h
 new file mode 100644
 index 0000000..4e2e226

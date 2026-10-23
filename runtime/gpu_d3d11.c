@@ -5518,6 +5518,9 @@ void gfx_present(u64 guest, u32 width, u32 height) {
         last_inflight = gfx_stat_inflight; last_inflight_frames = gfx_stat_inflight_frames; last_present_ticks = gfx_stat_present_ticks;
     }
     overlay_present(dev, ctx, rtv, fit_x, fit_y, fit_w, fit_h, overlay, details ? detail : hint);
+#ifdef __ANDROID__
+    overlay_touch(dev, ctx, rtv, back_desc.Width, back_desc.Height);
+#endif
     if (menu_shot) {   /* F3 with the settings menu open: the window as it is, menu and all */
         CreateDirectoryA("screenshots", NULL);
         SYSTEMTIME st;

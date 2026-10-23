@@ -209,6 +209,17 @@ void overlay_present(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTa
     draw(ctx, rtv, x0, y0, w, h);
 }
 
+#ifdef __ANDROID__
+#include "android/touch.h"
+void overlay_touch(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned bw, unsigned bh) {
+    if (!state) state = init(dev) ? 1 : -1;
+    if (state < 0) return;
+    nverts = 0;
+    touch_draw(bw, bh);
+    if (nverts) draw(ctx, rtv, 0, 0, bw, bh);
+}
+#endif
+
 /* The loading screen while the start's shader prewarm runs: a bar, done of total, on black. */
 void overlay_loading(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned w, unsigned h, long done,
                      long total, double seconds) {

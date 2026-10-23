@@ -10,6 +10,11 @@
 void overlay_present(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned x, unsigned y, unsigned w,
                      unsigned h, int show, const char *detail);
 
+#ifdef __ANDROID__
+/* The phone's on-screen controls over the whole window (bw x bh), after overlay_present. */
+void overlay_touch(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned bw, unsigned bh);
+#endif
+
 /* The start's loading screen into rtv (w x h): "Preparing shaders" and a bar, done of total. */
 void overlay_loading(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv, unsigned w, unsigned h, long done,
                      long total, double seconds);

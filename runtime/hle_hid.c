@@ -10,6 +10,9 @@
 #include <stdio.h>
 
 #include "pad.h"
+#ifdef __ANDROID__
+#include "android/touch.h"
+#endif
 
 enum { STYLE_FULLKEY = 1u << 0, STYLE_GC = 1u << 5 };
 enum { NPAD_NO1 = 0, NPAD_HANDHELD = 0x20 };
@@ -105,6 +108,13 @@ static u64 keyboard_buttons(i32 *lx, i32 *ly, i32 *rx, i32 *ry) {
     if ((vk = pad_keyboard_vk(KEY_RS_RIGHT)) && GetAsyncKeyState(vk) & 0x8000) *rx = 32767;
     if ((vk = pad_keyboard_vk(KEY_RS_UP)) && GetAsyncKeyState(vk) & 0x8000) *ry = 32767;
     if ((vk = pad_keyboard_vk(KEY_RS_DOWN)) && GetAsyncKeyState(vk) & 0x8000) *ry = -32767;
+#ifdef __ANDROID__
+    {   /* the phone's on-screen controls (runtime/android/touch.c) */
+        int tx = 0, ty = 0;
+        buttons |= touch_state(&tx, &ty);
+        if (tx || ty) { *lx = tx; *ly = ty; }
+    }
+#endif
     return buttons;
 }
 

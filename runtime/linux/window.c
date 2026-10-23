@@ -23,6 +23,9 @@
 
 #include "../display.h"
 #include "../gpu_menu.h"
+#ifdef __ANDROID__
+#include "../android/touch.h"
+#endif
 
 static SDL_Window *window;
 static volatile int focused;
@@ -176,6 +179,15 @@ void rt_window_loop(int every, void (*status)(void)) {
                 mouse_moved_at = SDL_GetTicks64();
                 if (cursor_hidden) { SDL_ShowCursor(SDL_ENABLE); cursor_hidden = 0; }
                 break;
+#ifdef __ANDROID__
+            case SDL_FINGERDOWN: case SDL_FINGERMOTION: case SDL_FINGERUP: {   /* the on-screen controls */
+                int ww = 0, wh = 0;
+                SDL_GetWindowSize(window, &ww, &wh);
+                touch_event(e.type == SDL_FINGERDOWN ? TOUCH_DOWN : e.type == SDL_FINGERUP ? TOUCH_UP : TOUCH_MOVE,
+                            (long long)e.tfinger.fingerId, e.tfinger.x, e.tfinger.y, wh > 0 ? (float)ww / (float)wh : 2.0f);
+                break;
+            }
+#endif
             case SDL_TEXTINPUT:   /* (typed letters, for the settings menu) */
                 if (menu_is_open())
                     for (const char *c = e.text.text; *c; c++) menu_char((unsigned char)*c);

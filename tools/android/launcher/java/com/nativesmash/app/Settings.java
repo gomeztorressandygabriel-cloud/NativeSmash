@@ -30,6 +30,7 @@ final class Settings {
         KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT};
 
     int resolution = 0;          // index into HEIGHTS
+    int textures = 1;            // 0 low, 1 medium, 2 original (the biggest mip levels left out, display.ini texture_quality)
     boolean fsr = true;
     int sharpness = 80;          // percent
     boolean touch = true;        // touch controls; else a pad
@@ -51,6 +52,7 @@ final class Settings {
         prefs = c.getSharedPreferences("nativesmash", Context.MODE_PRIVATE);
         resolution = prefs.getInt("resolution", resolution);
         fsr = prefs.getBoolean("fsr", fsr);
+        textures = prefs.getInt("textures", textures);
         sharpness = prefs.getInt("sharpness", sharpness);
         touch = prefs.getBoolean("touch", touch);
         touchSize = prefs.getInt("touchSize", touchSize);
@@ -69,7 +71,7 @@ final class Settings {
 
     void save(Context c) {
         SharedPreferences.Editor e = prefs.edit();
-        e.putInt("resolution", resolution).putBoolean("fsr", fsr).putInt("sharpness", sharpness)
+        e.putInt("resolution", resolution).putInt("textures", textures).putBoolean("fsr", fsr).putInt("sharpness", sharpness)
          .putBoolean("touch", touch).putInt("touchSize", touchSize).putInt("touchOpacity", touchOpacity)
          .putBoolean("haptics", haptics).putBoolean("leftHanded", leftHanded)
          .putInt("deadzone", deadzone).putInt("rumble", rumble)
@@ -110,6 +112,7 @@ final class Settings {
             + "upscale = " + (fsr && scale < 0.999 ? "fsr" : "bilinear") + "\n"
             + "render_scale = " + String.format(java.util.Locale.US, "%.2f", scale) + "\n"
             + "sharpness = " + String.format(java.util.Locale.US, "%.2f", sharpness / 100.0) + "\n"
+            + "texture_quality = " + new String[]{"low", "medium", "high"}[textures] + "\n"
             + "vsync = display\n");
         write(dir, "online_name.txt", name + "\n");
         String server = lobbyMode == 2 ? "off" : LOBBY + (lobbyMode == 1 && !lobbyCode.trim().isEmpty() ? " " + lobbyCode.trim() : "");

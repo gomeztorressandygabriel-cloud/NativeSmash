@@ -273,6 +273,10 @@ public class LauncherActivity extends Activity {
             "The resolution the game is drawn at. Lower is smoother; FSR upscaling sharpens it."));
         String[] labels = {t("Auto", "Auto"), "540p", "720p", "900p", "1080p", t("Nativa", "Native")};
         c.addView(chips(labels, s.resolution, new OnPick() { public void pick(int i) { s.resolution = i; s.save(LauncherActivity.this); } }));
+        TextView tex = text(t("Texturas: más bajas gastan menos memoria y dan más margen al teléfono.", "Textures: lower ones use less memory and give the phone more room."), 13, MUTED, false);
+        tex.setPadding(0, px(10), 0, px(6));
+        c.addView(tex);
+        c.addView(chips(new String[]{t("Bajas", "Low"), t("Medias", "Medium"), t("Originales", "Original")}, s.textures, new OnPick() { public void pick(int i) { s.textures = i; s.save(LauncherActivity.this); } }));
         c.addView(toggle(t("Escalado FSR (afina la imagen)", "FSR upscaling (sharpens the image)"), s.fsr, new OnFlag() { public void flag(boolean on) { s.fsr = on; } }));
         c.addView(slider(t("Nitidez", "Sharpness"), s.sharpness, new OnValue() { public void value(int v) { s.sharpness = v; } }));
         return c;

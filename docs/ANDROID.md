@@ -24,6 +24,12 @@ tutorial fight, the sound and the movies. Found and fixed on the way:
 
 Not done yet: touch controls (the game has none on screen), the pad names the launcher writes (`controllers.ini` wants SDL's names), speed and memory tuning, shader compilation stutter, and the installer for others.
 
+First match on the Pixel (Link against Mario, 2026-10-23, 540p): menus and the title run at 57 to 59 frames a second; the opening movie at about 50. In the match the first-time shader
+compilation (two compiler threads at 100 %) stalls the game for seconds at a time and draws that wait for their shaders are skipped: the stage and a fighter did not show, and the match ran at
+about 11 frames a second for the first minute. It also stopped after some 16 minutes with a SIGILL inside libunwind on DXVK's command-stream thread (`reports/crash_*.txt`). The `keyboard_player` of
+the launcher's controllers.ini is 1 so that a keyboard (or `adb shell input keyevent`) plays until the touch controls exist.
+Next: a shader cache that survives (DXVK's state cache and the game's own prewarm), the crash, then the touch controls.
+
 ## What the research found
 
 - NativeSmash's Linux renderer is Direct3D 11 translated to Vulkan by **DXVK** (x86-64 builds only). DXVK has no first-party Android support, and (its Driver support page) needs Vulkan 1.3 and `VK_EXT_robustness2` with `nullDescriptor` and `robustBufferAccess2`; Direct3D 11's stream output needs `VK_EXT_transform_feedback`. Whether a Mali GPU such as the Pixel 9 Pro XL's Mali-G715 offers those could not be found online: the check app answers it.

@@ -72,7 +72,7 @@ DWORD rt_win32_error(int err) {
 static BOOL fail_errno(void) { last_error = rt_win32_error(errno); return FALSE; }
 
 /* ---- locks and condition variables ------------------------------------------------------- */
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(__ANDROID__)
 _Static_assert(offsetof(CRITICAL_SECTION, OwningThread) == offsetof(pthread_mutex_t, __data.__owner) && sizeof(CRITICAL_SECTION) == sizeof(pthread_mutex_t),
                "CRITICAL_SECTION's OwningThread is glibc's mutex owner");
 #endif
@@ -83,7 +83,7 @@ void InitializeCriticalSection(CRITICAL_SECTION *cs) {
     pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&cs->m, &a);
     pthread_mutexattr_destroy(&a);
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(__ANDROID__)
     cs->OwningThread = 0;
     cs->depth = 0;
 #endif
@@ -142,9 +142,9 @@ static int cv_wait(CONDITION_VARIABLE *cv, int seq, DWORD ms) {
 
 BOOL SleepConditionVariableCS(CONDITION_VARIABLE *cv, CRITICAL_SECTION *cs, DWORD ms) {
     int seq = __atomic_load_n(&cv->seq, __ATOMIC_SEQ_CST);
-    pthread_mutex_unlock(&cs->m);
+    LeaveCriticalSection(cs);   /* (keeps OwningThread and the depth right where they are tracked) */
     int woken = cv_wait(cv, seq, ms);
-    pthread_mutex_lock(&cs->m);
+    EnterCriticalSection(cs);
     if (!woken) { last_error = WAIT_TIMEOUT; return FALSE; }
     return TRUE;
 }
@@ -576,7 +576,7 @@ void Sleep(DWORD ms) {
 }
 
 /* ---- fibers ------------------------------------------------------------------------------- */
-#ifndef __APPLE__   /* (macOS: runtime/macos/fiber.c and fiber_arm64.S) */
+#if !defined(__APPLE__) && !defined(__ANDROID__)   /* (macOS: runtime/macos/fiber.c and fiber_arm64.S; Android: runtime/android/) */
 typedef struct Fiber {
     void *sp;              /* the stack pointer it stopped at (while not running) */
     void *param;           /* GetFiberData */
@@ -1413,6 +1413,24 @@ USHORT CaptureStackBackTrace(ULONG skip, ULONG count, PVOID *frames, PULONG hash
 }
 
 void OutputDebugStringA(LPCSTR text) { fputs(text, stderr); }
+
+BOOL GlobalMemoryStatusEx(MEMORYSTATUSEX *ms) {
+    FILE *f = fopen("/proc/meminfo", "r");
+    uint64_t total = 0, avail = 0;
+    char line[128];
+    while (f && fgets(line, sizeof line, f)) {
+        unsigned long long kb;
+        if (sscanf(line, "MemTotal: %llu kB", &kb) == 1) total = kb << 10;
+        else if (sscanf(line, "MemAvailable: %llu kB", &kb) == 1) avail = kb << 10;
+    }
+    if (f) fclose(f);
+    memset(ms, 0, sizeof *ms);
+    ms->dwLength = sizeof *ms;
+    ms->ullTotalPhys = total;
+    ms->ullAvailPhys = avail;
+    ms->dwMemoryLoad = total ? (DWORD)(100 - avail * 100 / total) : 0;
+    return f != NULL;
+}
 
 #ifdef __APPLE__
 BOOL IsDebuggerPresent(void) {   /* (the kernel's flag that something traces the process) */

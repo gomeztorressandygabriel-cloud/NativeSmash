@@ -15,8 +15,13 @@
 #define STACK_SIZE   0x80000000ull
 #define KERNEL_BASE  0x7780000000ull   /* thread-local regions */
 #define SHARED_BASE  0x7800000000ull   /* memory system services share with the game (fonts) */
+#ifdef __ANDROID__   /* (the part of the console's address space the guest's memory sits in: recomp.h's RT_MEMBASE) */
+#define ASPACE_BASE  0x6000000000ull
+#define ASPACE_SIZE  0x2000000000ull
+#else
 #define ASPACE_BASE  0x8000000ull
 #define ASPACE_SIZE  0x7FF8000000ull
+#endif
 
 /* ---- native implementations of guest functions -------------------------------------
  * `HLE(name) { ... }` in any runtime source replaces the guest function exported under

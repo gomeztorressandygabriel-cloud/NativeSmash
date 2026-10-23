@@ -24,6 +24,7 @@
 void rt_upnp_remove(void);   /* (linux/upnp.c: the netplay relay's port mapping, if it made one) */
 #endif
 
+#undef R_OK   /* (bionic's <unistd.h> defines it, as the access() flag) */
 enum { R_OK = 0, R_TIMEOUT = 0xEA01, R_CANCELLED = 0xEC01, R_INVALID_HANDLE = 0xE401, R_INVALID_STATE = 0xFA01,
        R_INVALID_ADDRESS = 0xCC01, R_INVALID_ENUM = 0xF001, R_OUT_OF_MEMORY = 0xD001 };
 enum { GM_FREE = 0, GM_CODE = 3, GM_CODE_DATA = 4, GM_HEAP = 5, GM_STACK = 0xB, GM_TLS = 0xC, GM_INACCESSIBLE = 0x10 };

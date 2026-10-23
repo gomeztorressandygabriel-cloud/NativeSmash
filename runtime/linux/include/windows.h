@@ -138,8 +138,15 @@ static inline void ReleaseSRWLockShared(SRWLOCK *l) { pthread_rwlock_unlock(&l->
 static inline BOOLEAN TryAcquireSRWLockExclusive(SRWLOCK *l) { return pthread_rwlock_trywrlock(&l->l) == 0; }
 static inline BOOLEAN TryAcquireSRWLockShared(SRWLOCK *l) { return pthread_rwlock_tryrdlock(&l->l) == 0; }
 
+#if defined(__APPLE__) || defined(__ANDROID__)
+/* (the calling thread's id, as GetCurrentThreadId gives it: Mach's on macOS, the kernel's on Android) */
 #ifdef __APPLE__
-/* Recursive, as on Windows. Darwin's mutex keeps its owner to itself, so the holder's thread id
+#define RT_SELF_TID() ((DWORD)pthread_mach_thread_np(pthread_self()))
+#else
+#include <unistd.h>
+#define RT_SELF_TID() ((DWORD)gettid())
+#endif
+/* Recursive, as on Windows. Darwin's (and bionic's) mutex keeps its owner to itself, so the holder's thread id
  * (GetCurrentThreadId's, 0 when free) is noted here, with the depth of its recursion: read
  * only, by other threads, for freeze reports. */
 typedef struct CRITICAL_SECTION {
@@ -151,7 +158,7 @@ void InitializeCriticalSection(CRITICAL_SECTION *cs);
 static inline BOOL InitializeCriticalSectionAndSpinCount(CRITICAL_SECTION *cs, DWORD spin) { (void)spin; InitializeCriticalSection(cs); return TRUE; }
 static inline void EnterCriticalSection(CRITICAL_SECTION *cs) {
     pthread_mutex_lock(&cs->m);
-    if (!cs->depth++) cs->OwningThread = (DWORD)pthread_mach_thread_np(pthread_self());
+    if (!cs->depth++) cs->OwningThread = RT_SELF_TID();
 }
 static inline void LeaveCriticalSection(CRITICAL_SECTION *cs) {
     if (!--cs->depth) cs->OwningThread = 0;
@@ -159,7 +166,7 @@ static inline void LeaveCriticalSection(CRITICAL_SECTION *cs) {
 }
 static inline BOOL TryEnterCriticalSection(CRITICAL_SECTION *cs) {
     if (pthread_mutex_trylock(&cs->m)) return FALSE;
-    if (!cs->depth++) cs->OwningThread = (DWORD)pthread_mach_thread_np(pthread_self());
+    if (!cs->depth++) cs->OwningThread = RT_SELF_TID();
     return TRUE;
 }
 static inline void DeleteCriticalSection(CRITICAL_SECTION *cs) { pthread_mutex_destroy(&cs->m); }
@@ -406,6 +413,11 @@ HMODULE GetModuleHandleW(LPCWSTR name);
 HMODULE GetModuleHandleA(LPCSTR name);
 USHORT CaptureStackBackTrace(ULONG skip, ULONG count, PVOID *frames, PULONG hash);
 void OutputDebugStringA(LPCSTR text);
+typedef struct MEMORYSTATUSEX {
+    DWORD dwLength, dwMemoryLoad;
+    uint64_t ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual;
+} MEMORYSTATUSEX, *LPMEMORYSTATUSEX;
+BOOL GlobalMemoryStatusEx(MEMORYSTATUSEX *status);   /* (/proc/meminfo: the memory available now) */
 BOOL IsDebuggerPresent(void);   /* (a tracer is attached: /proc/self/status; macOS: P_TRACED) */
 #ifdef __APPLE__
 /* macOS (runtime/macos/platform.c): a thread's frame-pointer chain from its registers (pc

@@ -512,6 +512,22 @@ void rt_backtrace_thread(HANDLE thread, int max_frames) {
  * (ESR: a data abort, with WnR); the address it touched is the host's, the guest's RT_MEMBASE
  * below it. Nothing here touches a thread-local: Mach-O's first use of one on a thread
  * allocates. */
+#ifdef __ANDROID__
+/* arm64 Linux: a fault's syndrome (ESR) comes in the signal frame's extra records; bit 6 of a data abort's is "write" (as macOS's). */
+#include <asm/sigcontext.h>
+static int fault_is_write(const ucontext_t *uc) {
+    const struct _aarch64_ctx *h = (const struct _aarch64_ctx *)uc->uc_mcontext.__reserved;
+    while (h->magic) {
+        if (h->magic == ESR_MAGIC) {
+            uint64_t esr = ((const struct esr_context *)h)->esr;
+            return ((esr >> 26) == 0x24 || (esr >> 26) == 0x25) && (esr >> 6 & 1);
+        }
+        h = (const struct _aarch64_ctx *)((const char *)h + h->size);
+    }
+    return 0;
+}
+#endif
+
 static void on_fault(int sig, siginfo_t *si, void *ucv) {
     ucontext_t *uc = ucv;
 #ifdef __APPLE__
@@ -521,6 +537,12 @@ static void on_fault(int sig, siginfo_t *si, void *ucv) {
     static volatile RtTid reporter;
     RtTid me = pthread_mach_thread_np(pthread_self()), none = 0;
     (void)si;
+#elif defined(__ANDROID__)
+    int writing = fault_is_write(uc);
+    if (sig == SIGSEGV && writing && rt_ww_fault(si->si_addr)) return;
+    u64 addr = (u64)si->si_addr, pc = (u64)uc->uc_mcontext.pc;
+    static volatile pid_t reporter;
+    pid_t me = gettid(), none = 0;
 #else
     int writing = (uc->uc_mcontext.gregs[REG_ERR] & 2) != 0;
     if (sig == SIGSEGV && writing && rt_ww_fault(si->si_addr)) return;
@@ -538,6 +560,9 @@ static void on_fault(int sig, siginfo_t *si, void *ucv) {
 #ifdef __APPLE__
     u64 sp = uc->uc_mcontext->__ss.__sp;
     int overflow = (sig == SIGSEGV || sig == SIGBUS) && addr + 65536 > sp && addr < sp + 65536;
+#elif defined(__ANDROID__)
+    u64 sp = (u64)uc->uc_mcontext.sp;
+    int overflow = sig == SIGSEGV && addr + 65536 > sp && addr < sp + 65536;
 #else
     u64 sp = (u64)uc->uc_mcontext.gregs[REG_RSP];
     int overflow = sig == SIGSEGV && addr + 65536 > sp && addr < sp + 65536;

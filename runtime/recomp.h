@@ -106,6 +106,11 @@ u64 rt_ticks(void);                /* the 19.2 MHz system counter */
 #ifdef __APPLE__
 #define RT_MEMBASE 0x10000000000ull
 #define RT_HOST(a) ((void *)(uintptr_t)((u64)(a) + RT_MEMBASE))
+#elif defined(__ANDROID__)
+/* Android's user address space is 39 bits (512 GiB), most of it the system's: the guest's part, [0x6000000000, 0x8000000000), lives at
+ * host [64 GiB, 192 GiB), where nothing else is (RT_MEMBASE wraps: the guest's addresses are the console's, only the host's differ). */
+#define RT_MEMBASE 0xFFFFFFB000000000ull
+#define RT_HOST(a) ((void *)(uintptr_t)((u64)(a) + RT_MEMBASE))
 #else
 #define RT_MEMBASE 0ull
 #define RT_HOST(a) ((void *)(uintptr_t)(a))

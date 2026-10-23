@@ -366,10 +366,16 @@ static void on_sample(int sig, siginfo_t *si, void *ucv) {
     (void)sig; (void)si;
     int saved = errno;
     ucontext_t *uc = ucv;
+#ifdef __ANDROID__
+    U64 rip = (U64)uc->uc_mcontext.pc;
+    shot.s.rip = rip;
+    shot.s.waiting = (rip & 0xFFF) >= 4 && ((const unsigned *)rip)[-1] == 0xD4000001u;   /* (stopped just after an `svc #0`) */
+#else
     U64 rip = (U64)uc->uc_mcontext.gregs[REG_RIP];
     const unsigned char *at = (const unsigned char *)rip;
     shot.s.rip = rip;
     shot.s.waiting = (rip & 0xFFF) >= 2 && at[-2] == 0x0F && at[-1] == 0x05;   /* (stopped just after a `syscall`) */
+#endif
     shot.s.depth = shot.want_stack ? backtrace(shot.s.frames, STACK_DEPTH + 8) : 0;
     sem_post(&shot_done);
     errno = saved;

@@ -417,7 +417,7 @@ static u32 host1x(u32 fd, u32 group, u32 nr, u64 a, u32 request) {
     return NV_OK;
 }
 
-static u32 ioctl(u32 fd, u32 request, u64 a, u64 in, u64 in_size, u64 out, u64 out_size) {
+static u32 nv_ioctl(u32 fd, u32 request, u64 a, u64 in, u64 in_size, u64 out, u64 out_size) {
     u32 group = (request >> 8) & 0xFF, nr = request & 0xFF, r;
     if (fd >= 256 || !files[fd].kind) return NV_BAD_PARAMETER;
     EnterCriticalSection(&lock);
@@ -463,9 +463,9 @@ HLE(NvOsDrvOpen) {
 }
 
 HLE(NvOsDrvClose) { if (c->x[0] < 256) files[c->x[0]].kind = 0; c->x[0] = NV_OK; }
-HLE(NvOsDrvIoctl) { c->x[0] = ioctl((u32)c->x[0], (u32)c->x[1], c->x[2], 0, 0, 0, 0); }
-HLE(NvOsDrvIoctl2) { c->x[0] = ioctl((u32)c->x[0], (u32)c->x[1], c->x[2], c->x[4], c->x[5], 0, 0); }
-HLE(NvOsDrvIoctl3) { c->x[0] = ioctl((u32)c->x[0], (u32)c->x[1], c->x[2], 0, 0, c->x[4], c->x[5]); }
+HLE(NvOsDrvIoctl) { c->x[0] = nv_ioctl((u32)c->x[0], (u32)c->x[1], c->x[2], 0, 0, 0, 0); }
+HLE(NvOsDrvIoctl2) { c->x[0] = nv_ioctl((u32)c->x[0], (u32)c->x[1], c->x[2], c->x[4], c->x[5], 0, 0); }
+HLE(NvOsDrvIoctl3) { c->x[0] = nv_ioctl((u32)c->x[0], (u32)c->x[1], c->x[2], 0, 0, c->x[4], c->x[5]); }
 HLE(NvOsDrvMapSharedMem) { c->x[0] = NV_OK; }
 
 /* NvOsDrvQueryEvent(fd, event id, SystemEventType*): a kernel event the driver waits on for

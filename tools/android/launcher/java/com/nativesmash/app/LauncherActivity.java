@@ -465,7 +465,9 @@ public class LauncherActivity extends Activity {
         reveal.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         reveal.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator a) {
-                startActivity(new Intent(LauncherActivity.this, GameActivity.class));
+                Class<?> target = GameActivity.class;
+                try { target = Class.forName("com.nativesmash.app.EngineActivity"); } catch (ClassNotFoundException none) { }   /* (only in the --engine build) */
+                startActivity(new Intent(LauncherActivity.this, target));
                 overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
             }
         });

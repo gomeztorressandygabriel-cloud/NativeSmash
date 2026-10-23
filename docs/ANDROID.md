@@ -15,6 +15,31 @@ NativeSmash does not run on Android yet. This page says what exists, what was le
 - The runtime's Linux layer uses `ucontext`-style fibers and SDL2; Android's C library has no `ucontext`, so the arm64 fibers of the macOS port (`runtime/macos/fiber_arm64.S`) would be needed, and SDL needs its Android activity.
 - The recompiled game's C already builds for arm64 (the macOS build does it), so that part is not the problem. The graphics are.
 
+## The engine's pieces built for arm64 Android so far (2026-10-23)
+
+With the tools above, these were built for `aarch64-linux-android29` (all into `deps/android/build`, not in the repository):
+
+| Piece | How | Result |
+| :--- | :--- | :--- |
+| SDL2 2.32.8 | CMake with the NDK toolchain file, `-DANDROID_ABI=arm64-v8a` | `install/arm64/lib/libSDL2.so` |
+| DXVK 3.1.1 (Direct3D 11 and DXGI on Vulkan) | `meson setup` with a cross file (clang from the NDK, `system = 'linux'`, `pkg_config_libdir` at the SDL2 install), `-Dnative_sdl2=enabled`, D3D8/9/10 off; glslang from its Windows release in the PATH; then `ninja` | `libdxvk_d3d11.so`, `libdxvk_dxgi.so` (256 of 256 steps, no errors) |
+| vkd3d-shader 2.1 | `python tools/android/build_vkd3d_android.py` (parsers from winflexbison) | `build/vkd3d/libvkd3d-shader.a` |
+| libopus and libvpx | `tools/codec_libs.py`'s `build_static` (the macOS arm64 configuration, plain C) with the NDK clang | `build/game/codecs/libopus.a`, `libvpx.a` |
+
+So the graphics layer (DXVK) and the shader compiler compile for Android arm64. Whether DXVK then runs on a phone's GPU is not known: it needs the driver's `VK_EXT_robustness2` and the other features the check app lists.
+
+## What stops a playable build, found by reading the code
+
+The engine itself (`runtime/`) has two platform layers: Linux (x86-64) and macOS (arm64). Android is Linux on arm64, so it needs parts of both, and a third piece of its own:
+
+- `runtime/host.c` and others use `__APPLE__` to mean "arm64" in about 30 places (reading the faulting register state in a signal handler, for instance): they must also hold for Android.
+- `runtime/linux/win32.c` (the Windows API shim) has the x86-64 fiber switch and the memory layout of x86-64 Linux; Android needs the arm64 fibers (`runtime/macos/fiber_arm64.S` as a model) and its own memory layout.
+- The compile flags of the Linux build are x86-64 (AVX2) and non-PIE; an Android app needs a shared library (`-fPIC`).
+- The generated game C (about 100 modules) must be compiled again for arm64 (hours on a laptop), and the result linked into `libmain.so` with SDL's activity (`SDLActivity`) in the APK, the launcher (`tools/android/launcher`) opening it.
+- None of this can be tested without the phone: the emulator here is x86-64.
+
+It is days of work with the phone at hand, not a night.
+
 ## What is missing for a playable build
 
 1. A graphics route on Android: DXVK built for arm64 Android if the driver allows it, or a Vulkan renderer of NativeSmash's own (like the Metal one on macOS).

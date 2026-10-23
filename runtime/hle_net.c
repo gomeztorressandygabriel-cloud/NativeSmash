@@ -764,6 +764,37 @@ static void do_connect(Cpu *c, i32 fd, u64 addr, u32 len) {
     if (err) fail(c, err); else c->x[0] = 0;
 }
 
+/* SSBU_NETDUMP=1 (or a file netdump.on in the game's folder): every datagram the game sends and receives, to netdump.txt next to the game: the time in ms, the frame count (frames
+ * presented so far), the direction, the size, the peer and the first bytes. For finding what the game's own netcode (input delay, how far
+ * ahead it stamps inputs) does, and where its delay comes from. */
+#ifndef __APPLE__   /* (the Metal renderer does not keep this count) */
+extern u64 gfx_stat_presented;
+#define NETDUMP_FRAME() gfx_stat_presented
+#else
+#define NETDUMP_FRAME() 0ull
+#endif
+static void netdump(const char *dir, const void *data, u32 len, u32 ip, u16 port) {
+    static FILE *f;
+    static int on = -1;
+    if (on < 0) {   /* SSBU_NETDUMP=1, or a file named netdump.on in the game's folder (no setting needed) */
+        FILE *flag = fopen("netdump.on", "rb");
+        on = getenv("SSBU_NETDUMP") != NULL || flag != NULL;
+        if (flag) fclose(flag);
+    }
+    if (!on) return;
+    static SRWLOCK dump_lock = SRWLOCK_INIT;
+    AcquireSRWLockExclusive(&dump_lock);
+    if (!f) f = fopen("netdump.txt", "w");
+    if (f) {
+        char t[16];
+        fprintf(f, "%llu %llu %s %u %s:%u ", (unsigned long long)(rt_now_ns() / 1000000), (unsigned long long)NETDUMP_FRAME(), dir, len, ip_text(ip, t), port);
+        for (u32 i = 0; i < len && i < 96; i++) fprintf(f, "%02x", ((const u8 *)data)[i]);
+        fputc('\n', f);
+        fflush(f);
+    }
+    ReleaseSRWLockExclusive(&dump_lock);
+}
+
 static void do_sendto(Cpu *c, i32 fd, u64 buf, u64 len, i32 flags, u64 addr, u32 alen) {
     u32 dst = 0;
     u16 dport = 0;
@@ -797,6 +828,7 @@ static void do_sendto(Cpu *c, i32 fd, u64 buf, u64 len, i32 flags, u64 addr, u32
         fprintf(stderr, "[net] sendto(%d, %llu bytes, %s:%u) from port %u%s%d\n", fd, len, ip_text(dst, t), dport, sport, err ? ": error " : " ", err);
     if (err) { fail(c, err); return; }
     const void *data = P(void, buf);
+    netdump("tx", data, (u32)len, dst, dport);
     if (dst == LOOPBACK) vsock_deliver(LOOPBACK, sport, LOOPBACK, dport, data, (u32)len);
     else {
         if (dst == me || broadcast) vsock_deliver(me, sport, dst, dport, data, (u32)len);   /* (a broadcast reaches this player's sockets too) */
@@ -859,6 +891,7 @@ static void do_recvfrom(Cpu *c, i32 fd, u64 buf, u64 len, i32 flags, u64 addr, u
         free(d);
     }
     ReleaseSRWLockExclusive(&lock);
+    netdump("rx", P(void, buf), n, ip, port);
     write_addr(addr, alen_p, ip, port);
     if (net_log() > 1) { char t[16]; fprintf(stderr, "[net] recvfrom(%d) = %u bytes from %s:%u\n", fd, n, ip_text(ip, t), port); }
     c->x[0] = n;

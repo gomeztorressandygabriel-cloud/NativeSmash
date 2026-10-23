@@ -1051,8 +1051,10 @@ static void ww_decommit(u64 lo, u64 hi) {
 }
 
 /* (from the fault handler) A write to a protected page of a watched area: note it, allow it. */
+static u64 ww_faults, ww_queries, ww_hits;   /* (counted for a look at whether the protecting watch sees writes: SSBU_WW_STATS=1) */
 int rt_ww_fault(void *address) {
     if (ww_mode != WW_PROTECT) return 0;
+    ww_faults++;
     u64 p = (u64)(uintptr_t)address & ~(PAGE - 1);
     struct WatchArea *a = area_of(p, p + PAGE);
     if (!a || !bit(a->committed, (p - a->base) / PAGE)) return 0;
@@ -1074,7 +1076,11 @@ UINT GetWriteWatch(DWORD flags, PVOID base, SIZE_T size, PVOID *addresses, ULONG
     u64 lo = (u64)(uintptr_t)base & ~(PAGE - 1), hi = ((u64)(uintptr_t)base + size + PAGE - 1) & ~(PAGE - 1);
     struct WatchArea *a = area_of(lo, hi);
     if (granularity) *granularity = (ULONG)PAGE;
-    if (!a || !count) { last_error = ERROR_INVALID_PARAMETER; return 1; }
+    if (!a || !count) {
+        static int said;
+        if (said++ < 6) fprintf(stderr, "[mem] GetWriteWatch: %s at %p (%llu bytes)%s", !a ? "no watched area" : "no count", base, (unsigned long long)size, "\n");
+        last_error = ERROR_INVALID_PARAMETER; return 1;
+    }
     ULONG_PTR cap = *count, n = 0;
     if (ww_mode == WW_SCAN) {
         struct rt_page_region vec[64];
@@ -1099,6 +1105,10 @@ UINT GetWriteWatch(DWORD flags, PVOID base, SIZE_T size, PVOID *addresses, ULONG
             }
     }
     *count = n;
+    ww_queries++; ww_hits += n;
+    static int stats = -1;
+    if (stats < 0) stats = getenv("SSBU_WW_STATS") != NULL;
+    if (stats && !(ww_queries % 500)) fprintf(stderr, "[mem] write watch: %llu faults handled, %llu queries, %llu written pages found\n", (unsigned long long)ww_faults, (unsigned long long)ww_queries, (unsigned long long)ww_hits);
     return 0;
 }
 

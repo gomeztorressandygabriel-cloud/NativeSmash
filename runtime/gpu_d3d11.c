@@ -2508,19 +2508,19 @@ static void watch_take(u64 lo, u64 hi) {
     ULONG_PTR count = 1;
     ULONG granularity;
     /* (asking is cheap, resetting is not - even where nothing was written: so ask first) */
-    if (GetWriteWatch(0, (void *)lo, hi - lo, &first, &count, &granularity) != 0 || !count) return;
-    for (u64 at = (u64)first; at < hi;) {
+    if (GetWriteWatch(0, G2H(lo), hi - lo, &first, &count, &granularity) != 0 || !count) return;   /* (the watch speaks in host addresses: the guest's are RT_MEMBASE below them) */
+    for (u64 at = H2G(first); at < hi;) {
         count = 65536;
-        if (GetWriteWatch(WRITE_WATCH_FLAG_RESET, (void *)at, hi - at, pages, &count, &granularity) != 0 || !count) return;
+        if (GetWriteWatch(WRITE_WATCH_FLAG_RESET, G2H(at), hi - at, pages, &count, &granularity) != 0 || !count) return;
         u64 stamp = ++watch_clock;
         for (ULONG_PTR k = 0; k < count; k++) {
-            u64 p = ((u64)pages[k] - ALIAS_BASE) >> 12;
+            u64 p = (H2G(pages[k]) - ALIAS_BASE) >> 12;
             WatchChunk **c = &watch_chunks[p / WATCH_CHUNK];
             if (!*c && !(*c = calloc(1, sizeof **c))) continue;
             (*c)->page[p % WATCH_CHUNK] = (*c)->newest = stamp;
         }
         if (count < 65536) return;
-        at = (u64)pages[count - 1] + 0x1000;
+        at = H2G(pages[count - 1]) + 0x1000;
     }
 }
 
@@ -3017,7 +3017,11 @@ static void watch_time(u64 ns) {   /* (to gfx_stat_watch_us, in microseconds) */
  * textures from earlier screens it never draws (a player's 8-fighter match: about 4,000, some
  * 0.7 ms a frame). A write is news to every texture on its pages, each taken again at its
  * next use. */
-static int watched(u64 g, u64 size) { return g >= ALIAS_BASE && g + size <= ALIAS_BASE + ALIAS_SIZE; }
+static int watched(u64 g, u64 size) {
+    static int off = -1;   /* SSBU_TEXTURE_NOWATCH=1: no texture is kept by the write watch, each is compared by its contents' hash instead (to tell a watch that misses writes) */
+    if (off < 0) off = getenv("SSBU_TEXTURE_NOWATCH") != NULL;
+    return !off && g >= ALIAS_BASE && g + size <= ALIAS_BASE + ALIAS_SIZE;
+}
 
 static void texture_ask(Texture *t) {
     if (!t->watched || t->stale || t->asked == gfx_stat_presented) return;

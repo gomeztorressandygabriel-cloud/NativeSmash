@@ -1,0 +1,103 @@
+--- a/libs/vkd3d-shader/hlsl_codegen.c	2026-10-23 09:54:13.665541800 -0400
++++ b/libs/vkd3d-shader/hlsl_codegen.c	2026-10-23 09:54:13.769456700 -0400
+@@ -10036,10 +10036,17 @@
+ }
+ 
+ /* Replaces all conditionals in an expression chain of the form (cond ? x : y)
+- * with x or y, assuming cond = cond_value. */
++ * with x or y, assuming cond = cond_value. The chain is a DAG: what each node came to is remembered, or shared
++ * operands are walked again and again (exponentially, in the long chains the Maxwell shaders make). */
++struct eval_cond_memo
++{
++    struct { const struct hlsl_ir_node *node; struct hlsl_ir_node *res; } entry[512];
++    unsigned int count;
++};
++
+ static struct hlsl_ir_node *evaluate_conditionals_recurse(struct hlsl_ctx *ctx,
+         struct hlsl_block *block, const struct hlsl_ir_node *cond, bool cond_value,
+-        struct hlsl_ir_node *instr, const struct vkd3d_shader_location *loc)
++        struct hlsl_ir_node *instr, const struct vkd3d_shader_location *loc, struct eval_cond_memo *memo)
+ {
+     struct hlsl_ir_node *operands[HLSL_MAX_OPERANDS] = {0};
+     struct hlsl_ir_expr *expr;
+@@ -10049,33 +10056,48 @@
+ 
+     if (instr->type != HLSL_IR_EXPR)
+         return NULL;
++
++    for (i = 0; i < memo->count; ++i)
++        if (memo->entry[i].node == instr)
++            return memo->entry[i].res;
++
+     expr = hlsl_ir_expr(instr);
++    res = NULL;
+ 
+     if (expr->op == HLSL_OP3_TERNARY && nodes_are_equivalent(cond, expr->operands[0].node))
+     {
+         struct hlsl_ir_node *x = cond_value ? expr->operands[1].node : expr->operands[2].node;
+ 
+-        res = evaluate_conditionals_recurse(ctx, block, cond, cond_value, x, loc);
+-        return res ? res : x;
++        res = evaluate_conditionals_recurse(ctx, block, cond, cond_value, x, loc, memo);
++        if (!res)
++            res = x;
+     }
+-
+-    for (i = 0; i < HLSL_MAX_OPERANDS; ++i)
++    else
+     {
+-        if (!expr->operands[i].node)
+-            break;
+-
+-        operands[i] = evaluate_conditionals_recurse(ctx, block, cond, cond_value, expr->operands[i].node, loc);
++        for (i = 0; i < HLSL_MAX_OPERANDS; ++i)
++        {
++            if (!expr->operands[i].node)
++                break;
++
++            operands[i] = evaluate_conditionals_recurse(ctx, block, cond, cond_value, expr->operands[i].node, loc, memo);
++
++            if (operands[i])
++                progress = true;
++            else
++                operands[i] = expr->operands[i].node;
++        }
+ 
+-        if (operands[i])
+-            progress = true;
+-        else
+-            operands[i] = expr->operands[i].node;
++        if (progress)
++            res = hlsl_block_add_expr(ctx, block, expr->op, operands, expr->node.data_type, loc);
+     }
+ 
+-    if (progress)
+-        return hlsl_block_add_expr(ctx, block, expr->op, operands, expr->node.data_type, loc);
+-
+-    return NULL;
++    if (memo->count < ARRAY_SIZE(memo->entry))
++    {
++        memo->entry[memo->count].node = instr;
++        memo->entry[memo->count].res = res;
++        ++memo->count;
++    }
++    return res;
+ }
+ 
+ static struct hlsl_ir_node *fold_conditional_identities(struct hlsl_ctx *ctx,
+@@ -10133,8 +10155,13 @@
+     if (ec && ec->op == HLSL_OP1_LOGIC_NOT)
+         return hlsl_add_conditional(ctx, block, ec->operands[0].node, y, x);
+ 
+-    res_x = evaluate_conditionals_recurse(ctx, block, c, true, x, &instr->loc);
+-    res_y = evaluate_conditionals_recurse(ctx, block, c, false, y, &instr->loc);
++    {
++        struct eval_cond_memo *memo = vkd3d_calloc(2, sizeof(*memo));
++
++        res_x = evaluate_conditionals_recurse(ctx, block, c, true, x, &instr->loc, &memo[0]);
++        res_y = evaluate_conditionals_recurse(ctx, block, c, false, y, &instr->loc, &memo[1]);
++        vkd3d_free(memo);
++    }
+     if (res_x || res_y)
+         return hlsl_add_conditional(ctx, block, c, res_x ? res_x : x, res_y ? res_y : y);
+ 

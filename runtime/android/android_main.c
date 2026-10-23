@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <time.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -79,6 +80,88 @@ static void *sampler(void *arg) {
     return NULL;
 }
 
+/* A sampling profiler for the threads that compile shaders (SSBU_PROFILE=<thread name part>): every 20 ms one such thread is signalled and its stack
+ * noted; every 20 s the places most often on a stack (inclusive) and most often at its top are logged as module+offset, for llvm-symbolizer. */
+#include <sys/syscall.h>
+#include <dirent.h>
+
+#define PROF_SLOTS 16384
+static struct { uintptr_t base; uint32_t off; uint32_t incl, leaf; } prof[PROF_SLOTS];
+static void *volatile pframes[48];
+static volatile int pcount = -1;
+
+static void on_prof(int sig, siginfo_t *si, void *uc) { (void)sig; (void)si; (void)uc; pcount = backtrace((void **)pframes, 48); }
+
+static void prof_note(void *pc, int leaf) {
+    Dl_info di;
+    if (!dladdr(pc, &di) || !di.dli_fbase) return;
+    uint32_t off = (uint32_t)((uintptr_t)pc - (uintptr_t)di.dli_fbase);
+    uint32_t h = (uint32_t)(((uintptr_t)di.dli_fbase >> 12) * 2654435761u ^ (off >> 2) * 40503u) % PROF_SLOTS;
+    for (int tries = 0; tries < 64; tries++, h = (h + 1) % PROF_SLOTS) {
+        if (!prof[h].base) { prof[h].base = (uintptr_t)di.dli_fbase; prof[h].off = off; }
+        if (prof[h].base == (uintptr_t)di.dli_fbase && prof[h].off == off) { if (leaf) prof[h].leaf++; else prof[h].incl++; return; }
+    }
+}
+
+static int prof_threads, prof_errors, prof_timeouts;
+static void prof_report(int samples, const char *what) {
+    char text[2000];
+    for (int pass = 0; pass < 2; pass++) {
+        int len = snprintf(text, sizeof text, "[profile %s] %d samples (threads %d, signal errors %d, no answer %d), %s:", what, samples, prof_threads, prof_errors, prof_timeouts, pass ? "at the top" : "on the stack");
+        for (int k = 0; k < 10; k++) {
+            int best = -1; uint32_t bv = 0;
+            for (int i = 0; i < PROF_SLOTS; i++) { uint32_t v = pass ? prof[i].leaf : prof[i].incl; if (v > bv) { bv = v; best = i; } }
+            if (best < 0) break;
+            Dl_info di; const char *name = "?";
+            if (dladdr((void *)(prof[best].base + prof[best].off), &di) && di.dli_fname) { name = strrchr(di.dli_fname, '/'); name = name ? name + 1 : di.dli_fname; }
+            len += snprintf(text + len, sizeof text - (size_t)len, " %s+%#x=%u", name, prof[best].off, bv);
+            if (pass) prof[best].leaf = 0; else prof[best].incl = 0;
+        }
+        __android_log_write(ANDROID_LOG_INFO, TAG, text);
+    }
+    memset(prof, 0, sizeof prof);
+}
+
+static void *profiler(void *arg) {
+    const char *want = arg;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_sigaction = on_prof;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigaction(SIGRTMIN + 4, &sa, NULL);   /* (not SIGUSR1: the runtime of Android takes it) */
+    int samples = 0;
+    time_t last = time(NULL);
+    for (;;) {
+        DIR *d = opendir("/proc/self/task");
+        int tids[64], n = 0;
+        struct dirent *e;
+        while (d && (e = readdir(d)) && n < 64) {
+            int tid = atoi(e->d_name);
+            if (tid <= 0) continue;
+            char path[64], comm[32] = "";
+            snprintf(path, sizeof path, "/proc/self/task/%d/comm", tid);
+            FILE *f = fopen(path, "r");
+            if (f) { if (fgets(comm, sizeof comm, f)) comm[strcspn(comm, "\n")] = 0; fclose(f); }
+            if (strstr(comm, want)) tids[n++] = tid;
+        }
+        if (d) closedir(d);
+        prof_threads = n;
+        for (int i = 0; i < n; i++) {
+            pcount = -1;
+            if (syscall(SYS_tgkill, getpid(), tids[i], SIGRTMIN + 4)) { prof_errors++; continue; }
+            for (int w = 0; w < 2000 && pcount < 0; w++) usleep(500);
+            if (pcount <= 0) { prof_timeouts++; continue; }
+            samples++;
+            prof_note(pframes[0], 1);
+            for (int j = 0; j < pcount; j++) prof_note(pframes[j], 0);
+            usleep(20000);
+        }
+        usleep(20000);
+        if (time(NULL) - last >= 20) { prof_report(samples, want); samples = 0; last = time(NULL); }
+    }
+    return NULL;
+}
+
 __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
     (void)argc; (void)argv;
     const char *files = SDL_AndroidGetExternalStoragePath();
@@ -87,6 +170,8 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
     snprintf(root, sizeof root, "%s", files ? files : ".");
     snprintf(modules, sizeof modules, "%s/dump/modules", root);
     setenv("SSBU_DATA_ROOT", root, 1);
+    setenv("SSBU_PROFILE", "shader compiler", 1);   /* (to find where compiling shaders spends its time) */
+    setenv("VKD3D_SHADER_DEBUG", "err", 1);   /* (vkd3d-shader says "fixme" for every constant it folds: thousands of lines a second into the system log) */
     if (chdir(root)) perror("chdir");
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");   /* (the game is wide: SDL would otherwise follow the window's shape, and the phone's) */
     __android_log_print(ANDROID_LOG_INFO, TAG, "SDL_main: data in %s", root);
@@ -119,6 +204,10 @@ __attribute__((visibility("default"))) int SDL_main(int argc, char **argv) {
             __android_log_print(ANDROID_LOG_INFO, TAG, "check %s: access %s (%s), fopen %s (%s), uid %d", what[i], ok ? "ok" : "NO", strerror(e), f ? "ok" : "NO", f ? "-" : strerror(errno), (int)getuid());
             if (f) fclose(f);
         }
+    }
+    {   /* SSBU_PROFILE=<part of a thread's name>: the sampling profiler above, on those threads */
+        const char *want = getenv("SSBU_PROFILE");
+        if (want && *want) { static char name[64]; snprintf(name, sizeof name, "%s", want); pthread_t pt; pthread_create(&pt, NULL, profiler, name); pthread_detach(pt); }
     }
     __android_log_write(ANDROID_LOG_INFO, TAG, "SDL_main: starting the game");
     char *args[] = { "ssbu", modules, "--status", "30", "--online", NULL };

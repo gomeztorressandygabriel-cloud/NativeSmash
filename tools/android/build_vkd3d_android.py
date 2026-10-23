@@ -68,7 +68,18 @@ def generate():
         f.write('#define VKD3D_VCS_ID ""\n')
 
 
+def patch_sources():
+    """tools/android/patches/vkd3d-conditionals-memo.patch: evaluate_conditionals_recurse walked shared operands again and again (it was most of the
+    time compiling a shader on a phone). Applied once, to the sources in deps."""
+    target = os.path.join(SRC, "libs", "vkd3d-shader", "hlsl_codegen.c")
+    if "eval_cond_memo" in open(target, encoding="utf-8").read():
+        return
+    patch = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patches", "vkd3d-conditionals-memo.patch")
+    subprocess.run(["git", "apply", "--unsafe-paths", "-p1", "--directory", os.path.relpath(SRC, REPO).replace(os.sep, "/"), patch], cwd=REPO, check=True)
+
+
 def main():
+    patch_sources()
     generate()
     inc = os.path.join(OUT, "include")
     os.makedirs(inc, exist_ok=True)

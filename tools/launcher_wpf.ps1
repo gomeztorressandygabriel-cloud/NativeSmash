@@ -563,7 +563,10 @@ New-Chips (Find 'SharpChips') @(
 (Find 'ServerBox').Text = if ($netMode -eq 'custom') { $lobbyHost } else { '' }
 (Find 'DirectConn').IsChecked = -not ((Get-LineValue $directFile) -match '^(?i)off')
 $delayNow = '3'; $delayText = ([string](Get-LineValue $delayFile)).Trim().ToLower()
-if ($delayText -match '^auto') { $delayNow = 'auto' } elseif ($delayText -match '^\d+$') { $delayNow = [string][Math]::Min(25, [Math]::Max(1, [int]$delayText)) }
+if ($delayText -match '^auto') { $delayNow = 'auto' } elseif ($delayText -match '^\d+$') {
+    $digits = $delayText.TrimStart('0')   # ([int] of a very long number throws; the game clamps such a number to 25 as well)
+    $delayNow = if ($digits.Length -gt 2) { '25' } else { [string][Math]::Min(25, [Math]::Max(1, $(if ($digits) { [int]$digits } else { 1 }))) }
+}
 $delayItems = @(@{ Value = 'auto'; Text = (T 'delayAuto') }); foreach ($n in 1..8) { $delayItems += @{ Value = [string]$n; Text = [string]$n } }
 if ($delayNow -notin ($delayItems | ForEach-Object { $_.Value })) { $delayItems += @{ Value = $delayNow; Text = $delayNow } }
 New-Chips (Find 'DelayChips') $delayItems $delayNow

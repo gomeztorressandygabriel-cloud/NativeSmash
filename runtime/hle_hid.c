@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "pad.h"
+#include "latency.h"
 #ifdef __ANDROID__
 #include "android/touch.h"
 #endif
@@ -128,6 +129,7 @@ static void npad_state(u64 out, u32 id, u32 style) {
     u32 attributes = 0;
     if (style && pad_style(id) == style) {
         attributes = ATTR_CONNECTED | ATTR_WIRED;
+        if (lat_on()) lat_pad_read(pad_published_ns());
         PadState p;
         if (pad_get(id, &p) && (pad_background() || gfx_window_focused())) {
             buttons = p.buttons;

@@ -17,6 +17,7 @@ typedef struct PadState {
 } PadState;
 
 void pad_start(void);                                     /* once; the first hid call does it */
+u64 pad_published_ns(void);                               /* when the input thread last published the pads' state (rt_now_ns; 0 while latency.on is absent) */
 int pad_get(u32 slot, PadState *out);                     /* returns out->connected */
 int pad_keyboard_slot(void);                              /* the keyboard's slot, or -1 */
 /* What the keyboard does, in controllers.ini's [keyboard] (the launcher sets it): one key for each of

@@ -38,6 +38,7 @@
 
 #include "display.h"
 #include "host.h"
+#include "latency.h"
 #ifndef __APPLE__
 #include <dxgi.h>
 #endif
@@ -662,6 +663,7 @@ void display_wait_tick(void) {
     if (now.QuadPart - (base.QuadPart + ticks * freq.QuadPart / 60) > period / 2) {   /* late by half a refresh: skip, don't make it up with a burst */
         base = now;
         ticks = 0;
+        if (lat_on()) lat_count(LAT_RESYNCS);
     }
     ticks++;
     long long due = base.QuadPart + ticks * freq.QuadPart / 60;
@@ -676,4 +678,5 @@ void display_wait_tick(void) {
         }
         YieldProcessor();
     }
+    if (lat_on()) lat_add(LAT_TICK_LATE, (u64)((now.QuadPart - due) * 1000000000ll / freq.QuadPart));
 }

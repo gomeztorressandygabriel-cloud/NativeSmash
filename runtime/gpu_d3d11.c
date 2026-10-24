@@ -14,6 +14,7 @@
 #include "display.h"
 #include "gpu_backend.h"
 #include "gpu_menu.h"
+#include "latency.h"
 #include "gpu_overlay.h"
 #include "gpu_fsr.h"
 #include "net.h"
@@ -5206,7 +5207,9 @@ static void shaders_trim_idle(void) {
 
 void gfx_present(u64 guest, u32 width, u32 height) {
     (void)width; (void)height;
+    u64 lock_t0 = lat_on() ? rt_now_ns() : 0;
     if (!enter()) return;
+    if (lock_t0) lat_add(LAT_LOCK_WAIT, rt_now_ns() - lock_t0);
     watchdog_present();
     hitch_present();
     if (draw_logging) save_sampled();
@@ -5541,6 +5544,11 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     hr = IDXGISwapChain1_Present(swapchain, display_present_interval(), display_present_flags());   /* (blocks while the GPU is frames behind) */
     QueryPerformanceCounter(&p1);
     gfx_stat_present_ticks += (u64)(p1.QuadPart - p0.QuadPart);
+    if (lat_on()) {
+        LARGE_INTEGER pf;
+        QueryPerformanceFrequency(&pf);
+        lat_add(LAT_PRESENT_CALL, (u64)((p1.QuadPart - p0.QuadPart) * 1000000000ll / pf.QuadPart));
+    }
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) check_device(hr, "showing a frame");
     leave();
 }

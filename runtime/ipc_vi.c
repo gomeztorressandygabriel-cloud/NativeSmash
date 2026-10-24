@@ -16,6 +16,7 @@
 #include "display.h"
 #include "gpu.h"   /* (gpu_queue_mark / gpu_queue_wait) */
 #include "cpu_sched.h"
+#include "latency.h"
 
 #define DISPLAY_ID 1
 #define LAYER_ID 1
@@ -31,7 +32,7 @@ enum {   /* IGraphicBufferProducer transactions */
     ALLOCATE_BUFFERS = 13, SET_PREALLOCATED_BUFFER = 14, GET_BUFFER_HISTORY = 17
 };
 
-typedef struct Slot { int state, has_buffer, skipped; u8 buffer[0x400]; u32 buffer_size; u64 queued_at, gpu_mark; } Slot;   /* (skipped: its draws were left out) */
+typedef struct Slot { int state, has_buffer, skipped; u8 buffer[0x400]; u32 buffer_size; u64 queued_at, gpu_mark, pad_ns; } Slot;   /* (skipped: its draws were left out) */
 static struct {
     Slot slots[SLOTS];
     u32 buffer_event, vsync_event;
@@ -124,7 +125,7 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
     cpu_sched_thread(CPU_ROLE_GAME);
     timeBeginPeriod(1);
     static u8 shown[sizeof queue.slots[0].buffer];
-    u64 gpu_mark = 0;
+    u64 gpu_mark = 0, shown_queued = 0, shown_pad = 0;   /* (shown_*: latency.on's counters) */
     for (;;) {
         display_wait_tick();   /* the next refresh (display.ini's pacing) */
         cpu_sched_sample();
@@ -142,6 +143,8 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
             shown_size = queue.slots[oldest].buffer_size;
             memcpy(shown, queue.slots[oldest].buffer, shown_size);
             gpu_mark = queue.slots[oldest].gpu_mark;
+            shown_queued = queue.slots[oldest].queued_at;
+            shown_pad = queue.slots[oldest].pad_ns;
         }
         int waiting = 0;
         for (int i = 0; i < SLOTS; i++) waiting += queue.slots[i].state == QUEUED;
@@ -152,6 +155,10 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
         /* The refresh is the game's even when showing the frame takes long (a graphics card behind): signalled
          * first, so a late present no longer makes the game see two refreshes close together after a long one. */
         kernel_signal_event(queue.vsync_event);
+        if (lat_on()) {
+            lat_tick_signalled();
+            if (oldest < 0) lat_count(LAT_REPEATS);
+        }
         if (dropped) { kernel_signal_event(queue.buffer_event); WakeAllConditionVariable(&queue.freed); }
         if (oldest >= 0) {
             LARGE_INTEGER w0, w1, wf;
@@ -159,12 +166,19 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
             gpu_queue_wait(gpu_mark);   /* the frame drawn: what was submitted before it was queued has run */
             QueryPerformanceCounter(&w1);
             QueryPerformanceFrequency(&wf);
+            if (lat_on()) lat_add(LAT_GPU_WAIT, (u64)((w1.QuadPart - w0.QuadPart) * 1000000000ll / wf.QuadPart));
             if ((double)(w1.QuadPart - w0.QuadPart) * 1000.0 / (double)wf.QuadPart > 2.0) InterlockedIncrement(&lag_streak);
             else InterlockedExchange(&lag_streak, 0);
+            u64 p0 = lat_on() ? rt_now_ns() : 0;
             present_frame(shown, shown_size);
+            if (p0) {
+                lat_add(LAT_PRESENT_FRAME, rt_now_ns() - p0);
+                lat_frame_shown(shown_queued, shown_pad);
+            }
             kernel_signal_event(queue.buffer_event);
             WakeAllConditionVariable(&queue.freed);
         }
+        if (lat_on()) lat_report();   /* (after the frame is shown: the next refresh is a frame away) */
     }
 }
 
@@ -264,6 +278,12 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
             queue.slots[slot].state = QUEUED;
             queue.slots[slot].queued_at = rt_now_ns();
             queue.slots[slot].gpu_mark = gpu_queue_mark();
+            queue.slots[slot].pad_ns = lat_pad_read_ns;
+            if (lat_on()) {
+                u32 pending = 0;
+                for (int i = 0; i < SLOTS; i++) pending += queue.slots[i].state == QUEUED;
+                lat_frame_queued(pending);
+            }
             queue.slots[slot].skipped = skip_now;   /* (the draws submitted for this frame were left out, if the skip was on) */
             queued_frames++;
             if (skip_now) skipped_frames++;

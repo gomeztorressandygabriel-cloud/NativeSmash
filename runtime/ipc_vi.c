@@ -258,6 +258,13 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
         int slot = -1;
         for (int i = 0; i < SLOTS && slot < 0; i++)
             if (queue.slots[i].has_buffer && queue.slots[i].state == FREE) slot = i;
+        static int limit = -1;   /* display.ini queue_limit: the frames waiting for a refresh at most (0: no limit) */
+        if (limit < 0) limit = display_queue_limit();
+        if (limit && slot >= 0) {
+            int waiting = 0;
+            for (int i = 0; i < SLOTS; i++) waiting += queue.slots[i].state == QUEUED;
+            if (waiting >= limit) slot = -1;   /* (the next refresh takes one, and signals the buffer event) */
+        }
         if (slot < 0) {
             w32(out, 0xFFFFFFFF);
             w32(out, 0);

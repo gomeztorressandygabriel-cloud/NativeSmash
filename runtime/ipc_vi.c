@@ -123,6 +123,7 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"vsync");
     cpu_sched_thread(CPU_ROLE_GAME);
+    if (display_boost_threads()) SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
     timeBeginPeriod(1);
     static u8 shown[sizeof queue.slots[0].buffer];
     u64 gpu_mark = 0, shown_queued = 0, shown_pad = 0;   /* (shown_*: latency.on's counters) */

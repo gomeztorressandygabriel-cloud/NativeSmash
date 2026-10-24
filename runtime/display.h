@@ -51,6 +51,10 @@ int display_monitor(void);
  * gpu_d3d11.c's present waits for a free slot before it takes the renderer's lock, so a Present that would block (the queue is full, or
  * vsync is on) no longer holds the lock the graphics thread draws under. Windows' Direct3D only. */
 int display_present_wait(void);
+/* boost_threads = on (display.ini, SSBU_BOOST_THREADS): the vsync thread (ipc_vi.c) runs at the highest and the netplay threads
+ * (net_relay.c) at above normal priority, so a busy PC wakes them at once: the refresh the game sees is on time and a datagram that
+ * arrives is read at once. */
+int display_boost_threads(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);
 unsigned display_present_flags(void);

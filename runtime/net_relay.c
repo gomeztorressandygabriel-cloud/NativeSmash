@@ -334,9 +334,12 @@ static void relay_packet(const u8 *p, int n, const struct sockaddr_in *from) {
     }
 }
 
+int display_boost_threads(void);   /* (gpu_display.c) */
+
 static DWORD WINAPI relay_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"netplay relay");
+    if (display_boost_threads()) SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
     static u8 buf[65536];
     u64 last_sweep = now_ms();
     for (;;) {
@@ -885,6 +888,7 @@ static void read_members(const u8 *p, int n) {
 static DWORD WINAPI client_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"netplay client");
+    if (display_boost_threads()) SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);   /* (display.ini boost_threads) */
     static u8 buf[65536];
     while (!resolve_relay()) {
         snprintf(reject_text, sizeof reject_text, "cannot find the relay %s", relay_text);

@@ -150,7 +150,7 @@ Both codecs are built from the sources in [`third_party/`](../third_party/README
 
 ## 5. Multiplayer transport
 
-The game continues to run its own Local Wireless session logic. NativeSmash presents a virtual LAN and carries UDP payloads through a relay. This does not replace the game's netcode with rollback networking.
+The game continues to run its own Local Wireless session logic. NativeSmash presents a virtual LAN and carries UDP payloads through a relay. This does not replace the game's netcode with rollback networking. A feasibility study and a standalone rollback core live in [Rollback netplay](ROLLBACK.md) (not integrated).
 
 [`net_relay.c`](../runtime/net_relay.c) implements both the game-side client and the integrated host relay of a private room. [`ssbu_relay.py`](../tools/ssbu_relay.py) is the online lobby: the same transport, plus room lists. The default UDP port is `39420`, and virtual addresses are allocated within `10.13.0.0/16`.
 

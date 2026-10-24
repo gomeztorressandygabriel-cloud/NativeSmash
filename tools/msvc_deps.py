@@ -42,6 +42,7 @@ import re
 import shutil
 import subprocess
 import sys
+import struct
 import tarfile
 import tempfile
 import threading
@@ -396,13 +397,16 @@ def put_in_place(partial, final):
 def zstd_reader(path):
     """The decompressed bytes of a .zst file. LLVM packs its release with a 1 GB window (zstd
     --long), past the 128 MB decoders allow by default; unpacking takes about that much memory."""
+    # (a 32-bit Python, which zstd limits to 2^30 bytes of window, cannot be asked for more: "window_log_max ... illegal value 31; the valid
+    # range is [10, 30]". The release's window is 1 GB, 2^30, so that is enough)
+    window_log = 31 if struct.calcsize("P") >= 8 else 30
     try:
         from compression import zstd   # Python 3.14 and newer
-        return zstd.ZstdFile(path, options={zstd.DecompressionParameter.window_log_max: 31})
+        return zstd.ZstdFile(path, options={zstd.DecompressionParameter.window_log_max: window_log})
     except ImportError:
         import zstandard   # requirements.txt, before 3.14
-        return zstandard.ZstdDecompressor(max_window_size=1 << 31).stream_reader(open(path, "rb"), read_across_frames=True,
-                                                                                  closefd=True)
+        return zstandard.ZstdDecompressor(max_window_size=1 << window_log).stream_reader(open(path, "rb"), read_across_frames=True,
+                                                                                         closefd=True)
 
 
 def install_llvm(keep_downloads=False):

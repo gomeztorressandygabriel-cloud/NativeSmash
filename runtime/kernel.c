@@ -661,6 +661,18 @@ int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, 
     return 1;
 }
 
+/* (net_rbprobe.c) The host thread running guest thread `id` (NULL if none, or the kernel's lock busy). */
+HANDLE kernel_thread_host(u64 id) {
+    if (!TryEnterCriticalSection(&klock)) return NULL;
+    HANDLE h = NULL;
+    for (u32 i = 1; i < 4096 && !h; i++) {
+        KThread *t = objects[i].type == OBJ_THREAD ? objects[i].thread : NULL;
+        if (t && t->id == id && t->started && !t->exited) h = t->host;
+    }
+    LeaveCriticalSection(&klock);
+    return h;
+}
+
 /* (net_rbprobe.c) The guest's memory: the regions of heap and stack memory, up to `max`; how many
  * there are (0 when the kernel's lock is busy, not waited for). */
 u32 kernel_memory_regions(u64 *base, u64 *size, u32 max) {

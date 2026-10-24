@@ -15,14 +15,20 @@
  * the pages stamped since its last question, whoever took the news, and the renderer loses none.
  * When the renderer's lock is busy the question waits for the next frame.
  *
+ * The alias area's pages are told apart (version 3): those inside an nvmap allocation - memory
+ * the game handed the GPU (textures, vertex and constant buffers), which a rollback need not save,
+ * as drawing makes it again - and the rest, the CPU's own, where the state of the match must be.
+ *
  * Every 5 seconds the log gets:
- *   pages written per frame in the alias area, the heap and the stack (median, 95th percentile,
- *   maximum, and MB), and how long finding them took;
- *   the alias area's and the heap's 1 MB regions written most;
+ *   pages written per frame in the alias area (all; the CPU's own; handed to the GPU), the heap and
+ *   the stack (median, 95th percentile, maximum, and MB), and how long finding them took;
+ *   the alias area's (CPU's own pages only) and the heap's 1 MB regions written most;
  *   how often the game reads the pads per frame, and from how many threads;
  *   fibers alive (each one a host stack a rollback would have to restore);
  *   at each vsync tick, just before the game is woken: how many guest threads were running,
- *   sleeping, in a service request or waiting, and, per thread, how often it was running then.
+ *   sleeping, in a service request or waiting, and, per thread, how often it was running then;
+ *   for the (up to 3) threads running at most ticks, where in the game they are: the guest
+ *   functions on their stacks at that moment (the lines after "[rbprobe] thread N ... is in:").
  * The probe slows the game a little: play normally, not for timing records. */
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
@@ -50,19 +56,25 @@ static long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *s
 #else
 long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, void (*each)(u64 page, void *user), void *user);   /* (gpu_d3d11.c) */
 #endif
+u32 gpu_memory_list(u64 *addr, u64 *size, u32 max);   /* (hle_nv.c) */
 
 static const struct { u64 base, size; const char *name; } areas[] = {
     {ALIAS_BASE, ALIAS_SIZE, "alias"}, {HEAP_BASE, HEAP_LIMIT, "heap"}, {STACK_BASE, STACK_SIZE, "stack"}};
 enum { ALIAS, HEAP, STACK, AREAS };
+enum { ALIAS_CPU = AREAS, ALIAS_GPU, COUNTS };   /* (the alias area's pages, told apart) */
+static const char *const count_names[COUNTS] = {"alias", "heap", "stack", "alias CPU's own", "alias handed to the GPU"};
 
 static volatile LONG busy;
 static u64 report_from, report_at, page_size = 4096;
-static u32 written[AREAS][MAX_FRAMES], nframes;
+static u32 written[COUNTS][MAX_FRAMES], nframes;
 static u32 *region_pages[AREAS];
 static u64 find_ns_sum, find_ns_max;
 static u64 region_base[MAX_REGIONS], region_size[MAX_REGIONS];
 static u32 nregions;
 static u64 alias_base[MAX_REGIONS], alias_size[MAX_REGIONS], alias_seen;
+#define MAX_GPU_RANGES 16384
+static u64 gpu_lo[MAX_GPU_RANGES], gpu_hi[MAX_GPU_RANGES];   /* the nvmap allocations, sorted by address */
+static u32 ngpu, gpu_refresh, frame_alias_gpu;
 static u32 alias_pending;          /* frames since the alias area was last asked about (its question waited) */
 static u32 alias_late;             /* ... frames whose alias count was folded into a later one, this report */
 static int alias_unmeasured;       /* no renderer to ask (macOS): the alias area's counts are 0 */
@@ -86,7 +98,7 @@ int rbp_probe(void) {
             FILE *f = fopen("rollback_probe.on", "r");
             if (f) { fclose(f); on = 1; }
         }
-        if (on) fprintf(stderr, "[rbprobe] on (rollback_probe.on, version 2): the alias area's, the heap's and the stack's writes are counted; a report every %d seconds\n",
+        if (on) fprintf(stderr, "[rbprobe] on (rollback_probe.on, version 3): the alias area's, the heap's and the stack's writes are counted; a report every %d seconds\n",
                         (int)(REPORT_NS / 1000000000ull));
         __atomic_store_n(&rbp_state, on, __ATOMIC_RELEASE);
     }
@@ -99,9 +111,37 @@ static int area_of(u64 g) {
     return -1;
 }
 
+/* Is guest page g inside an nvmap allocation (memory handed to the GPU)? */
+static int gpu_page(u64 g) {
+    u32 lo = 0, hi = ngpu;   /* the last allocation starting at or below g */
+    while (lo < hi) { u32 mid = (lo + hi) / 2; if (gpu_lo[mid] <= g) lo = mid + 1; else hi = mid; }
+    for (u32 i = lo; i-- > 0 && lo - i <= 64;)   /* (allocations may overlap or nest: look back a little) */
+        if (g < gpu_hi[i]) return 1;
+    return 0;
+}
+
 static void count_page(u64 g, void *user) {
     int a = (int)(intptr_t)user;
-    if (g >= areas[a].base && g < areas[a].base + areas[a].size) region_pages[a][(g - areas[a].base) >> REGION_SHIFT]++;
+    if (g < areas[a].base || g >= areas[a].base + areas[a].size) return;
+    if (a == ALIAS && gpu_page(g)) { frame_alias_gpu++; return; }   /* (the regions list the CPU's own pages only) */
+    region_pages[a][(g - areas[a].base) >> REGION_SHIFT]++;
+}
+
+static void sort_gpu_ranges(void) {   /* (insertion sort: the list comes nearly sorted, in handle order) */
+    for (u32 i = 1; i < ngpu; i++) {
+        u64 l = gpu_lo[i], h = gpu_hi[i];
+        u32 j = i;
+        for (; j > 0 && gpu_lo[j - 1] > l; j--) { gpu_lo[j] = gpu_lo[j - 1]; gpu_hi[j] = gpu_hi[j - 1]; }
+        gpu_lo[j] = l; gpu_hi[j] = h;
+    }
+}
+
+static void refresh_gpu_ranges(void) {   /* every second or so: what the game hands the GPU changes slowly */
+    if (gpu_refresh++ % 60) return;
+    static u64 size[MAX_GPU_RANGES];
+    ngpu = gpu_memory_list(gpu_lo, size, MAX_GPU_RANGES);
+    for (u32 i = 0; i < ngpu; i++) gpu_hi[i] = gpu_lo[i] + size[i];
+    sort_gpu_ranges();
 }
 
 /* The pages of the heap or the stack in [lo, hi) written since the last call, counted into their
@@ -136,6 +176,8 @@ static void take_all(long long out[AREAS]) {
         else out[a] += take(a, lo, hi);
     }
     /* -1: the renderer busy (the pages stay news: counted with the next frame); -2: not measured here */
+    refresh_gpu_ranges();
+    frame_alias_gpu = 0;
     out[ALIAS] = gfx_watch_pages(alias_base, alias_size, nalias, &alias_seen, count_page, (void *)(intptr_t)ALIAS);
 }
 
@@ -150,7 +192,8 @@ static void percentiles(const u32 *v, u32 n, u32 *med, u32 *p95, u32 *max) {
 
 static void top_regions(int a, double secs) {
     char line[1024];
-    int n = snprintf(line, sizeof line, "[rbprobe] %s regions written most (1 MB each: pages written in these %.0f s):", areas[a].name, secs);
+    int n = snprintf(line, sizeof line, "[rbprobe] %s regions written most (1 MB each: pages written in these %.0f s%s):", areas[a].name, secs,
+                     a == ALIAS ? ", the CPU's own only" : "");
     u32 regions = (u32)(areas[a].size >> REGION_SHIFT);
     for (int t = 0; t < TOP_REGIONS; t++) {
         u32 best = 0, at = 0;
@@ -167,11 +210,12 @@ static void report(u64 now) {
     double secs = (now - report_from) / 1e9, mb = page_size / 1048576.0;
     char line[1024];
     int n = snprintf(line, sizeof line, "[rbprobe] %.1f s, %u frames. Pages written per frame (%llu KB):", secs, nframes, (unsigned long long)(page_size / 1024));
-    for (int a = 0; a < AREAS && nframes; a++) {
+    for (int a = 0; a < COUNTS && nframes; a++) {
         u32 med, p95, max;
         percentiles(written[a], nframes, &med, &p95, &max);
-        n += snprintf(line + n, sizeof line - n, " %s median %u, p95 %u, max %u (%.1f / %.1f / %.1f MB);", areas[a].name, med, p95, max, med * mb, p95 * mb, max * mb);
+        n += snprintf(line + n, sizeof line - n, " %s median %u, p95 %u, max %u (%.1f / %.1f / %.1f MB);", count_names[a], med, p95, max, med * mb, p95 * mb, max * mb);
     }
+    n += snprintf(line + n, sizeof line - n, " %u nvmap allocations known;", ngpu);
     if (nframes)
         n += snprintf(line + n, sizeof line - n, " finding them: avg %.2f ms, max %.2f ms", find_ns_sum / 1e6 / nframes, find_ns_max / 1e6);
     if (alias_late) n += snprintf(line + n, sizeof line - n, "; %u frames left out, their pages counted with the next (renderer busy)", alias_late);
@@ -206,6 +250,9 @@ static void report(u64 now) {
         fprintf(stderr, "%s\n", line);
         /* the threads running most often at the tick */
         n = snprintf(line, sizeof line, "[rbprobe] threads running at the tick most often (id, priority, core: running / sleeping / in a request / waiting %%):");
+        u64 busy_id[3];
+        double busy_pct[3];
+        int nbusy = 0;
         for (int t = 0; t < 8; t++) {
             int best = -1;
             for (u32 i = 0; i < nthread_seen; i++)
@@ -216,9 +263,20 @@ static void report(u64 now) {
             n += snprintf(line + n, sizeof line - n, "%s %llu (p%d, c%d: %.0f/%.0f/%.0f/%.0f)", t ? "," : "", (unsigned long long)s->id, s->priority, s->core,
                           100.0 * s->in[KT_RUNNING] / s->ticks, 100.0 * s->in[KT_SLEEPING] / s->ticks, 100.0 * s->in[KT_REQUESTING] / s->ticks,
                           100.0 * s->in[KT_WAITING] / s->ticks);
+            if (nbusy < 3 && s->in[KT_RUNNING] * 2 >= s->ticks) { busy_id[nbusy] = s->id; busy_pct[nbusy] = 100.0 * s->in[KT_RUNNING] / s->ticks; nbusy++; }
             s->ticks = 0;   /* (listed: out of the next pick) */
         }
         fprintf(stderr, "%s\n", line);
+        /* where the busiest are in the game: their guest frames, at this moment */
+        for (int i = 0; i < nbusy; i++) {
+            HANDLE h = kernel_thread_host(busy_id[i]);
+            if (!h) continue;
+            int self = GetThreadId(h) == GetCurrentThreadId();   /* (this thread, queueing a frame: it cannot stop itself to look) */
+            fprintf(stderr, "[rbprobe] thread %llu (running at %.0f%% of the ticks) is in%s:\n", (unsigned long long)busy_id[i], busy_pct[i],
+                    self ? " (it is the thread writing this report, seen while it queues a frame)" : "");
+            if (self) rt_backtrace();
+            else rt_backtrace_thread(h, 8);
+        }
     }
     nticks = ticks_unread = nthread_seen = 0;
 
@@ -253,6 +311,8 @@ void rbp_frame_queued(void) {
         if (alias_pending) { alias_late += alias_pending; alias_pending = 0; }
         if (nframes < MAX_FRAMES) {
             for (int a = 0; a < AREAS; a++) written[a][nframes] = (u32)got[a];
+            written[ALIAS_GPU][nframes] = frame_alias_gpu;
+            written[ALIAS_CPU][nframes] = (u32)got[ALIAS] - frame_alias_gpu;
             nframes++;
         }
     }

@@ -74,6 +74,7 @@ void fiber_counts(u32 *slots, u32 *finalized, u64 *made);   /* (hle_fiber.c) hos
 enum { KT_RUNNING, KT_WAITING, KT_SLEEPING, KT_REQUESTING };
 int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, int state), void *user);   /* every guest thread alive and what it does (0: the kernel's lock is busy) */
 u32 kernel_memory_regions(u64 *base, u64 *size, u32 max);   /* the guest's heap and stack regions (0: the kernel's lock is busy) */
+HANDLE kernel_thread_host(u64 id);                     /* the host thread running a guest thread (NULL: none, or the kernel's lock busy) */
 
 /* ---- native system services (ipc.c) ----------------------------------------------- */
 void *ipc_connect(const char *port);                   /* a session on a named port, or NULL */

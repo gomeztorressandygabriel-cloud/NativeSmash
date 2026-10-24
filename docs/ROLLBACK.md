@@ -384,18 +384,20 @@ Los puntos 1, 4 y 6 ya tienen herramienta: `runtime/net_rbprobe.c`. Está **apag
    direcciones de internet, solo números y direcciones de memoria del juego.
 5. Borra `rollback_probe.on` para jugar normal: con ella, el juego vigila más memoria y va un poco más lento.
 
-**Qué dice cada línea y qué se espera (versión 2 de la sonda):**
+**Qué dice cada línea y qué se espera (versión 3 de la sonda):**
 
 | Línea | Qué mide | Cómo leerla |
 | :--- | :--- | :--- |
 | `Pages written per frame … alias / heap / stack median / p95 / max (MB)` | Páginas de memoria del juego escritas entre dos cuadros: lo que un rollback copiaría por cuadro. **La del juego es `alias`**: el juego pide su memoria con `MapPhysicalMemory`, que NativeSmash pone en la zona ALIAS | ≲ 1 000 (≈ 4 MB) en combate: viable. 1 000–10 000: caro, mirar las regiones. > 10 000 de forma constante: el enfoque por páginas no compensa (parada de la fase 1) |
+| `alias CPU's own …`, `alias handed to the GPU …` (versión 3) | Las páginas de ALIAS separadas: las que están en memoria que el juego entregó a la GPU (asignaciones nvmap: texturas, vértices, constantes), que el rollback no tiene que guardar porque se rehacen al dibujar, y el resto, **la memoria propia de la CPU, donde tiene que estar el estado del combate** | La cifra que decide: `CPU's own` ≲ 1 000 páginas (≈ 4 MB) por cuadro, viable |
 | `finding them: avg / max ms` | Lo que cuesta solo *saber* qué páginas cambiaron | Debe quedar por debajo de ~1 ms; si no, el seguimiento ya se come el presupuesto |
 | `… frames left out … (renderer busy)` | Cuadros en que la pregunta por ALIAS esperó porque el renderer estaba ocupado; sus páginas cuentan con el cuadro siguiente | Pocos: normal |
-| `alias regions written most`, `heap regions written most` | Las zonas de 1 MB más escritas | Dónde vive probablemente el estado de la simulación (y dónde la CPU sube datos a la GPU): el punto de partida para la suma de verificación y para buscar el RNG |
+| `alias regions written most` (solo memoria propia de la CPU, desde la versión 3), `heap regions written most` | Las zonas de 1 MB más escritas | Dónde vive probablemente el estado de la simulación (y dónde la CPU sube datos a la GPU): el punto de partida para la suma de verificación y para buscar el RNG |
 | `pad reads per frame … by N thread(s)` | Cuántas veces y desde cuántos hilos lee el juego el mando | Lo ideal: 1 por cuadro desde 1 hilo |
 | `fibers alive` | Fibras vivas | Cada fibra viva es una pila del host que el rollback tendría que restaurar ([§3a](#a-guardar-y-restaurar-el-estado)) |
 | `at the vsync tick, guest threads running / waiting / sleeping / in a service request … none running at N of M ticks` | Qué hacen los hilos del juego justo antes de despertarlo para un cuadro nuevo | "none running" cerca del 100 %: hay un momento quieto por cuadro. Hilos "sleeping" o "in a service request" no tocan la memoria en ese instante |
 | `threads running at the tick most often (id, priority, core: running / sleeping / in a request / waiting %)` | Los hilos que más a menudo trabajan en ese instante | Quiénes son los que impiden el momento quieto (por su prioridad se puede adivinar si son sonido, carga o dibujo) |
+| `thread N (running at X% of the ticks) is in:` y las líneas sangradas que siguen (versión 3) | Para los (hasta 3) hilos que trabajan en más de la mitad de los vsync: en qué funciones del juego están en ese instante (`main+0x…`) | Dice qué hacen. Con varias tandas se ve si siempre están en el mismo sitio (un bucle de espera activa, el sonido, la carga) |
 
 **Límites de la sonda:** solo pregunta por la memoria que el juego tiene asignada (no por toda la reserva, que costaba milisegundos). La zona
 ALIAS se pregunta a través del renderer, que pone un "sello" a cada página escrita: así la sonda cuenta también las páginas que el renderer

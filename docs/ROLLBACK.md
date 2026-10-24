@@ -1,6 +1,6 @@
 # Rollback netplay: estudio de viabilidad y diseño de integración
 
-[← Documentación técnica](TECHNICAL.md) · [Multijugador](MULTIPLAYER.md) · [Código del núcleo: `rollback/`](../rollback/README.md)
+[← Documentación técnica](TECHNICAL.md) · [Multijugador](MULTIPLAYER.md) · [Código del núcleo: `rollback/`](../rollback/README.md) · [Ideas de integración](ROLLBACK-IDEAS.md)
 
 > **Estado: experimento aparte, NO integrado.** Este documento y la carpeta `rollback/` no cambian
 > nada de `runtime/`, `tools/` ni `site/`, y no añaden ningún `HLE(...)` ni `HLE_WRAP(...)`.
@@ -380,7 +380,7 @@ Los puntos 1, 4 y 6 ya tienen herramienta: `runtime/net_rbprobe.c`. Está **apag
 2. Crea `rollback_probe.on` junto a `Play SSBU.bat`. Si quieres también el tiempo de cada cuadro del juego, crea además `latency.on`
    ([LATENCY-AUDIT.md](LATENCY-AUDIT.md), línea `vsync event -> game queues its frame`).
 3. Juega **un combate normal de 2 jugadores de al menos 2 minutos** (sin red primero; luego, si se puede, uno en red), con mucha acción.
-4. Cierra el juego y manda las líneas `[rbprobe]` de `build\play.log` (cada 5 s salen cuatro líneas). Léelas antes: no llevan nombres ni
+4. Cierra el juego y manda las líneas `[rbprobe]` de `build\play.log` (cada 5 s salen cinco líneas). Léelas antes: no llevan nombres ni
    direcciones de internet, solo números y direcciones de memoria del juego.
 5. Borra `rollback_probe.on` para jugar normal: con ella, el juego vigila más memoria y va un poco más lento.
 
@@ -394,6 +394,7 @@ Los puntos 1, 4 y 6 ya tienen herramienta: `runtime/net_rbprobe.c`. Está **apag
 | `heap regions written most` | Las zonas de 1 MB más escritas | Dónde vive probablemente el estado de la simulación: el punto de partida para la suma de verificación y para buscar el RNG |
 | `pad reads per frame … by N thread(s)` | Cuántas veces y desde cuántos hilos lee el juego el mando | Lo ideal: 1–2 lecturas por cuadro desde 1 hilo (un solo punto donde inyectar la entrada remota) |
 | `guest threads alive; fibers alive` | Hilos y fibras vivos | Cada fibra viva es una pila del host que el rollback tendría que restaurar ([§3a](#a-guardar-y-restaurar-el-estado)). Decenas: abordable; miles: muy difícil |
+| `at the vsync tick, guest threads not waiting … none at N of M ticks` | Hilos del juego que **no** esperan justo antes de despertarlo para un cuadro nuevo | Cerca del 100 % "none": hay un momento quieto por cuadro donde guardar y restaurar ([ROLLBACK-IDEAS.md §3](ROLLBACK-IDEAS.md#3-la-medición-que-falta-hay-un-momento-quieto)) |
 
 **Límites de la sonda:** no mide la zona `ALIAS` (la usa la GPU y leerla la dejaría ciega para sus texturas), así que si la simulación
 escribe ahí, no aparece. El cuadro se corta cuando el juego entrega su imagen, no en el límite exacto de la simulación. En Linux, si el log dice

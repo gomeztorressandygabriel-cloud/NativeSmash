@@ -414,6 +414,17 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
 
+### Segunda medición (sonda versión 2, combate 1 contra 1 contra la CPU, Windows 11)
+
+| Dato | Resultado | Lectura |
+| :--- | :--- | :--- |
+| Páginas escritas por cuadro en ALIAS, en combate | mediana ~3 500 (≈ 14 MB), p95 ~4 400 (≈ 18 MB), máx. ~4 800; en menús ~1 500–2 600; picos de 24 000–35 000 (≈ 95–136 MB) en las transiciones (cargas) | Zona "cara" (1 000–10 000). Incluye lo que la CPU escribe para la GPU (vértices, constantes, texturas), que el rollback no tendría que guardar: falta separar esa parte del estado de la simulación |
+| Dónde | Las 8 zonas de 1 MB más escritas suman solo ~600 páginas por cuadro; el resto está repartido por muchas zonas | El estado no está concentrado en un sitio pequeño, o lo está pero mezclado con datos para la GPU |
+| Heap y pila | Heap 0; pila ~16–40 páginas por cuadro | Confirmado: la memoria del juego es ALIAS |
+| Coste de encontrarlas | 6–14 ms por cuadro (picos de 25 ms), y en combate la mitad de los cuadros la pregunta esperó al renderer | Preguntar por toda la memoria del juego cada cuadro (varios GB) es **demasiado caro** para un rollback real: hará falta vigilar solo las zonas de la simulación, cuando se conozcan |
+| Hilos en el vsync | 2–4 trabajando de ~45; "ninguno trabajando" en 0–2 % de los cuadros. El hilo 26 (prioridad 36) trabaja el 97 % de las veces; el hilo 1 (prioridad 44, núcleo 0) trabaja ~70 % y está en una petición al sistema ~25 % | No hay momento quieto. Hay que averiguar qué hacen los hilos 26 y 1 (perfilador F6 / `SSBU_HITCH`) y si tocan la memoria del combate |
+| Mando, fibras, trabajo por cuadro | Igual que en la primera medición: 1 lectura por cuadro desde 1 hilo; 13–20 fibras vivas; ~5–7 ms de trabajo por cuadro | Sin cambios: siguen siendo buenas noticias |
+
 1. **Medir el tamaño real del estado y las páginas sucias por cuadro** *(decide si el enfoque es viable)*.
    Durante un combate de 2 jugadores, activar `MEM_WRITE_WATCH` también en `HEAP` (o medir con una copia de prueba de `kernel.c`),
    leer `GetWriteWatch` una vez por cuadro de vsync **sin reiniciarlo para la GPU** (coordinar con `watch_take`), y registrar:

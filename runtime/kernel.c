@@ -639,15 +639,20 @@ void kernel_thread_states(void (*line)(const char *text)) {
     LeaveCriticalSection(&klock);
 }
 
-/* (net_rbprobe.c) Guest threads started and not exited; ~0u when the kernel's lock is busy (not waited for). */
-u32 kernel_thread_count(void) {
+/* (net_rbprobe.c) Guest threads started and not exited, and in *waiting those blocked on a mutex, a
+ * condition, an address or in WaitSynchronization (a sleeping thread counts as not waiting); ~0u
+ * when the kernel's lock is busy (not waited for). */
+u32 kernel_thread_count(u32 *waiting) {
     if (!TryEnterCriticalSection(&klock)) return ~0u;
-    u32 n = 0;
+    u32 n = 0, w = 0;
     for (u32 i = 1; i < 4096; i++) {
         KThread *t = objects[i].type == OBJ_THREAD ? objects[i].thread : NULL;
-        n += t && t->started && !t->exited;
+        if (!t || !t->started || t->exited) continue;
+        n++;
+        w += t->mutex_addr || t->cv_key || t->arb_addr || t->wait_count;
     }
     LeaveCriticalSection(&klock);
+    *waiting = w;
     return n;
 }
 

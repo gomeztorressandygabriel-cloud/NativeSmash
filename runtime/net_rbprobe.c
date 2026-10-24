@@ -12,7 +12,9 @@
  *   how long reading and resetting the watch took (the price of knowing them, per frame);
  *   the heap's 1 MB regions written most (where the simulation's state is likely to live);
  *   how often the game reads the pads per frame, and from how many threads;
- *   guest threads alive, and fibers alive (each one a host stack a rollback would have to restore).
+ *   guest threads alive, and fibers alive (each one a host stack a rollback would have to restore);
+ *   at each vsync tick, just before the game is woken, how many guest threads were not waiting:
+ *   where none is, the game is still - a moment where its state could be saved and restored.
  *
  * The alias area is left out: the renderer reads and resets its watch for its own use, and a
  * second reader would hide textures' changes from it. The probe slows the game a little (the
@@ -45,6 +47,7 @@ static volatile LONG pad_reads_frame;
 static u64 pad_reads_sum, pad_reads_max;
 static volatile DWORD pad_threads[PAD_THREADS];
 static volatile LONG npad_threads;
+static u32 busy_at_tick[MAX_FRAMES], nticks, ticks_unread;   /* (written by the vsync thread only) */
 
 int rbp_probe(void) {
     static int once;
@@ -118,12 +121,25 @@ static void report(u64 now) {
     for (LONG i = 0; i < npad_threads && i < PAD_THREADS; i++) n += snprintf(line + n, sizeof line - n, " %lu", (unsigned long)pad_threads[i]);
     fprintf(stderr, "%s\n", line);
 
-    u32 slots, finalized, threads = kernel_thread_count();
+    u32 slots, finalized, waiting = 0, threads = kernel_thread_count(&waiting);
     u64 made;
     fiber_counts(&slots, &finalized, &made);
     if (threads == ~0u) fprintf(stderr, "[rbprobe] guest threads alive: (kernel busy, not counted);");
-    else fprintf(stderr, "[rbprobe] guest threads alive: %u;", threads);
+    else fprintf(stderr, "[rbprobe] guest threads alive: %u (%u waiting now);", threads, waiting);
     fprintf(stderr, " fibers alive: %u (%u slots, %u finalized); %llu started since the game began\n", slots - finalized, slots, finalized, (unsigned long long)made);
+
+    /* the vsync ticks: threads not waiting just before the game was woken (the vsync thread fills
+     * these; a tick racing this read is at worst counted in the next report) */
+    u32 ticks = nticks < MAX_FRAMES ? nticks : MAX_FRAMES, still = 0;
+    if (ticks) {
+        static u32 sorted[MAX_FRAMES];
+        memcpy(sorted, busy_at_tick, ticks * sizeof *sorted);
+        qsort(sorted, ticks, sizeof *sorted, cmp_u32);
+        for (u32 i = 0; i < ticks; i++) still += sorted[i] == 0;
+        fprintf(stderr, "[rbprobe] at the vsync tick, guest threads not waiting: median %u, p95 %u, max %u; none at %u of %u ticks (%.0f%%); kernel busy at %u ticks\n",
+                sorted[ticks / 2], sorted[ticks * 95 / 100], sorted[ticks - 1], still, ticks, 100.0 * still / ticks, ticks_unread);
+    }
+    nticks = ticks_unread = 0;
 
     for (int a = 0; a < AREAS; a++) memset(region_pages[a], 0, (size_t)(areas[a].size >> REGION_SHIFT) * sizeof **region_pages);
     nframes = 0;
@@ -166,4 +182,11 @@ void rbp_pad_read(void) {
     for (LONG i = 0; i < n && i < PAD_THREADS; i++) if (pad_threads[i] == me) return;
     LONG slot = InterlockedIncrement(&npad_threads) - 1;   /* (a new reader: rare, so a race only lists one twice) */
     if (slot < PAD_THREADS) pad_threads[slot] = me;
+}
+
+void rbp_vsync_tick(void) {
+    u32 waiting, alive = kernel_thread_count(&waiting);
+    if (alive == ~0u) { ticks_unread++; return; }
+    if (nticks < MAX_FRAMES) busy_at_tick[nticks] = alive - waiting;
+    nticks++;
 }

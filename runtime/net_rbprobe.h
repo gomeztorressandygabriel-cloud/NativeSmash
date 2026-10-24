@@ -14,3 +14,4 @@ static inline int rbp_on(void) {
 
 void rbp_frame_queued(void);     /* (ipc_vi.c) the game queued a frame: the end of one of its frames */
 void rbp_pad_read(void);         /* (hle_hid.c) the game read a pad's state */
+void rbp_vsync_tick(void);       /* (ipc_vi.c) the vsync thread is about to wake the game for its next frame */

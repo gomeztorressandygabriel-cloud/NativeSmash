@@ -157,6 +157,7 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
          * behind), and meanwhile the game queues its next frame and goes on with the one after. */
         /* The refresh is the game's even when showing the frame takes long (a graphics card behind): signalled
          * first, so a late present no longer makes the game see two refreshes close together after a long one. */
+        if (rbp_on()) rbp_vsync_tick();   /* (before the signal: the game should be waiting for it) */
         kernel_signal_event(queue.vsync_event);
         if (lat_on()) {
             lat_tick_signalled();

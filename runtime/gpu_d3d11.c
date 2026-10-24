@@ -50,6 +50,9 @@ static void residents_totals(u32 *count, u64 *bytes);
 static const GUID iid_adapter3 = {0x645967a4, 0x1392, 0x4310, {0xa7, 0x98, 0x80, 0x53, 0xce, 0x3e, 0x93, 0xfd}};
 static ID3D11DeviceContext *ctx;
 static IDXGISwapChain1 *swapchain;
+static IDXGISwapChain2 *swapchain2;   /* present_wait = on: the swap chain made waitable (display.h), else NULL */
+static HANDLE frame_wait;             /* ... and the handle that is signalled while it has room for a frame */
+static const GUID iid_swapchain2 = {0xa8be2ac4, 0x199f, 0x4946, {0xb3, 0x31, 0x79, 0x59, 0x9f, 0xb9, 0x8d, 0xe7}};
 static UINT swapchain_flags;
 /* The game's picture at its own size (1920x1080 times the render scale), before it is fitted
  * into the window (screenshots read it): its bytes as the game's framebuffer has them (sRGB),
@@ -818,12 +821,27 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
         IDXGIFactory5_Release(factory5);
     }
     swapchain_flags = tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    if (display_present_wait() && !on_dxvk()) swapchain_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
     display_set_tearing(tearing != FALSE);
     DXGI_SWAP_CHAIN_DESC1 sd = {0, 0, DXGI_FORMAT_R8G8B8A8_UNORM, FALSE, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 2,
                                 DXGI_SCALING_STRETCH, DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_ALPHA_MODE_UNSPECIFIED, swapchain_flags};
-    if (FAILED(IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown *)dev, window, &sd, NULL, NULL, &swapchain))) {
+    HRESULT sc_hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown *)dev, window, &sd, NULL, NULL, &swapchain);
+    if (FAILED(sc_hr) && (swapchain_flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)) {   /* (present_wait: as before, then) */
+        fprintf(stderr, "[gfx] present_wait: no waitable swap chain here (%#lx): presenting as before\n", (unsigned long)sc_hr);
+        swapchain_flags &= ~(UINT)DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+        sd.Flags = swapchain_flags;
+        sc_hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown *)dev, window, &sd, NULL, NULL, &swapchain);
+    }
+    if (FAILED(sc_hr)) {
         fprintf(stderr, "[gfx] cannot create the swap chain\n");
         return TRUE;
+    }
+    if ((swapchain_flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) &&
+        SUCCEEDED(IDXGISwapChain1_QueryInterface(swapchain, &iid_swapchain2, (void **)&swapchain2))) {
+        IDXGISwapChain2_SetMaximumFrameLatency(swapchain2, (UINT)display_latency());
+        frame_wait = IDXGISwapChain2_GetFrameLatencyWaitableObject(swapchain2);
+        fprintf(stderr, "[gfx] present_wait: waitable swap chain, up to %d frame%s queued; a present waits for a free slot outside the renderer's lock\n",
+                display_latency(), display_latency() == 1 ? "" : "s");
     }
     /* full screen is gpu_display.c's (a borderless window), never DXGI's own */
     IDXGIFactory2_MakeWindowAssociation(factory, window, DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER);
@@ -5207,6 +5225,11 @@ static void shaders_trim_idle(void) {
 
 void gfx_present(u64 guest, u32 width, u32 height) {
     (void)width; (void)height;
+    if (frame_wait) {   /* present_wait = on: wait for room in the swap chain here, not inside the lock below (40 ms at most: then as before) */
+        u64 wait_t0 = lat_on() ? rt_now_ns() : 0;
+        WaitForSingleObject(frame_wait, 40);
+        if (wait_t0) lat_add(LAT_FRAME_WAIT, rt_now_ns() - wait_t0);
+    }
     u64 lock_t0 = lat_on() ? rt_now_ns() : 0;
     if (!enter()) return;
     if (lock_t0) lat_add(LAT_LOCK_WAIT, rt_now_ns() - lock_t0);
@@ -5393,6 +5416,7 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     if (menu_shot) keys &= ~4;
     int latency = display_take_latency();   /* (changed in the menu) */
     if (latency) {
+        if (swapchain2) IDXGISwapChain2_SetMaximumFrameLatency(swapchain2, (UINT)latency);
         IDXGIDevice1 *dxgi1;
         if (SUCCEEDED(ID3D11Device_QueryInterface(dev, &IID_IDXGIDevice1, (void **)&dxgi1))) {
             IDXGIDevice1_SetMaximumFrameLatency(dxgi1, (UINT)latency);

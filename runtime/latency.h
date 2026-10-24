@@ -17,6 +17,7 @@ enum {   /* histograms of times, in the order the log prints them */
     LAT_GPU_WAIT,        /* the vsync thread waiting for the GPU thread to finish the frame to show */
     LAT_PRESENT_FRAME,   /* the vsync thread in present_frame (the renderer's lock, drawing, Present) */
     LAT_PRESENT_CALL,    /* IDXGISwapChain::Present itself */
+    LAT_FRAME_WAIT,      /* present_wait = on: the vsync thread waiting for a free slot in the swap chain, outside the renderer's lock */
     LAT_LOCK_WAIT,       /* the vsync thread waiting to enter the renderer (its lock is the GPU thread's too) */
     LAT_HISTS
 };

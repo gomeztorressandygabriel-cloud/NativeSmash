@@ -163,6 +163,12 @@ static const char DEFAULT_INI[] =
     "texture_quality = auto\n"
     "; sharpness = 0 to 1: how much the upscaled picture is sharpened. 0: not at all.\n"
     "sharpness = 0.8\n"
+    "\n"
+    "; present_wait = off | on\n"
+    ";   on: the game waits for the swap chain to have room for a frame before it takes the renderer's lock, instead\n"
+    ";   of waiting inside it. A frame shown at the monitor's refresh (vsync = on) then no longer holds up the graphics\n"
+    ";   thread, which draws the next frame meanwhile. Best with latency = 1. Windows only; off: as before.\n"
+    "present_wait = off\n"
 #ifdef _WIN32
     "\n"
     "; gpu = auto, or part of a graphics card's name (e.g. nvidia, radeon, intel)\n"
@@ -221,6 +227,8 @@ const char *display_ini_path(void) {
     return env && *env ? env : "display.ini";
 }
 
+static int present_wait;   /* present_wait = on (not in cfg: the settings menu does not change it) */
+
 static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     (void)once; (void)param; (void)ctx;
     const char *env = getenv("SSBU_DISPLAY"), *path = display_ini_path();
@@ -250,6 +258,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
         else if (!_stricmp(key, "texture_quality")) parse_texture_quality(value);
         else if (!_stricmp(key, "monitor")) cfg.monitor = !(!_stricmp(value, "off") || !_stricmp(value, "0") || !_stricmp(value, "no"));
         else if (!_stricmp(key, "frameskip")) cfg.frameskip = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
+        else if (!_stricmp(key, "present_wait")) present_wait = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
         else if (!_stricmp(key, "vsync")) cfg.vsync = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
         else if (!_stricmp(key, "sharpness")) cfg.sharpness = (float)atof(value);
         else fprintf(stderr, "[display] %s: unknown setting '%s'\n", path, key);
@@ -264,6 +273,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     if ((env = getenv("SSBU_TEXTURE_QUALITY")) && *env) parse_texture_quality(env);
     if ((env = getenv("SSBU_MONITOR")) && *env) cfg.monitor = !(!_stricmp(env, "off") || !_stricmp(env, "0") || !_stricmp(env, "no"));
     if ((env = getenv("SSBU_FRAMESKIP")) && *env) cfg.frameskip = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
+    if ((env = getenv("SSBU_PRESENT_WAIT")) && *env) present_wait = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
     if ((env = getenv("SSBU_VSYNC")) && *env) cfg.vsync = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
     if ((env = getenv("SSBU_SHARPNESS")) && *env) cfg.sharpness = (float)atof(env);
     if (cfg.sharpness < 0) cfg.sharpness = 0;
@@ -290,6 +300,7 @@ float display_sharpness(void) { load(); return cfg.sharpness; }
 int display_texture_quality(void) { load(); return cfg.texture_quality; }
 int display_frameskip(void) { load(); return cfg.frameskip; }
 int display_monitor(void) { load(); return cfg.monitor; }
+int display_present_wait(void) { load(); return present_wait; }
 
 /* (the settings menu) the render scale it saved: shown from now on, the renderer's own counts
  * only at the next start */

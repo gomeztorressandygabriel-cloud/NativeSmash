@@ -47,6 +47,10 @@ int display_texture_quality(void);
 int display_frameskip(void);
 /* monitor = on (display.ini, SSBU_MONITOR): monitor.h measures everything once a second and writes build\monitor.csv. */
 int display_monitor(void);
+/* present_wait = on (display.ini, SSBU_PRESENT_WAIT): the swap chain is made waitable (DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT):
+ * gpu_d3d11.c's present waits for a free slot before it takes the renderer's lock, so a Present that would block (the queue is full, or
+ * vsync is on) no longer holds the lock the graphics thread draws under. Windows' Direct3D only. */
+int display_present_wait(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);
 unsigned display_present_flags(void);

@@ -38,6 +38,7 @@ static Hist hists[LAT_HISTS] = {
     [LAT_GPU_WAIT] = {"vsync thread waiting for the GPU thread", SPANS},
     [LAT_PRESENT_FRAME] = {"vsync thread in present_frame", SPANS},
     [LAT_PRESENT_CALL] = {"IDXGISwapChain::Present", SPANS},
+    [LAT_FRAME_WAIT] = {"vsync thread waiting for a free swap chain slot (present_wait)", SPANS},
     [LAT_LOCK_WAIT] = {"vsync thread waiting for the renderer's lock", SPANS},
 };
 static const char *const COUNTER_NAMES[LAT_COUNTERS] = {"vsync ticks", "ticks with no new frame", "frames queued", "datagrams sent",

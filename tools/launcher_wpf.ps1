@@ -64,6 +64,9 @@ $Words = @{
     lobPublic = @('Pública', 'Public'); lobPrivate = @('Privada (código)', 'Private (code)'); lobCustom = @('Tu servidor', 'Your server'); lobOff = @('Sin conexión', 'Offline')
     code = @('Código de la sala', 'Lobby code'); server = @('Servidor (host:puerto)', 'Server (host:port)')
     directConn = @('Conexiones directas', 'Direct connections')
+    delayLabel = @('Retraso de entrada en línea, en cuadros (menos es más rápido; si es muy poco, se traba)', 'Online input delay, in frames (lower is quicker; too low and it stutters)')
+    delayAuto = @('Auto (el del juego)', 'Auto (the game''s)')
+    delayHelp = @('Cuántos cuadros guarda el juego antes de aplicar tu botón, para esperar al otro jugador. Menos es más rápido, pero si es muy poco para la conexión el juego se traba esperando. Con una buena conexión directa, prueba 2 o 3.', 'How many frames the game holds your button before applying it, to wait for the other player. Lower is quicker, but if it is too low for the connection the game stutters waiting. On a good direct connection, try 2 or 3.')
     directHelp = @('Más rápidas. Apagadas, todo pasa por la sala y nadie ve tu dirección de internet.', 'Faster. Off: everything goes through the lobby and nobody learns your internet address.')
     padsTitle = @('Controles', 'Controllers'); kbPlays = @('El teclado juega como', 'The keyboard plays as'); nobody = @('Nadie', 'Nobody')
     background = @('Los mandos funcionan con otra ventana al frente', 'Controllers work while another window is in front')
@@ -142,6 +145,7 @@ $launcherIni = Join-Path $Root 'launcher.ini'
 $serverFile = Join-Path $Root 'online_server.txt'
 $nameFile = Join-Path $Root 'online_name.txt'
 $directFile = Join-Path $Root 'online_direct.txt'
+$delayFile = Join-Path $Root 'online_delay.txt'
 
 function Get-Setting([string]$Path, [string]$Section, [string]$Key) {
     $v = Get-IniValue $Path $Section $Key
@@ -345,6 +349,8 @@ $xaml = @'
             <TextBox x:Name="ServerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
             <CheckBox x:Name="DirectConn" Style="{StaticResource Switch}" Margin="0,26,0,0"/>
             <TextBlock x:Name="DirectHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="DelayLabel" Style="{StaticResource Label}" Margin="0,26,0,8"/>
+            <WrapPanel x:Name="DelayChips" MaxWidth="660" HorizontalAlignment="Left"/>
           </StackPanel>
 
           <ScrollViewer x:Name="PagePads" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
@@ -482,7 +488,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('DelayLabel', 'delayLabel'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -556,6 +562,12 @@ New-Chips (Find 'SharpChips') @(
 (Find 'CodeBox').Text = $lobbyCode
 (Find 'ServerBox').Text = if ($netMode -eq 'custom') { $lobbyHost } else { '' }
 (Find 'DirectConn').IsChecked = -not ((Get-LineValue $directFile) -match '^(?i)off')
+$delayNow = '3'; $delayText = ([string](Get-LineValue $delayFile)).Trim().ToLower()
+if ($delayText -match '^auto') { $delayNow = 'auto' } elseif ($delayText -match '^\d+$') { $delayNow = [string][Math]::Min(25, [Math]::Max(1, [int]$delayText)) }
+$delayItems = @(@{ Value = 'auto'; Text = (T 'delayAuto') }); foreach ($n in 1..8) { $delayItems += @{ Value = [string]$n; Text = [string]$n } }
+if ($delayNow -notin ($delayItems | ForEach-Object { $_.Value })) { $delayItems += @{ Value = $delayNow; Text = $delayNow } }
+New-Chips (Find 'DelayChips') $delayItems $delayNow
+(Find 'DelayChips').ToolTip = (T 'delayHelp')
 (Find 'BackgroundBox').IsChecked = (Get-Number (Get-Setting $padsIni 'general' 'background')) -ne 0
 (Find 'VsyncBox').IsChecked = @('off', '0', 'no') -notcontains ([string](Get-Setting $displayIni '' 'vsync')).Trim().ToLower()
 (Find 'FskipBox').IsChecked = @('on', '1', 'yes') -contains ([string](Get-Setting $displayIni '' 'frameskip')).Trim().ToLower()
@@ -704,6 +716,7 @@ function Get-WindowValues {
         "$serverFile|" = $server
         "$nameFile|" = (Find 'NameBox').Text.Trim()
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
+        "$delayFile|" = Get-Chip (Find 'DelayChips')
     }
     foreach ($a in $KeyActions.Keys) { $result["$padsIni|keyboard|$a"] = [string]$script:KeyValue[$a] }
     foreach ($kv in (Get-PadValues).GetEnumerator()) { $result[$kv.Key] = $kv.Value }

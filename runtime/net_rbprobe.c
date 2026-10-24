@@ -28,7 +28,10 @@
  *   at each vsync tick, just before the game is woken: how many guest threads were running,
  *   sleeping, in a service request or waiting, and, per thread, how often it was running then;
  *   for the (up to 3) threads running at most ticks, where in the game they are: the guest
- *   functions on their stacks at that moment (the lines after "[rbprobe] thread N ... is in:").
+ *   functions on their stacks at that moment (the lines after "[rbprobe] thread N ... is in:");
+ *   (version 4) the game's call stack at one pad read and at one frame queued, each report (the
+ *   lines after "[rbprobe] stack at ..."): which branch of the game's main loop reads the input -
+ *   the simulation - and which hands the display its frame.
  * The probe slows the game a little: play normally, not for timing records. */
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
@@ -82,6 +85,7 @@ static volatile LONG pad_reads_frame;
 static u64 pad_reads_sum, pad_reads_max;
 static volatile DWORD pad_threads[PAD_THREADS];
 static volatile LONG npad_threads;
+static volatile LONG want_pad_stack, want_queue_stack;   /* (set by each report: one stack of each, the next time) */
 
 /* the vsync ticks (written by the vsync thread only) */
 static u32 tick_state[KT_REQUESTING + 1][MAX_FRAMES], nticks, ticks_unread;
@@ -98,7 +102,7 @@ int rbp_probe(void) {
             FILE *f = fopen("rollback_probe.on", "r");
             if (f) { fclose(f); on = 1; }
         }
-        if (on) fprintf(stderr, "[rbprobe] on (rollback_probe.on, version 3): the alias area's, the heap's and the stack's writes are counted; a report every %d seconds\n",
+        if (on) fprintf(stderr, "[rbprobe] on (rollback_probe.on, version 4): the alias area's, the heap's and the stack's writes are counted; a report every %d seconds\n",
                         (int)(REPORT_NS / 1000000000ull));
         __atomic_store_n(&rbp_state, on, __ATOMIC_RELEASE);
     }
@@ -279,6 +283,8 @@ static void report(u64 now) {
         }
     }
     nticks = ticks_unread = nthread_seen = 0;
+    InterlockedExchange(&want_pad_stack, 1);
+    InterlockedExchange(&want_queue_stack, 1);
 
     for (int a = 0; a < AREAS; a++) memset(region_pages[a], 0, (size_t)(areas[a].size >> REGION_SHIFT) * sizeof **region_pages);
     nframes = alias_late = 0;
@@ -303,6 +309,11 @@ void rbp_frame_queued(void) {
         InterlockedExchange(&busy, 0);
         return;
     }
+    if (InterlockedExchange(&want_queue_stack, 0)) {
+        fprintf(stderr, "[rbprobe] stack at a frame queued (the game handing the display a frame):\n");
+        rt_backtrace();
+    }
+    t0 = rt_now_ns();
     take_all(got);
     u64 dt = rt_now_ns() - t0;
     if (got[ALIAS] == -2) { alias_unmeasured = 1; got[ALIAS] = 0; }
@@ -327,6 +338,10 @@ void rbp_frame_queued(void) {
 
 void rbp_pad_read(void) {
     InterlockedIncrement(&pad_reads_frame);
+    if (InterlockedExchange(&want_pad_stack, 0)) {
+        fprintf(stderr, "[rbprobe] stack at a pad read (the game reading its input):\n");
+        rt_backtrace();
+    }
     DWORD me = GetCurrentThreadId();
     LONG n = npad_threads;
     for (LONG i = 0; i < n && i < PAD_THREADS; i++) if (pad_threads[i] == me) return;

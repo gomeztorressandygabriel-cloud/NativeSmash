@@ -397,6 +397,7 @@ Los puntos 1, 4 y 6 ya tienen herramienta: `runtime/net_rbprobe.c`. Está **apag
 | `fibers alive` | Fibras vivas | Cada fibra viva es una pila del host que el rollback tendría que restaurar ([§3a](#a-guardar-y-restaurar-el-estado)) |
 | `at the vsync tick, guest threads running / waiting / sleeping / in a service request … none running at N of M ticks` | Qué hacen los hilos del juego justo antes de despertarlo para un cuadro nuevo | "none running" cerca del 100 %: hay un momento quieto por cuadro. Hilos "sleeping" o "in a service request" no tocan la memoria en ese instante |
 | `threads running at the tick most often (id, priority, core: running / sleeping / in a request / waiting %)` | Los hilos que más a menudo trabajan en ese instante | Quiénes son los que impiden el momento quieto (por su prioridad se puede adivinar si son sonido, carga o dibujo) |
+| `stack at a pad read`, `stack at a frame queued` y las líneas que siguen (versión 4) | La cadena de llamadas del juego en una lectura del mando y en una entrega de cuadro, una vez por informe (`main+0x37246a0` es `f_71037246a0` del perfilador) | Qué rama del bucle principal lee la entrada (la simulación) y cuál entrega la imagen (el dibujo) |
 | `thread N (running at X% of the ticks) is in:` y las líneas sangradas que siguen (versión 3) | Para los (hasta 3) hilos que trabajan en más de la mitad de los vsync: en qué funciones del juego están en ese instante (`main+0x…`) | Dice qué hacen. Con varias tandas se ve si siempre están en el mismo sitio (un bucle de espera activa, el sonido, la carga) |
 
 **Límites de la sonda:** solo pregunta por la memoria que el juego tiene asignada (no por toda la reserva, que costaba milisegundos). La zona
@@ -415,6 +416,22 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Páginas escritas en el heap | 0 | El juego no usa el heap: su memoria está en ALIAS, que la versión 1 no medía. Corregido en la versión 2 |
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
+
+### Segundo perfil, con el árbol de llamadas (F6, 10 s)
+
+El bucle principal (`f_7103746e90`, 91 % del hilo principal) llama cada cuadro a tres ramas:
+
+| Rama (hijo directo del bucle principal) | Tiempo del hilo | Qué parece |
+| :--- | :--- | :--- |
+| `f_710386f850` → cadena del SDK (`f_7109429fe0` … `f_710901e7d0`) → vuelve al juego (`f_71037fdc50`, funciones `f_710392…`) | **66 %** | **El dibujo**: recorre la escena y llama al controlador gráfico (NVN, en el SDK) |
+| **`f_71037246a0`** → `f_71022defb0` / `f_7101850d80` → `f_7101850f60` → `f_710135f570` → `f_710135ca00` → `f_710137b3f0` → muchas funciones pequeñas | **14 %** | **La simulación**: una cadena de un solo hijo que acaba repartiéndose en muchas funciones cortas, como un bucle "actualizar cada objeto" |
+| `f_71038fe2b0` → `f_71038fe460` → `f_71038ff0f0` | 5 % | Sin identificar |
+
+Además, ~9 % del hilo principal corre dentro de fibras (`f_710354a390` → `f_71035c3bf0` → `f_7103601290` → `f_7103818540`), y los hilos trabajadores 3 y 4 ejecutan **las mismas funciones** (`f_7103818540`, `f_71035c3bf0`, `f_7103600b50`). Eso indica que parte de la simulación se reparte entre hilos (un sistema de tareas): **riesgo de determinismo** a vigilar.
+
+**Candidata a envolver: `f_71037246a0`**, llamada directamente por el bucle principal. En este portátil la simulación (esa rama + las fibras) sería ~23 % del hilo principal, unos 3–4 ms por cuadro, con el hilo ya ocupado al 90 %: aquí no hay sitio para re-simular. En un PC 2–3 veces más rápido, quizá 2–3 cuadros.
+
+Para confirmarlo, la sonda versión 4 guarda la pila de llamadas en una lectura del mando y en una entrega de cuadro: si la lectura del mando pasa por `f_71037246a0`, es la simulación.
 
 ### Primer perfil del hilo principal en combate (F6, 10 s)
 

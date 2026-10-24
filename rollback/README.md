@@ -3,7 +3,7 @@
 Biblioteca en C (C99, sin dependencias de Windows ni de `runtime/`) para probar la idea de
 **rollback netcode**: guardar el estado cada cuadro, predecir las entradas del otro jugador, y
 si llega una entrada que contradice la predicción, volver al cuadro erróneo y re-simular hasta
-el presente. **No está integrada en NativeSmash/WindowSmash** y no toca nada de `runtime/`.
+el presente. **No está integrada en NativeSmash** y no toca nada de `runtime/`.
 El estudio de viabilidad, el diseño de integración y la lista de lo que falta por hacer en un
 PC con el juego están en [`../docs/ROLLBACK.md`](../docs/ROLLBACK.md).
 

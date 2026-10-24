@@ -55,10 +55,11 @@ cuadro. Quien juega siente sus propios mandos sin retraso de red.
      simulación y la preparación del dibujo van mezcladas. Sin eso no se puede re-simular.
   4. **Presupuesto de CPU.** Re-simular 4–7 cuadros en un cuadro de pantalla multiplica el coste
      de simulación; si la simulación ocupa varios ms por cuadro, un portátil de gama media ya va
-     justo y un teléfono no llega ([§3c](#c-re-simular-presupuesto-de-cpu)).
-- Hay una **vía intermedia mucho más barata** que no es rollback: reducir el retraso de entrada que
-  calcula el juego (la función `71016ccae0` del encargo; ver [§2](#2-punto-de-partida-qué-hace-hoy-el-netcode))
-  y/o los ajustes del relay. Debería medirse antes de invertir en rollback.
+     justo y el teléfono (puerto Android en pre-alfa) no llega ([§3c](#c-re-simular-presupuesto-de-cpu)).
+- La **vía barata ya existe** en NativeSmash: `HLE_WRAP(71016ccae0)` sustituye el retraso de entrada que elige el
+  juego por el de `online_delay.txt` (3 cuadros por defecto; ver [§2](#2-punto-de-partida-qué-hace-hoy-el-netcode) y
+  [ONLINE-TUNING.md](ONLINE-TUNING.md)). Lo que rollback podría ganar sobre eso es pasar de 2–3 cuadros de retraso
+  (~33–50 ms) a 0–1. Antes de invertir, conviene medir cómo se siente hoy con 2 y 3 cuadros en partidas reales.
 
 **Recomendación.** Hacer primero las fases 1–3 del [plan](#g-riesgos-y-plan-por-fases) (observar,
 probar determinismo, probar guardar/restaurar con *sync test* en un solo PC). Son baratas, no
@@ -70,7 +71,7 @@ imposibles de capturar), parar ahí.**
 **Hechos del repositorio** (leídos de este checkout):
 
 - [`TECHNICAL.md`](TECHNICAL.md) dice: "The game continues to run its own Local Wireless session logic.
-  WindowSmash presents a virtual LAN and carries UDP payloads through a relay. This does not replace the
+  NativeSmash presents a virtual LAN and carries UDP payloads through a relay. This does not replace the
   game's netcode with rollback networking."
 - `runtime/hle_net.c` emula `nn::ldn` (Local Wireless) sobre una LAN virtual (10.13.0.0/16) y sockets virtuales.
   `runtime/net_relay.c` es el cliente del relay y de las conexiones directas por UDP con perforación de NAT
@@ -93,11 +94,14 @@ imposibles de capturar), parar ahí.**
 (~144 bytes, número de secuencia en claro, resto cifrado), simula a 60 cuadros por segundo, y en modo inalámbrico
 local sincroniza por turnos con retraso de entrada (cada jugador retiene su botón N cuadros).
 
-**Discrepancias con el encargo, a aclarar** (no se pudieron comprobar porque el código no está en este checkout):
-
-- `HLE_WRAP(71016ccae0)` y `net_input_delay()` **no existen en esta rama**: en `runtime/hle_net.c` los dos
-  únicos `HLE_WRAP` son `7109199790` y `71000b41f0` (depuración de errores). Probablemente viven en otra rama.
-- `docs/ONLINE-TUNING.md` **no existe** en esta rama.
+**El retraso de entrada que ya controla NativeSmash** (`runtime/hle_net.c`, `HLE_WRAP(71016ccae0)` y `net_input_delay()`):
+la función del juego que calcula el retraso de entrada en línea (11.0.0–13.0.x; la misma que cambian los mods "latency slider"
+de la consola y de yuzu) guarda el número de cuadros en `this + 0x41` (máximo 25). El envoltorio deja que el juego lo calcule y
+luego lo sustituye por el de `online_delay.txt` (1–25, o `auto` para el del juego; **3 sin archivo**), solo con la red activa. El
+comentario del código dice que 2 es lo que aguanta una conexión directa entre dos PC en buena red y que menos hace que el juego
+espere al otro (tirones). Guía para jugadores: [ONLINE-TUNING.md](ONLINE-TUNING.md); auditoría del retraso del runtime (mando,
+imagen, ritmo, paquetes, `latency.on`): [LATENCY-AUDIT.md](LATENCY-AUDIT.md). Esto es **retraso de entrada ajustable, no rollback**:
+el juego sigue esperando las entradas de todos para avanzar, así que "el PC más lento marca el ritmo de todos".
 
 ## 3. Qué exige un rollback sobre este juego
 
@@ -205,7 +209,7 @@ en las dos máquinas. Fuentes de no determinismo a descartar, dónde mirar en es
 
 La siguiente tabla **combina números medidos (carga/guardado de páginas, ver §3a) con tiempos de simulación SUPUESTOS**
 (`sim` = ms que cuesta un cuadro de simulación; no lo conocemos). Entre paréntesis, la estimación para un teléfono con un factor
-supuesto ×2,5 de lentitud. Cualquier valor por encima de 16,7 ms es un cuadro perdido.
+supuesto ×2,5 de lentitud (supuesto: no hay mediciones de CPU del puerto Android). Cualquier valor por encima de 16,7 ms es un cuadro perdido.
 
 | páginas sucias | `sim` | d = 2 | d = 4 | d = 7 |
 | ---: | ---: | ---: | ---: | ---: |
@@ -216,8 +220,10 @@ supuesto ×2,5 de lentitud. Cualquier valor por encima de 16,7 ms es un cuadro p
 | 1 000 | 4 ms | 16,3 (41) | 27,6 (69) | 44,6 (112) |
 
 **Lectura honesta:** si un cuadro de simulación del juego cuesta ~2 ms en un portátil de gama media y ensucia ≲200 páginas,
-profundidades de 2–4 caben; con 4 ms ya solo cabe d ≤ 2; en un teléfono (si llegara a haber puerto) casi nada cabe. **No se sabe
-cuánto cuesta un cuadro de simulación frente a uno de dibujo**: es la medición nº 2.
+profundidades de 2–4 caben; con 4 ms ya solo cabe d ≤ 2; en un teléfono casi nada cabe. El puerto Android ([ANDROID.md](ANDROID.md),
+pre-alfa en un Pixel 9 Pro XL) aún no sostiene 60 cuadros en combate (≈11 cuadros/s el primer minuto por la compilación de shaders;
+menús a 57–59): **no hay margen para re-simular en el teléfono hasta que el juego vaya holgado a 60**. **No se sabe cuánto cuesta un
+cuadro de simulación frente a uno de dibujo**: es la medición nº 2.
 
 **Cuántos cuadros hay que re-simular de verdad.** En las pruebas con el juego sintético (entradas que cambian cada 8 cuadros,
 mucho menos nerviosas que un jugador real, y con un predictor "repetir la última"), el promedio de cuadros re-simulados por cuadro
@@ -260,13 +266,13 @@ común—; y cómo se hace el menú previo. Sirve además para repetir el mismo 
 las pruebas de determinismo.
 
 **Opción B — puentear la capa de sincronización.** Mantener el modo inalámbrico, pero sustituir la función que gestiona el retraso/espera
-de entrada para que no espere y que lea las entradas de nuestro módulo. Requiere localizar y entender esa capa (el encargo menciona
-que `71016ccae0` calcula el retraso de entrada); el cifrado y los números de secuencia son del juego. Más frágil: toca la lógica de
+de entrada para que no espere y que lea las entradas de nuestro módulo. Requiere localizar y entender esa capa: de ella solo se conoce
+la función que calcula el retraso (`71016ccae0`, ya envuelta), no la que retiene y espera las entradas; el cifrado y los números de secuencia son del juego. Más frágil: toca la lógica de
 sesión del juego y habría que reproducir lo que Pia entrega a la simulación.
 
-**Opción C — "retraso de entrada mínimo", sin rollback.** Solo reducir el retraso que calcula el juego. No es rollback; es un
-experimento barato que da datos reales de sensibilidad (¿cuántos cuadros de retraso aguanta la simulación sin esperar demasiado?)
-y puede dar mejora inmediata. Debería probarse **antes** de A/B.
+**Opción C — "retraso de entrada mínimo", sin rollback. Ya está hecha** (`online_delay.txt`, 3 por defecto). Sirve de **referencia**:
+cualquier rollback debe sentirse claramente mejor que jugar con 2 cuadros en una conexión directa para que valga su coste.
+Falta medir en partidas reales entre dos PC (ONLINE-TUNING.md dice que aún no hay cifras medidas).
 
 **Qué NO se puede saber sin el binario del juego** (y hay que averiguarlo localmente con él):
 
@@ -378,9 +384,10 @@ Para el usuario y su asistente local. Cada punto dice qué buscar, con qué herr
    y compararlas. Si difieren, comparar páginas para encontrar el objeto y buscar qué lo cambia. Repetir en otro SO.
 6. **Inventario de fibras e hilos en combate:** cuántas fibras vivas, sus estados (`fiber_counts` de `hle_fiber.c` ya da ranuras y finalizadas),
    en qué funciones están suspendidas, y si existe un instante por cuadro en que están todas quietas. Decide §3a (estrategia de pilas).
-7. **Función de retraso de entrada y capa de sincronización (`71016ccae0`, según el encargo):** confirmar su dirección en 13.0.5 (no está
-   en esta rama), qué calcula, desde dónde se llama y qué valores toma. **Experimento barato (opción C):** forzar un retraso menor y medir
-   con dos instancias (`tools/dev/netpair.sh`) cuándo el juego empieza a esperar o desincroniza.
+7. **Capa de sincronización del juego:** la función que calcula el retraso ya está localizada y envuelta (`71016ccae0`). Falta la que
+   **retiene y espera** las entradas: buscar quién lee `this + 0x41` y dónde se bloquea el hilo principal cuando falta la entrada del otro
+   (con `SSBU_HITCH` en una partida con `online_delay.txt` = 1, que fuerza esperas). Medir también, con `latency.on` (LATENCY-AUDIT.md) y dos
+   PC reales, cómo se siente 2 frente a 3 cuadros: es la referencia que el rollback tendría que mejorar.
 8. **Origen y siembra del RNG del combate:** ¿de `GenerateCryptographicallyRandomBytes`, del tick del sistema, de un valor acordado por Pia?
    Dónde vive su estado (¿en una región que el guardado cubre?).
 9. **Prueba de ida y vuelta de memoria:** guardar la memoria del juego (copia completa, solo para pruebas) en el cuadro N, seguir 120 cuadros con

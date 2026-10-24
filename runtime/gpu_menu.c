@@ -77,7 +77,7 @@ enum {
     R_NONE, R_WINDOW, R_PACING, R_LATENCY, R_CURSOR, R_OVERLAY, R_SIZE, R_SCALE, R_GPU,
     R_PAD, R_PAD_PLAYER, R_PAD_LAYOUT, R_PAD_DEADZONE, R_PAD_RUMBLE, R_PAD_TRIGGER, R_PAD_REMAP, R_PAD_TEST, R_PAD_RESET,
     R_RUMBLE, R_KEYBOARD, R_BACKGROUND, R_PADS_FILE,
-    R_NET_STATUS, R_NET_MODE, R_NET_CODE, R_NET_SERVER, R_NET_NAME, R_NET_DIRECT,
+    R_NET_STATUS, R_NET_MODE, R_NET_CODE, R_NET_SERVER, R_NET_NAME, R_NET_DIRECT, R_NET_DELAY,
     R_RESTART, R_QUIT, R_REMAP_BACK, R_REMAP_FIRST = 100   /* + console button */
 };
 
@@ -346,6 +346,10 @@ static void build(void) {
         r = add(R_NET_DIRECT, K_CHOICE, W_RESTART, "Direct connections",
                 "On: rooms connect players directly when they can (less lag). Off: everything goes through the lobby, so other players never learn your internet address.");
         snprintf(r->value, sizeof r->value, "%s", on_off(net.direct));
+        r = add(R_NET_DELAY, K_CHOICE, W_NOW, "Input delay (frames)",
+                "Online, the game holds your button this many frames before applying it, to wait for the other players. Lower is quicker, but too low for the connection and the game stutters waiting. Auto: the game's own number. Takes effect at the next match.");
+        if (net_input_delay() < 0) snprintf(r->value, sizeof r->value, "auto (the game's)");
+        else snprintf(r->value, sizeof r->value, "%d frames", net_input_delay());
         for (int i = 1; i < nrows; i++) {
             if (launcher) snprintf(rows[i].note, sizeof rows[i].note, "%s", launcher);
             else if (!settings_online()) snprintf(rows[i].note, sizeof rows[i].note, "for Play SSBU");
@@ -516,6 +520,16 @@ static void change(const Row *row, int dir) {
         net.direct = !net.direct;
         settings_line_write("online_direct.txt", net.direct ? "on" : "off");
         break;
+    case R_NET_DELAY: {   /* auto, 1, 2, ... 8 (a number typed in online_delay.txt above 8 is shown as it is) */
+        int now = net_input_delay();
+        int next = now < 0 ? (dir > 0 ? 1 : 8) : now + dir;
+        if (next < 1 || next > 8) next = -1;
+        net_input_delay_set(next);
+        char text[16];
+        snprintf(text, sizeof text, next < 0 ? "auto" : "%d", next);
+        settings_line_write("online_delay.txt", text);
+        break;
+    }
     default:
         return;
     }

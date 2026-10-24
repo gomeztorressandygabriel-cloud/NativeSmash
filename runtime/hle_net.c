@@ -103,20 +103,26 @@ HLE_WRAP(71000b41f0) {
  * Here it is online_delay.txt (a number of frames, or "auto" for the game's own); without the file, 3 frames: 2 is what a
  * direct connection between two PCs on a good network can hold, and a lower number makes the game wait for the other player's
  * input (stutter); 3 leaves room for a frame that comes late. The game's number and ours go to the log ([net] input delay). Only while netplay is on. */
+static volatile int input_delay_want = -2;   /* -2: not read yet */
+int net_input_delay(void) {
+    if (input_delay_want == -2) {
+        char line[64];
+        int want = 3;
+        if (settings_line_read("online_delay.txt", line, sizeof line)) {
+            if (!_strnicmp(line, "auto", 4)) want = -1;
+            else if (line[0] >= '0' && line[0] <= '9') want = atoi(line) < 1 ? 1 : atoi(line) > 25 ? 25 : atoi(line);
+        }
+        input_delay_want = want;
+    }
+    return input_delay_want;
+}
+void net_input_delay_set(int frames) { input_delay_want = frames < 0 ? -1 : frames < 1 ? 1 : frames > 25 ? 25 : frames; }
 /* signature: fc1d0fe8 a9014ff4 a9027bfd 910083fd b9403008 4ea01c08 aa0003f3 7100091f 54.....1 .0.....8 f9....08 f9....08 f9....00 5284e261 9....... 1e220000 */
 HLE_WRAP(71016ccae0) {
     u64 self = c->x[0];
     f_71016ccae0_orig(c);
     if (!net_configured()) return;
-    static int want = -2;
-    if (want == -2) {
-        char line[64];
-        want = 3;
-        if (settings_line_read("online_delay.txt", line, sizeof line)) {
-            if (!_strnicmp(line, "auto", 4)) want = -1;
-            else if (line[0] >= '0' && line[0] <= '9') want = atoi(line) < 1 ? 1 : atoi(line) > 25 ? 25 : atoi(line);
-        }
-    }
+    int want = net_input_delay();
     u32 game = ld8(self + 0x41);
     if (want >= 0) st8(self + 0x41, (u8)want);
     fprintf(stderr, "[net] input delay: the game chose %u frames, %s\n", game, want >= 0 ? "using the number in online_delay.txt (3 without it)" : "keeping it (online_delay.txt: auto)");

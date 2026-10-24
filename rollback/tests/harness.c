@@ -50,7 +50,7 @@ void run_pair(const PairCfg *cfg, PairResult *out) {
         toy_init(&side[i].toy, n);
         if (i == 1) { side[i].toy.bug = cfg->bug_b; side[i].toy.fault_frame = cfg->fault_frame; }
         RbGame g = toy_game(&side[i].toy);
-        RbConfig rc = {n, i, cfg->max_prediction, cfg->input_delay, cfg->checksum_interval};
+        RbConfig rc = {n, i, cfg->max_prediction, cfg->input_delay, cfg->checksum_interval, 0};
         side[i].s = rb_create(&g, &rc);
         RbTransport t = simnet_transport(net, i);
         side[i].net = rbnet_create(side[i].s, 1 - i, &t, 0xC0FFEE);

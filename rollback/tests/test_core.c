@@ -21,7 +21,7 @@ static uint64_t reference(int nplayers, int frames, int delay, uint64_t seed) {
 static void play(int nplayers, int frames, int delay, int maxpred, const int *lag, Toy *t, RbSession **out) {
     toy_init(t, nplayers);
     RbGame g = toy_game(t);
-    RbConfig c = {nplayers, 0, maxpred, delay, 4};
+    RbConfig c = {nplayers, 0, maxpred, delay, 4, 0};
     RbSession *s = rb_create(&g, &c);
     CHECK(s != NULL, "rb_create");
     for (int tick = 0; tick < frames; tick++) {
@@ -61,7 +61,7 @@ static void test_late_inputs_converge(void) {
 static void test_correct_prediction_costs_nothing(void) {
     Toy t; toy_init(&t, 2);
     RbGame g = toy_game(&t);
-    RbConfig c = {2, 0, 8, 0, 0};
+    RbConfig c = {2, 0, 8, 0, 0, 0};
     RbSession *s = rb_create(&g, &c);
     for (int f = 0; f < 100; f++) {
         if (f >= 3) rb_add_remote_input(s, 1, f - 3, 0);   /* the remote never presses anything: "same as last" is right */
@@ -76,7 +76,7 @@ static void test_correct_prediction_costs_nothing(void) {
 static void test_stall_at_window(void) {
     Toy t; toy_init(&t, 2);
     RbGame g = toy_game(&t);
-    RbConfig c = {2, 0, 4, 0, 0};
+    RbConfig c = {2, 0, 4, 0, 0, 0};
     RbSession *s = rb_create(&g, &c);
     int ok = 0, stalled = 0;
     for (int i = 0; i < 10; i++) (rb_tick(s, 0) == RB_OK ? ok++ : stalled++);
@@ -91,7 +91,7 @@ static void test_stall_at_window(void) {
 static void test_duplicates_and_conflicts(void) {
     Toy t; toy_init(&t, 2);
     RbGame g = toy_game(&t);
-    RbConfig c = {2, 0, 8, 0, 0};
+    RbConfig c = {2, 0, 8, 0, 0, 0};
     RbSession *s = rb_create(&g, &c);
     rb_tick(s, 0); rb_tick(s, 0);
     CHECK(rb_add_remote_input(s, 1, 0, 7) == RB_OK, "first");
@@ -121,8 +121,29 @@ static void test_three_players(void) {
 static void test_bad_config(void) {
     Toy t; toy_init(&t, 2);
     RbGame g = toy_game(&t);
-    RbConfig bad[] = {{1, 0, 8, 0, 0}, {2, 2, 8, 0, 0}, {2, 0, 0, 0, 0}, {2, 0, RB_STATE_RING, 0, 0}, {2, 0, 8, 9, 0}, {2, 0, 8, 0, -1}};
+    RbConfig bad[] = {{1, 0, 8, 0, 0, 0}, {2, 2, 8, 0, 0, 0}, {2, 0, 0, 0, 0, 0}, {2, 0, RB_STATE_RING, 0, 0, 0}, {2, 0, 8, 9, 0, 0}, {2, 0, 8, 0, -1, 0}, {2, 0, 8, 0, 0, 9}};
     for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) CHECK(rb_create(&g, &bad[i]) == NULL, "config %u accepted", i);
+}
+
+
+/* Sync test: the toy game with a counter that the simulation reads and save() does not hold. */
+static void test_synctest_finds_unsaved_state(void) {
+    for (int bug = 0; bug < 2; bug++) {
+        Toy t; toy_init(&t, 2);
+        t.bug = bug ? TOY_BUG_UNSAVED : TOY_OK;
+        RbGame g = toy_game(&t);
+        RbConfig c = {2, 0, 8, 0, 0, 3};
+        RbSession *s = rb_create(&g, &c);
+        for (int f = 0; f < 300; f++) {
+            rb_add_remote_input(s, 1, f, toy_script(1, f, 5));   /* (every input present: nothing is predicted) */
+            rb_tick(s, toy_script(0, f, 5));
+        }
+        int32_t at; int who;
+        if (bug) CHECK(rb_desync(s, &at, &who) && who == -1 && rb_stats(s)->synctest_failures > 0, "the unsaved counter was not found");
+        else CHECK(!rb_desync(s, &at, &who) && rb_stats(s)->synctest_failures == 0, "false alarm on a correct game");
+        CHECK(rb_stats(s)->resim_frames >= 3 * 290, "the sync test should have replayed %llu frames", (unsigned long long)rb_stats(s)->resim_frames);
+        rb_destroy(s);
+    }
 }
 
 void test_core_all(void) {
@@ -132,4 +153,5 @@ void test_core_all(void) {
     RUN(test_stall_at_window);
     RUN(test_duplicates_and_conflicts);
     RUN(test_three_players);
+    RUN(test_synctest_finds_unsaved_state);
 }

@@ -15,6 +15,7 @@ struct RbSession {
     int32_t rollback_to;                      /* oldest frame whose used input was wrong (NONE: no rollback pending) */
 
     uint8_t *state;                           /* RB_STATE_RING slots of game.state_size bytes */
+    uint8_t *scratch;                         /* one more, for checksums of buffers */
     int32_t state_frame[RB_STATE_RING];       /* the frame whose pre-state a slot holds (-1: none) */
     uint64_t state_sum[RB_STATE_RING];
     RbInput used[RB_STATE_RING][RB_MAX_PLAYERS];   /* the inputs the slot's frame was simulated with */
@@ -58,11 +59,12 @@ RbSession *rb_create(const RbGame *game, const RbConfig *cfg) {
     if (cfg->local_player < 0 || cfg->local_player >= cfg->num_players) return NULL;
     if (cfg->max_prediction < 1 || cfg->max_prediction > RB_STATE_RING - 2) return NULL;
     if (cfg->input_delay < 0 || cfg->input_delay > cfg->max_prediction) return NULL;
-    if (cfg->checksum_interval < 0) return NULL;
+    if (cfg->checksum_interval < 0 || cfg->synctest_depth < 0 || cfg->synctest_depth > cfg->max_prediction) return NULL;
     RbSession *s = calloc(1, sizeof *s);
     if (!s) return NULL;
-    s->state = malloc((size_t)RB_STATE_RING * game->state_size);
+    s->state = malloc((size_t)(RB_STATE_RING + 1) * game->state_size);
     if (!s->state) { free(s); return NULL; }
+    s->scratch = s->state + (size_t)RB_STATE_RING * game->state_size;
     s->game = *game;
     s->cfg = *cfg;
     s->rollback_to = NONE;
@@ -164,6 +166,28 @@ int rb_resolve(RbSession *s) {
     return (int)depth;
 }
 
+static uint64_t live_checksum(RbSession *s) {
+    if (s->game.checksum) return s->game.checksum(s->game.user);
+    s->game.save(s->game.user, s->scratch);
+    return rb_hash64(s->scratch, s->game.state_size);
+}
+
+/* Sync test: replay the last `depth` frames from their saved state, as a rollback would, and
+ * see that the game ends where it was. Anything the simulation reads that save() leaves out,
+ * and any non-determinism, shows up here on one machine. */
+static void sync_test(RbSession *s) {
+    int d = s->cfg.synctest_depth;
+    if (!d || s->cur < d) return;
+    int32_t t = s->cur - d;
+    uint64_t before = live_checksum(s);
+    s->game.load(s->game.user, s->state + (size_t)(t % RB_STATE_RING) * s->game.state_size);
+    for (int32_t f = t; f < s->cur; f++) sim_frame(s, f, 1);
+    if (live_checksum(s) != before) {
+        s->stats.synctest_failures++;
+        if (!s->desynced) { s->desynced = 1; s->desync_frame = s->cur; s->desync_player = -1; }
+    }
+}
+
 RbStatus rb_tick(RbSession *s, RbInput local) {
     rb_resolve(s);
     if (s->cur - first_unconfirmed(s) >= s->cfg.max_prediction) {
@@ -180,6 +204,7 @@ RbStatus rb_tick(RbSession *s, RbInput local) {
     sim_frame(s, s->cur, 0);
     s->cur++;
     s->stats.ticks++;
+    sync_test(s);
     update_finals(s);
     return RB_OK;
 }

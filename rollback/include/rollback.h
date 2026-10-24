@@ -44,6 +44,7 @@ typedef struct RbConfig {
     int max_prediction;       /* frames the simulation may run ahead of the last confirmed input (1..RB_STATE_RING-2) */
     int input_delay;          /* frames the local input is held back (0..max_prediction); 0 = none */
     int checksum_interval;    /* compare a checksum every N frames (0: never) */
+    int synctest_depth;       /* >0: after every frame, roll back this many frames and replay, and compare (finds unsaved state and non-determinism with no network; needs depth <= max_prediction) */
 } RbConfig;
 
 typedef enum {
@@ -65,6 +66,7 @@ typedef struct RbStats {
     uint32_t max_depth;       /* deepest rollback in frames */
     uint64_t depth_hist[RB_STATE_RING];   /* rollbacks by depth */
     uint64_t desyncs;         /* checksum mismatches seen */
+    uint64_t synctest_failures;   /* replays that ended in another state than the original run */
 } RbStats;
 
 typedef struct RbSession RbSession;
@@ -95,7 +97,7 @@ const RbStats *rb_stats(const RbSession *s);
 /* Checksums. A frame's checksum is final once all inputs before it are confirmed. */
 int rb_final_checksum(const RbSession *s, int32_t *frame, uint64_t *sum);   /* newest final local one; 0 if none yet */
 void rb_report_remote_checksum(RbSession *s, int player, int32_t frame, uint64_t sum);
-int rb_desync(const RbSession *s, int32_t *frame, int *player);            /* 1 if a mismatch was seen (first one) */
+int rb_desync(const RbSession *s, int32_t *frame, int *player);            /* 1 if a mismatch was seen (first one; player -1: a sync test failure) */
 
 uint64_t rb_hash64(const void *data, size_t n);                /* the library's checksum helper (not cryptographic) */
 

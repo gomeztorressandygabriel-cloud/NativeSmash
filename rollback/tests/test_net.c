@@ -115,7 +115,7 @@ static int canned_recv(void *u, void *b, size_t cap) {
 static void test_protocol_rejects_garbage(void) {
     Toy t; toy_init(&t, 2);
     RbGame g = toy_game(&t);
-    RbConfig cfg = {2, 0, 8, 0, 8};
+    RbConfig cfg = {2, 0, 8, 0, 8, 0};
     RbSession *s = rb_create(&g, &cfg);
     uint8_t good[RBNET_HEADER + 8];
     memset(good, 0, sizeof good);

@@ -121,7 +121,7 @@ static uint64_t play_pgame(int full, uint64_t *saved_pages) {
     uint8_t *state_probe = NULL; (void)state_probe;
     if (!full) g.pages = rbp_create(g.mem, NP, PS, 20);
     RbGame game = {&g, full ? (size_t)NP * PS : 4, pg_save, pg_load, pg_advance, pg_sum};
-    RbConfig cfg = {2, 0, 12, 0, 0};
+    RbConfig cfg = {2, 0, 12, 0, 0, 0};
     RbSession *s = rb_create(&game, &cfg);
     int lag = 5;
     for (int t = 0; t < 400; t++) {

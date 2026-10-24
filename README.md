@@ -10,6 +10,7 @@
   <a href="docs/BUILDING.md"><strong>Setup guide</strong></a> ·
   <a href="docs/PLAYING.md"><strong>Playing</strong></a> ·
   <a href="docs/MULTIPLAYER.md"><strong>Multiplayer</strong></a> ·
+  <a href="docs/ONLINE-TUNING.md"><strong>Online tuning</strong></a> ·
   <a href="docs/DLC-AND-UNLOCKS.md"><strong>DLC &amp; unlocks</strong></a> ·
   <a href="docs/UPDATES.md"><strong>Game updates</strong></a> ·
   <a href="docs/LINUX.md"><strong>Linux</strong></a> ·
@@ -241,7 +242,7 @@ Those are the defaults. Change any of them on the launcher's **Controls** page (
 | **Lobby code** | Friends only, through the online lobby | Everyone adds the same code to `online_server.txt`. Only players with that code see your rooms. |
 | **Private room** | A group with one host | The host runs `launchers\Host SSBU Netplay.bat`; the others run `launchers\Join SSBU Netplay.bat` and type the host's address. |
 
-Everyone needs the **same game version**, and each PC uses its own save. The [multiplayer guide](docs/MULTIPLAYER.md) walks through each way and what to do when a room doesn't show up.
+Everyone needs the **same game version**, and each PC uses its own save. The [multiplayer guide](docs/MULTIPLAYER.md) walks through each way and what to do when a room doesn't show up; if a match lags or stutters, see [online tuning](docs/ONLINE-TUNING.md) (afinado en línea).
 
 Looking for people to play with? Ask on the [Discord server](https://discord.gg/pkgyYGf3YB).
 

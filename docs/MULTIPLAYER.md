@@ -1,6 +1,6 @@
 # Multiplayer
 
-[← README](../README.md) · [Setup guide](BUILDING.md) · [Playing](PLAYING.md) · [Linux](LINUX.md) · [Technical guide](TECHNICAL.md)
+[← README](../README.md) · [Setup guide](BUILDING.md) · [Playing](PLAYING.md) · [Online tuning](ONLINE-TUNING.md) · [Linux](LINUX.md) · [Technical guide](TECHNICAL.md)
 
 NativeSmash plays the game's **Local Wireless** mode over the internet. To the game, the other players look like Switches nearby. The game's own **Online** mode works too, for Quickplay against NativeSmash's own game server ([Online mode](#online-mode-quickplay)). Nintendo's online service isn't used.
 
@@ -17,6 +17,7 @@ NativeSmash plays the game's **Local Wireless** mode over the internet. To the g
 - [Private room](#private-room)
 - [If a room doesn't appear](#if-a-room-doesnt-appear)
 - [Run your own lobby](#run-your-own-lobby)
+- [If a match lags](#if-a-match-lags)
 - [Logs and privacy](#logs-and-privacy)
 - [Reference: environment variables](#reference-environment-variables)
 
@@ -220,6 +221,10 @@ python tools/ssbu_online_lobby.py --port 39421 --state online-state --verbose
 `tools/deploy/deploy_online_lobby.sh <ssh host> install` sets it up on a Linux server as the service `ssbu-online`, next to `ssbu-lobby`. Its game server lets each player act only on their own account and on matches they're in, and limits how much each connection can ask of it.
 
 The lobby checks where messages come from, limits how fast each player can send, and carries each room's traffic only between that room's players. A game accepts direct packets only from addresses the lobby gave it, carrying that pair's secret, and only from players in its own room. Even so, it's a transport for players you trust: lobby codes and room names aren't passwords, and the traffic isn't encrypted or authenticated.
+
+## If a match lags
+
+The [online tuning guide](ONLINE-TUNING.md) (afinado en línea) explains the input delay (Esc → **Online** → **Input delay (frames)**, or the launcher's **Online** page), how to read the connection lines on <kbd>F1</kbd>/<kbd>F2</kbd>, network tips, and what to send when something goes wrong.
 
 ## Logs and privacy
 

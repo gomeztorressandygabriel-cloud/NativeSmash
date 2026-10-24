@@ -417,6 +417,25 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
 
+### Cuarta medición: dónde lee el mando y dónde entrega el cuadro (sonda versión 4)
+
+Las 46 pilas de cada tipo fueron idénticas:
+
+- **Lectura del mando:** bucle principal `main+0x3746e90` → **`main+0x3667300`** → `main+0x3666880` → `GetNpadState`. El mando se lee en **una rama propia del bucle principal** (`f_7103667300`, ligera: no sale en el perfil), no dentro de `f_71037246a0`.
+- **Entrega del cuadro:** bucle principal → **`main+0x386f850`** (`f_710386f850`) → cadena del SDK → `QueueBuffer`. Confirma que la rama del 66 % es **el dibujo**.
+- (`sdk+0x29d9e0` → `main+0x2c5620` → `main+0x3746e90`: el arranque del hilo principal y su bucle.)
+
+**Cómo queda el bucle principal de cada cuadro (hipótesis):**
+
+| Paso | Función | Papel |
+| :--- | :--- | :--- |
+| 1 | `f_7103667300` | Leer los mandos y guardarlos en la memoria del juego |
+| 2 | `f_71037246a0` | **Simular** (recorre un árbol de tareas: se llama a sí misma a través de `f_71022defb0`) |
+| 3 | `f_71038fe2b0` | Sin identificar (5 %) |
+| 4 | `f_710386f850` | Dibujar y entregar la imagen |
+
+**Consecuencia para el diseño:** re-simular un cuadro sería llamar a los pasos 1 y 2 con la entrada de ese cuadro (el paso 1 vuelve a leer el mando, y `npad_state` le daría la entrada guardada), sin el 4. El envoltorio tendría que vigilar solo la llamada exterior de `f_71037246a0` (la que hace el bucle principal), porque la función se llama a sí misma. Falta saber qué hace el paso 3.
+
 ### Segundo perfil, con el árbol de llamadas (F6, 10 s)
 
 El bucle principal (`f_7103746e90`, 91 % del hilo principal) llama cada cuadro a tres ramas:

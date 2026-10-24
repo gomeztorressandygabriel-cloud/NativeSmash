@@ -53,6 +53,7 @@ typedef struct KThread {
     CONDITION_VARIABLE woken;   /* what this thread sleeps on (kwait): wakes go to the threads concerned */
     u64 wait_handles;   /* while in WaitSynchronization: its handle array (guest) and count */
     u32 wait_count;
+    volatile int sleeping, requesting;   /* in SleepThread; in a service request (for the rollback probe's view of who is busy) */
 } KThread;
 
 typedef struct KObject { int type, signaled; KThread *thread; void *session; } KObject;
@@ -429,7 +430,9 @@ void rt_svc(Cpu *c, u32 n) {
     /* calls that never touch shared kernel state */
     switch (n) {
     case 0x0B:   /* SleepThread(ns): non-positive values are yield requests */
+        if (me) me->sleeping = 1;
         if ((i64)x[0] > 0) Sleep((DWORD)((x[0] + 999999) / 1000000)); else SwitchToThread();
+        if (me) me->sleeping = 0;
         return;
     case 0x10: x[0] = 0; return;                         /* GetCurrentProcessorNumber */
     case 0x1E: x[0] = rt_ticks(); return;                /* GetSystemTick */
@@ -457,7 +460,9 @@ void rt_svc(Cpu *c, u32 n) {
         u32 h = (u32)(n == 0x21 ? x[0] : x[2]);
         void *s = kernel_session_of(h);
         if (!s) { x[0] = R_INVALID_HANDLE; return; }
+        if (me) me->requesting = 1;
         x[0] = ipc_request(c, s, n == 0x21 ? c->tpidrro : x[0], n == 0x21 ? 0x100 : x[1]);
+        if (me) me->requesting = 0;
         return;
     }
     }
@@ -639,20 +644,31 @@ void kernel_thread_states(void (*line)(const char *text)) {
     LeaveCriticalSection(&klock);
 }
 
-/* (net_rbprobe.c) Guest threads started and not exited, and in *waiting those blocked on a mutex, a
- * condition, an address or in WaitSynchronization (a sleeping thread counts as not waiting); ~0u
- * when the kernel's lock is busy (not waited for). */
-u32 kernel_thread_count(u32 *waiting) {
-    if (!TryEnterCriticalSection(&klock)) return ~0u;
-    u32 n = 0, w = 0;
+/* (net_rbprobe.c) Every guest thread alive, with what it is doing: KT_RUNNING (or in a system call
+ * not listed here), KT_WAITING (a mutex, a condition, an address, WaitSynchronization),
+ * KT_SLEEPING (SleepThread) or KT_REQUESTING (a service request). 0 when the kernel's lock is
+ * busy (not waited for). */
+int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, int state), void *user) {
+    if (!TryEnterCriticalSection(&klock)) return 0;
     for (u32 i = 1; i < 4096; i++) {
         KThread *t = objects[i].type == OBJ_THREAD ? objects[i].thread : NULL;
         if (!t || !t->started || t->exited) continue;
-        n++;
-        w += t->mutex_addr || t->cv_key || t->arb_addr || t->wait_count;
+        int state = t->mutex_addr || t->cv_key || t->arb_addr || t->wait_count ? KT_WAITING
+                    : t->sleeping ? KT_SLEEPING : t->requesting ? KT_REQUESTING : KT_RUNNING;
+        each(user, t->id, t->priority, t->core, state);
     }
     LeaveCriticalSection(&klock);
-    *waiting = w;
+    return 1;
+}
+
+/* (net_rbprobe.c) The guest's memory: the regions of heap and stack memory, up to `max`; how many
+ * there are (0 when the kernel's lock is busy, not waited for). */
+u32 kernel_memory_regions(u64 *base, u64 *size, u32 max) {
+    if (!TryEnterCriticalSection(&klock)) return 0;
+    u32 n = 0;
+    for (u32 i = 0; i < region_count && n < max; i++)
+        if (regions[i].state == GM_HEAP || regions[i].state == GM_STACK) { base[n] = regions[i].base; size[n] = regions[i].size; n++; }
+    LeaveCriticalSection(&klock);
     return n;
 }
 

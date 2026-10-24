@@ -2556,6 +2556,28 @@ static u64 watch_next(u64 p, u64 hi, u64 seen) {
     return hi;
 }
 
+/* (net_rbprobe.c) The rollback probe's count of the alias pages the CPU wrote since *seen, in
+ * the regions [base[i], base[i] + size[i]): the watch's news taken as the renderer takes it, and
+ * the pages stamped after *seen counted - so pages the renderer itself asked about meanwhile
+ * count too, and the renderer loses nothing. Each page also goes to `each`; *seen moves on to
+ * now. -1 when the renderer's lock is busy (not waited for: asked again next frame). */
+long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, void (*each)(u64 page, void *user), void *user) {
+    if (!ready || !TryEnterCriticalSection(&lock)) return -1;
+    long long found = 0;
+    for (u32 i = 0; i < n; i++) {
+        u64 lo = base[i] & ~0xFFFull, hi = (base[i] + size[i] + 0xFFF) & ~0xFFFull;
+        if (lo < ALIAS_BASE || hi > ALIAS_BASE + ALIAS_SIZE || lo >= hi) continue;
+        watch_take(lo, hi);
+        for (u64 pg = watch_next(lo, hi, *seen); pg < hi; pg = watch_next(pg + 0x1000, hi, *seen)) {
+            found++;
+            if (each) each(pg, user);
+        }
+    }
+    *seen = watch_clock;
+    LeaveCriticalSection(&lock);
+    return found;
+}
+
 /* Has guest memory [g, g + size) been written since *seen? (*seen moves on to now.) Ask before
  * reading the memory, so that a write meanwhile is news next time. */
 static int watch_written(u64 g, u64 size, u64 *seen) {

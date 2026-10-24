@@ -53,7 +53,7 @@ tarea nº 3 de [ROLLBACK.md §5](ROLLBACK.md#5-qué-hacer-después-en-un-pc-con-
 
 | Parte | ¿Guardar? | Cómo |
 | :--- | :--- | :--- |
-| Heap del juego | Sí | Páginas escritas desde el último guardado (vigilancia de escrituras, `rollback/src/rb_pages.c`). La sonda mide cuántas son. |
+| Memoria del juego (zona ALIAS: el juego la pide con `MapPhysicalMemory`; la primera medición mostró que el heap clásico no se usa) | Sí | Páginas escritas desde el último guardado (vigilancia de escrituras, compartida con el renderer por sus sellos; `rollback/src/rb_pages.c`). La sonda versión 2 mide cuántas son. |
 | Fibras: tabla `fibs[]`/`spare[]`, cada `Cpu`, la parte usada de cada pila del host | Sí | En Linux/Android/macOS: copiar `[Fiber.sp, tope)` de cada fibra suspendida; normalmente unos KB. **No borrar** una fibra finalizada mientras pueda hacer falta en un rollback (retrasar su `DeleteFiber` `max_prediction` cuadros). |
 | Pila del hilo principal (zona `STACK`) | **No** | Son los marcos del bucle principal: en el punto de envoltura están igual, y restaurarlos desharía contadores del propio bucle. |
 | Zona `ALIAS` (memoria de la GPU) | Probablemente no | Solo si la sonda muestra que la simulación escribe ahí. |
@@ -85,12 +85,14 @@ La sonda (PR #4) ahora mide esto: justo antes de que el hilo de vsync despierte 
 esperando. Línea nueva en el log:
 
 ```
-[rbprobe] at the vsync tick, guest threads not waiting: median 0, p95 1, max 2; none at 280 of 300 ticks (93%); kernel busy at 0 ticks
+[rbprobe] at the vsync tick, guest threads running: median 1, max 2; waiting: …; sleeping: …; in a service request: …; none running at 280 of 300 ticks (93%); …
+[rbprobe] threads running at the tick most often (id, priority, core: running / sleeping / in a request / waiting %): …
 ```
 
-- Si "none at" está cerca del 100 %, existe un momento quieto por cuadro: buen pronóstico.
-- Si siempre hay hilos activos, hay que saber cuáles (dibujo, audio) y si tocan el estado de la simulación; el diseño se complica.
-- Un hilo que duerme (`SleepThread`) cuenta como activo: los números son prudentes.
+**Primera medición:** ningún cuadro tuvo a todos los hilos esperando (6–7 de 27 activos). No hay pausa global, lo que confirma el
+diseño de guardar y restaurar **solo la simulación** en el envoltorio de `actualizar_cuadro`. La versión 2 de la sonda separa los hilos
+que duermen o hacen una petición al sistema de los que trabajan de verdad, y dice cuáles son: hay que saber si alguno toca la memoria
+del combate mientras se restaura.
 
 ## 4. Alternativas que consideré
 

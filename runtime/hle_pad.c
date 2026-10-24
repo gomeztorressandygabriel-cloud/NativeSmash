@@ -34,6 +34,7 @@
 
 #include "pad.h"
 #include "cpu_sched.h"
+#include "latency.h"
 #ifdef SSBU_HAVE_SDL3
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_gamepad.h>
@@ -521,13 +522,16 @@ static void dev_info(const Dev *d, const Raw *raw, PadInfo *o) {
     if (raw->axis[RA_RIGHT_TRIGGER] > 16384) o->raw |= PAD_RAW_RIGHT_TRIGGER;
 }
 
+static volatile u64 published_ns;
 static void publish(const PadState fresh[PAD_SLOTS], const char names[PAD_SLOTS][48], const PadInfo info[PAD_SLOTS]) {
     AcquireSRWLockExclusive(&lock);
     memcpy(slots, fresh, sizeof slots);
     memcpy(slot_names, names, sizeof slot_names);
     memcpy(slot_info, info, sizeof slot_info);
     ReleaseSRWLockExclusive(&lock);
+    if (lat_on()) published_ns = rt_now_ns();
 }
+u64 pad_published_ns(void) { return published_ns; }
 
 /* What a pad's motors should do now: the game's amplitude per side (left = the low-frequency,
  * heavy motor of an Xbox-style pad), scaled by the pad's strength; nothing when the game has not

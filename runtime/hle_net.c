@@ -18,6 +18,7 @@
 #include "host.h"
 #include "net.h"
 #include "online.h"
+#include "latency.h"
 #include "settings.h"
 
 #define R_UNAVAILABLE RESULT(124, 300)
@@ -620,7 +621,7 @@ HLE(_ZN2nn3ldn6RejectENS0_11Ipv4AddressE) { LDN_TRACE;   /* (host) send a statio
 HLE(_ZN2nn3ldn32SetWirelessControllerRestrictionENS0_29WirelessControllerRestrictionE) { LDN_TRACE; c->x[0] = 0; }
 
 /* ---- nn::socket: datagram sockets on the virtual LAN -------------------------------- */
-typedef struct Datagram { struct Datagram *next; u32 src_ip, len; u16 src_port; u8 data[]; } Datagram;
+typedef struct Datagram { struct Datagram *next; u64 at; u32 src_ip, len; u16 src_port; u8 data[]; } Datagram;   /* (at: when it arrived, with latency.on) */
 typedef struct VSock {
     int open, type, flags, nonblock, broadcast, reuse, shut_rd, shut_wr;
     u32 ip, peer_ip;          /* bound address (0: any) and connected peer, host order */
@@ -729,6 +730,12 @@ void vsock_deliver(u32 src_ip, u16 src_port, u32 dst_ip, u16 dst_port, const voi
         if (s->queued >= 1024 || s->queued_bytes + len > QUEUE_BYTES) continue;   /* (full: dropped, as a LAN would) */
         Datagram *d = malloc(sizeof *d + len);
         if (!d) continue;
+        d->at = 0;
+        if (lat_on()) {
+            d->at = rt_now_ns();
+            lat_count(LAT_RECEIVED);
+            lat_gap(LAT_RECV_GAP, (u64)src_ip << 16 | src_port);
+        }
         d->next = NULL; d->src_ip = src_ip; d->src_port = src_port; d->len = len;
         memcpy(d->data, data, len);
         if (s->tail) s->tail->next = d; else s->head = d;
@@ -869,6 +876,10 @@ static void do_sendto(Cpu *c, i32 fd, u64 buf, u64 len, i32 flags, u64 addr, u32
         if (dst == me || broadcast) vsock_deliver(me, sport, dst, dport, data, (u32)len);   /* (a broadcast reaches this player's sockets too) */
         if (dst != me) net_send(me, sport, broadcast ? NET_BROADCAST : dst, dport, data, (u32)len);
     }
+    if (lat_on()) {
+        lat_count(LAT_SENT);
+        lat_gap(LAT_SEND_GAP, (u64)dst << 16 | dport);
+    }
     c->x[0] = len;
 }
 
@@ -918,6 +929,7 @@ static void do_recvfrom(Cpu *c, i32 fd, u64 buf, u64 len, i32 flags, u64 addr, u
     memcpy(P(void, buf), d->data, n);
     u32 ip = d->src_ip;
     u16 port = d->src_port;
+    if (d->at && !(flags & MSG_PEEK_)) lat_add(LAT_RECV_WAIT, rt_now_ns() - d->at);
     if (!(flags & MSG_PEEK_)) {
         s->head = d->next;
         if (!s->head) s->tail = NULL;

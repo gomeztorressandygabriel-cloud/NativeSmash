@@ -47,6 +47,22 @@ int display_texture_quality(void);
 int display_frameskip(void);
 /* monitor = on (display.ini, SSBU_MONITOR): monitor.h measures everything once a second and writes build\monitor.csv. */
 int display_monitor(void);
+/* present_wait = on (display.ini, SSBU_PRESENT_WAIT): the swap chain is made waitable (DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT):
+ * gpu_d3d11.c's present waits for a free slot before it takes the renderer's lock, so a Present that would block (the queue is full, or
+ * vsync is on) no longer holds the lock the graphics thread draws under. Windows' Direct3D only. */
+int display_present_wait(void);
+/* boost_threads = on (display.ini, SSBU_BOOST_THREADS): the vsync thread (ipc_vi.c) runs at the highest and the netplay threads
+ * (net_relay.c) at above normal priority, so a busy PC wakes them at once: the refresh the game sees is on time and a datagram that
+ * arrives is read at once. */
+int display_boost_threads(void);
+/* queue_limit = 1-3 (display.ini, SSBU_QUEUE_LIMIT; 0: none): the most frames the game may have queued and not yet taken by the vsync
+ * thread: while that many wait, the game's request for a buffer to draw into is told to wait (ipc_vi.c), so a frame is never more than
+ * that many refreshes old when it is shown. */
+int display_queue_limit(void);
+/* release_early = on (display.ini, SSBU_RELEASE_EARLY): ipc_vi.c tells the game its buffer is free at the refresh, as the console's
+ * compositor does when it takes the next frame, not after the frame has been shown (a present that waits for the monitor or for the
+ * graphics card would hold the game back until it returns). */
+int display_release_early(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);
 unsigned display_present_flags(void);

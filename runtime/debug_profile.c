@@ -39,7 +39,7 @@ static U32 nmodules, exe_module;
 /* Call stacks of busy samples (of every thread), unwound from the modules' own unwind tables
  * while the thread is suspended - without the system's lookup, which takes locks the
  * suspended thread may hold. */
-#define STACK_DEPTH 24
+#define STACK_DEPTH 40
 #define MAX_STACKS 65536
 typedef struct Stack { U32 thread, depth, waiting; U64 pc[STACK_DEPTH]; } Stack;   /* waiting: in a system call (only the guest main thread's) */
 static Stack *stacks;
@@ -309,6 +309,38 @@ static void call_paths(FILE *f) {
     fprintf(f, "\nThread %lu %ls: time in or under each function (%% of %u sampled stacks, at most %u frames deep):\n",
             threads[t].tid, threads[t].desc, n, STACK_DEPTH);
     for (U32 i = 0; i < nc && i < 60; i++) fprintf(f, "  %5.1f%%  %s\n", 100.0 * c[i].count / n, key_name(c[i].key[0]));
+
+    /* ... and what each of those calls: its direct callees, by the time spent in or under them
+     * (the call tree, one level at a time: where a frame's time is split between, say, the game's
+     * simulation and its drawing) */
+    U32 ntop = nc < 40 ? nc : 40;
+    Count *top_fn = malloc(sizeof *top_fn * (ntop ? ntop : 1)), *edges = malloc(sizeof *edges * (size_t)n * STACK_DEPTH);
+    memcpy(top_fn, c, sizeof *top_fn * ntop);
+    U32 ne = 0;
+    for (U32 i = 0; i < nstacks; i++) {
+        if (stacks[i].thread != t || stacks[i].waiting) continue;
+        U32 first = ne;
+        for (U32 d = 0; d + 1 < stacks[i].depth; d++) {   /* each caller-callee pair once per sample */
+            Count e = {{frame_key(stacks[i].pc[d + 1]), frame_key(stacks[i].pc[d]), 0}, 1};
+            U32 seen = 0;
+            for (U32 j = first; j < ne && !seen; j++) seen = edges[j].key[0] == e.key[0] && edges[j].key[1] == e.key[1];
+            if (!seen && e.key[0] != e.key[1]) edges[ne++] = e;
+        }
+    }
+    ne = tally(edges, ne);
+    fprintf(f, "\nThread %lu: what each of those calls (%% of the thread's sampled stacks in or under each callee; callees under 1%% left out):\n", threads[t].tid);
+    for (U32 i = 0; i < ntop; i++) {
+        fprintf(f, "  %s (%.1f%%) calls:", key_name(top_fn[i].key[0]), 100.0 * top_fn[i].count / n);
+        U32 shown = 0;
+        for (U32 j = 0; j < ne && shown < 8; j++)
+            if (edges[j].key[0] == top_fn[i].key[0] && edges[j].count * 100 >= n) {
+                fprintf(f, "%s %s %.1f%%", shown ? "," : "", key_name(edges[j].key[1]), 100.0 * edges[j].count / n);
+                shown++;
+            }
+        fprintf(f, "%s\n", shown ? "" : " (nothing over 1%)");
+    }
+    free(edges);
+    free(top_fn);
 
     /* its busiest functions, and the three callers above each */
     nc = 0;

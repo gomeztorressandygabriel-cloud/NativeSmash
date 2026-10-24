@@ -416,6 +416,16 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
 
+### Primer perfil del hilo principal en combate (F6, 10 s)
+
+- **El hilo principal está ocupado el 90 % del tiempo** en este portátil (i5-1335U); también lo estaba midiendo el perfilador. Queda poco margen para re-simular en este PC.
+- **~59 % de su tiempo** cuelga de `f_710901e7d0`, en la zona del SDK (direcciones `0x7109…`, donde también están las funciones de fibras): casi seguro **la preparación del dibujo** (el driver gráfico NVN del SDK).
+- **~15 %** cuelga de una cadena del propio juego en direcciones bajas (`f_710135ca00`, `f_710137b3f0`, `f_7101850d80`, `f_7101850f60`, `f_710135f570`, `f_71022defb0`): **candidata a la simulación del combate**.
+- **~12 %** corre dentro de fibras (`DispatchFiberContext` → `f_710354a390` → …): probablemente los guiones de los luchadores, que también son simulación.
+- Por encima de todo: `main` → `f_710929d9e0` → `f_71002c5620` → `f_7103746e90` (85 %), probablemente el bucle principal.
+- Si la simulación es ~15–30 % del hilo principal, cuesta **~2–4 ms por cuadro** en este portátil: re-simular 3 cuadros costaría 6–12 ms más, demasiado aquí; 1–2 cuadros, quizá.
+- El informe solo daba los 3 llamadores de cada función: desde esta rama el perfilador añade **"qué llama cada función"** (el árbol de llamadas, un nivel cada vez) y guarda pilas de 40 niveles. Con eso se puede encontrar la función que llama a la simulación y al dibujo, la que hay que envolver.
+
 ### Tercera medición (sonda versión 3, combate 1 contra 1 contra la CPU, Windows 11, Antigravity cerrado)
 
 | Dato | Resultado | Lectura |

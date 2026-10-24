@@ -416,6 +416,18 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
 
+### Tercera medición (sonda versión 3, combate 1 contra 1 contra la CPU, Windows 11, Antigravity cerrado)
+
+| Dato | Resultado | Lectura |
+| :--- | :--- | :--- |
+| Páginas escritas por cuadro en combate, memoria **propia de la CPU** | mediana ~2 600 (≈ 10,5 MB), p95 ~3 200 (≈ 12,5 MB) | El 75 % de lo escrito no es memoria entregada a la GPU. Aun así incluye datos de dibujo que el juego prepara en su propia memoria (listas de dibujo, matrices) antes de copiarlos: el estado del combate es una parte, aún sin separar |
+| Páginas escritas en memoria entregada a la GPU (nvmap) | mediana ~900 (≈ 3,6 MB) | Esto no hay que guardarlo |
+| Coste de encontrarlas | 9–15 ms por cuadro; en la mitad de los cuadros la pregunta esperó al renderer | La sonda sigue siendo cara: pedir a Windows qué cambió en varios GB no sirve para el rollback real ([ROLLBACK-IDEAS.md](ROLLBACK-IDEAS.md): copiar un "conjunto caliente" fijo de páginas en lugar de preguntar cada cuadro) |
+| Hilo 26 (prioridad 36) | Trabaja el 97 % de los vsync; en 24 de 25 muestras, **exactamente en la misma instrucción** (`lua2cpp_item+0xe7c70`), llamado desde `main+0x1bd7c0` ← `main+0x1be910` ← `main+0x1f7360` ← `main+0x1f7710` ← `main+0x1b2510` (arranque de hilo) | Siempre en el mismo punto: casi seguro **una espera activa** (un hilo trabajador que comprueba en bucle si hay trabajo). Mientras espera no toca el combate. La dirección cae en el módulo `lua2cpp_item`, pero la función puede ser compartida |
+| Hilos 29 y 43 (prioridad 44) | Solo en la primera tanda (carga), dentro de funciones del SDK | Hilos de carga: no afectan al combate |
+| Hilo 1 (prioridad 44, núcleo 0: el principal) | Trabajando 54–78 %, en una petición al sistema 21–42 % (probablemente pedir o entregar un búfer de imagen) | El hilo principal no espera al vsync: trabaja casi todo el tiempo y se frena al pedir búfer. Es el que hay que perfilar para encontrar la función que simula un cuadro |
+| Mando, fibras, trabajo por cuadro | Igual: 1 lectura por cuadro desde 1 hilo; 13–20 fibras vivas; ~3–6 ms de trabajo por cuadro | Sin cambios |
+
 ### Segunda medición (sonda versión 2, combate 1 contra 1 contra la CPU, Windows 11)
 
 | Dato | Resultado | Lectura |

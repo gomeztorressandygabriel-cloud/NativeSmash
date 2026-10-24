@@ -59,6 +59,10 @@ int display_boost_threads(void);
  * thread: while that many wait, the game's request for a buffer to draw into is told to wait (ipc_vi.c), so a frame is never more than
  * that many refreshes old when it is shown. */
 int display_queue_limit(void);
+/* release_early = on (display.ini, SSBU_RELEASE_EARLY): ipc_vi.c tells the game its buffer is free at the refresh, as the console's
+ * compositor does when it takes the next frame, not after the frame has been shown (a present that waits for the monitor or for the
+ * graphics card would hold the game back until it returns). */
+int display_release_early(void);
 /* The renderer says whether the swap chain can tear (for VRR); the flags each Present gets. */
 void display_set_tearing(int supported);
 unsigned display_present_flags(void);

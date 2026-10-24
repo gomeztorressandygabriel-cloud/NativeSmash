@@ -180,6 +180,12 @@ static const char DEFAULT_INI[] =
     ";   before it starts drawing another, so a button press is never a frame older than it has to be; if the PC cannot\n"
     ";   keep up the game then runs at the pace of the slowest frame. off: as many as the game's buffers allow.\n"
     "queue_limit = off\n"
+    "\n"
+    "; release_early = off | on\n"
+    ";   on: the game gets its next buffer to draw into at the refresh, not once the picture has been handed to Windows.\n"
+    ";   When showing a frame takes long (waiting for the monitor or the graphics card) the game then does not start\n"
+    ";   its next frame late, which showed as uneven frames and bursts of packets online. off: as before.\n"
+    "release_early = off\n"
 #ifdef _WIN32
     "\n"
     "; gpu = auto, or part of a graphics card's name (e.g. nvidia, radeon, intel)\n"
@@ -240,6 +246,7 @@ const char *display_ini_path(void) {
 
 static int boost_threads;   /* boost_threads = on */
 static int queue_limit;     /* queue_limit = 1-3, 0 off */
+static int release_early;   /* release_early = on */
 static int present_wait;   /* present_wait = on (not in cfg: the settings menu does not change it) */
 
 /* queue_limit = off or 1 to 3 */
@@ -280,6 +287,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
         else if (!_stricmp(key, "texture_quality")) parse_texture_quality(value);
         else if (!_stricmp(key, "monitor")) cfg.monitor = !(!_stricmp(value, "off") || !_stricmp(value, "0") || !_stricmp(value, "no"));
         else if (!_stricmp(key, "frameskip")) cfg.frameskip = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
+        else if (!_stricmp(key, "release_early")) release_early = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
         else if (!_stricmp(key, "queue_limit")) queue_limit = parse_queue_limit(value);
         else if (!_stricmp(key, "boost_threads")) boost_threads = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
         else if (!_stricmp(key, "present_wait")) present_wait = _stricmp(value, "off") && _stricmp(value, "0") && _stricmp(value, "no");
@@ -297,6 +305,7 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     if ((env = getenv("SSBU_TEXTURE_QUALITY")) && *env) parse_texture_quality(env);
     if ((env = getenv("SSBU_MONITOR")) && *env) cfg.monitor = !(!_stricmp(env, "off") || !_stricmp(env, "0") || !_stricmp(env, "no"));
     if ((env = getenv("SSBU_FRAMESKIP")) && *env) cfg.frameskip = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
+    if ((env = getenv("SSBU_RELEASE_EARLY")) && *env) release_early = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
     if ((env = getenv("SSBU_QUEUE_LIMIT")) && *env) queue_limit = parse_queue_limit(env);
     if ((env = getenv("SSBU_BOOST_THREADS")) && *env) boost_threads = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
     if ((env = getenv("SSBU_PRESENT_WAIT")) && *env) present_wait = _stricmp(env, "off") && _stricmp(env, "0") && _stricmp(env, "no");
@@ -329,6 +338,7 @@ int display_monitor(void) { load(); return cfg.monitor; }
 int display_present_wait(void) { load(); return present_wait; }
 int display_boost_threads(void) { load(); return boost_threads; }
 int display_queue_limit(void) { load(); return queue_limit; }
+int display_release_early(void) { load(); return release_early; }
 
 /* (the settings menu) the render scale it saved: shown from now on, the renderer's own counts
  * only at the next start */

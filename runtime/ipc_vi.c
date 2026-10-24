@@ -126,6 +126,7 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
     if (display_boost_threads()) SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
     timeBeginPeriod(1);
     static u8 shown[sizeof queue.slots[0].buffer];
+    int early = display_release_early();   /* display.ini release_early */
     u64 gpu_mark = 0, shown_queued = 0, shown_pad = 0;   /* (shown_*: latency.on's counters) */
     for (;;) {
         display_wait_tick();   /* the next refresh (display.ini's pacing) */
@@ -160,7 +161,7 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
             lat_tick_signalled();
             if (oldest < 0) lat_count(LAT_REPEATS);
         }
-        if (dropped) { kernel_signal_event(queue.buffer_event); WakeAllConditionVariable(&queue.freed); }
+        if (dropped || (early && oldest >= 0)) { kernel_signal_event(queue.buffer_event); WakeAllConditionVariable(&queue.freed); }   /* (early: the previous buffer was freed above) */
         if (oldest >= 0) {
             LARGE_INTEGER w0, w1, wf;
             QueryPerformanceCounter(&w0);
@@ -176,8 +177,10 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
                 lat_add(LAT_PRESENT_FRAME, rt_now_ns() - p0);
                 lat_frame_shown(shown_queued, shown_pad);
             }
-            kernel_signal_event(queue.buffer_event);
-            WakeAllConditionVariable(&queue.freed);
+            if (!early) {
+                kernel_signal_event(queue.buffer_event);
+                WakeAllConditionVariable(&queue.freed);
+            }
         }
         if (lat_on()) lat_report();   /* (after the frame is shown: the next refresh is a frame away) */
     }

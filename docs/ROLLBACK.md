@@ -369,21 +369,53 @@ un pronóstico de rendimiento en el juego.
 
 Para el usuario y su asistente local. Cada punto dice qué buscar, con qué herramienta del repositorio y qué resultado esperamos obtener.
 
+### La sonda de la fase 1: `rollback_probe.on`
+
+Los puntos 1, 4 y 6 ya tienen herramienta: `runtime/net_rbprobe.c`. Está **apagada** salvo que exista un archivo vacío llamado
+`rollback_probe.on` junto a `Play SSBU.bat` (o `SSBU_RB_PROBE=1` en el entorno). Apagada, no cambia nada: cada enganche es una lectura y un salto.
+
+**Cómo usarla:**
+
+1. Compila esta rama como siempre (no añade dependencias).
+2. Crea `rollback_probe.on` junto a `Play SSBU.bat`. Si quieres también el tiempo de cada cuadro del juego, crea además `latency.on`
+   ([LATENCY-AUDIT.md](LATENCY-AUDIT.md), línea `vsync event -> game queues its frame`).
+3. Juega **un combate normal de 2 jugadores de al menos 2 minutos** (sin red primero; luego, si se puede, uno en red), con mucha acción.
+4. Cierra el juego y manda las líneas `[rbprobe]` de `build\play.log` (cada 5 s salen cuatro líneas). Léelas antes: no llevan nombres ni
+   direcciones de internet, solo números y direcciones de memoria del juego.
+5. Borra `rollback_probe.on` para jugar normal: con ella, el juego vigila más memoria y va un poco más lento.
+
+**Qué dice cada línea y qué se espera:**
+
+| Línea | Qué mide | Cómo leerla |
+| :--- | :--- | :--- |
+| `Pages written per frame … heap median / p95 / max (MB)` | Páginas de memoria del juego escritas entre dos cuadros: lo que un rollback copiaría por cuadro | ≲ 1 000 (≈ 4 MB) en combate: viable. 1 000–10 000: caro, mirar las regiones. > 10 000 de forma constante: el enfoque por páginas no compensa (parada de la fase 1) |
+| `… stack …` | Lo mismo en las pilas de los hilos del juego | Suele ser poco; si es mucho, las pilas cambian a cada cuadro |
+| `reading and resetting the watch: avg / max ms` | Lo que cuesta solo *saber* qué páginas cambiaron | Debe quedar por debajo de ~1 ms; si no, el seguimiento ya se come el presupuesto |
+| `heap regions written most` | Las zonas de 1 MB más escritas | Dónde vive probablemente el estado de la simulación: el punto de partida para la suma de verificación y para buscar el RNG |
+| `pad reads per frame … by N thread(s)` | Cuántas veces y desde cuántos hilos lee el juego el mando | Lo ideal: 1–2 lecturas por cuadro desde 1 hilo (un solo punto donde inyectar la entrada remota) |
+| `guest threads alive; fibers alive` | Hilos y fibras vivos | Cada fibra viva es una pila del host que el rollback tendría que restaurar ([§3a](#a-guardar-y-restaurar-el-estado)). Decenas: abordable; miles: muy difícil |
+
+**Límites de la sonda:** no mide la zona `ALIAS` (la usa la GPU y leerla la dejaría ciega para sus texturas), así que si la simulación
+escribe ahí, no aparece. El cuadro se corta cuando el juego entrega su imagen, no en el límite exacto de la simulación. En Linux, si el log dice
+`[mem] write watch: page protection (fallback)`, la sonda es mucho más lenta y podría fallar al recibir datos de la red: medir en Windows.
+
 1. **Medir el tamaño real del estado y las páginas sucias por cuadro** *(decide si el enfoque es viable)*.
    Durante un combate de 2 jugadores, activar `MEM_WRITE_WATCH` también en `HEAP` (o medir con una copia de prueba de `kernel.c`),
    leer `GetWriteWatch` una vez por cuadro de vsync **sin reiniciarlo para la GPU** (coordinar con `watch_take`), y registrar:
    páginas sucias por cuadro (mediana, p95, máximo) y a qué región pertenecen. Ver cuántos MB de `HEAP`/`ALIAS` están realmente en uso.
+   **Herramienta lista:** la sonda `rollback_probe.on` (arriba) lo hace para `HEAP` y `STACK`.
 2. **Medir el tiempo de un cuadro de simulación frente a uno de dibujo.** Con `SSBU_HITCH` y `debug_profile.c` (ya nombran funciones
    del programa) en un combate: ¿cuánto de los 16,7 ms usa el hilo que simula? Es el `sim` de la tabla de §3c.
 3. **Localizar la función que avanza un cuadro de simulación.** Perfilar el hilo principal en combate: la función que se llama exactamente
    una vez por cuadro y de la que cuelga la simulación de luchadores. Anotar su dirección y su firma (con `tools/recomp.py wrap-sig`
    para el patrón de `HLE_WRAP`, cuando se llegue a integrar). Confirmar si dibujo y simulación van en la misma función.
 4. **Localizar la lectura del mando:** traza de llamadas a `GetNpadState*` por cuadro y por hilo (¿una vez por cuadro?, ¿qué hilo?).
-   Hecho en parte: el punto es `hle_hid.c: npad_state`.
+   Hecho en parte: el punto es `hle_hid.c: npad_state`. **La sonda** cuenta lecturas por cuadro y los hilos que leen.
 5. **Prueba de determinismo local (fase 2):** reproducir una grabación (`SSBU_INPUT`) 3 veces; escribir las sumas de zonas de memoria por cuadro
    y compararlas. Si difieren, comparar páginas para encontrar el objeto y buscar qué lo cambia. Repetir en otro SO.
 6. **Inventario de fibras e hilos en combate:** cuántas fibras vivas, sus estados (`fiber_counts` de `hle_fiber.c` ya da ranuras y finalizadas),
    en qué funciones están suspendidas, y si existe un instante por cuadro en que están todas quietas. Decide §3a (estrategia de pilas).
+   **La sonda** da ya cuántas fibras e hilos están vivos; dónde están suspendidas queda por hacer.
 7. **Capa de sincronización del juego:** la función que calcula el retraso ya está localizada y envuelta (`71016ccae0`). Falta la que
    **retiene y espera** las entradas: buscar quién lee `this + 0x41` y dónde se bloquea el hilo principal cuando falta la entrada del otro
    (con `SSBU_HITCH` en una partida con `online_delay.txt` = 1, que fuerza esperas). Medir también, con `latency.on` (LATENCY-AUDIT.md) y dos

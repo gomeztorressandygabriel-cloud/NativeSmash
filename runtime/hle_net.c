@@ -18,6 +18,7 @@
 #include "host.h"
 #include "net.h"
 #include "online.h"
+#include "settings.h"
 
 #define R_UNAVAILABLE RESULT(124, 300)
 #define R_LDN_STATE   RESULT(203, 32)
@@ -91,6 +92,34 @@ HLE_WRAP(71000b41f0) {
         rt_backtrace();
     }
     f_71000b41f0_orig(c);
+}
+
+/* ---- the game's own input delay in Local Wireless ----------------------------------------
+ * Online, the game does not apply a player's input the frame it is made: it holds it for a number of frames (the "input delay",
+ * which the game works out from the room's measured latency, with a floor) so that the other players' inputs for that frame have
+ * arrived by then. Over a direct connection of 16 ms the game's own number is still several frames. This function (11.0.0-13.0.x's
+ * online input delay: this + 0x41 is the number of frames, at most 25) is the one the community's "latency slider" mods for the
+ * console and yuzu change (offset 0x16ccc58 of main, where it has just stored the result): the mods let a player choose the number.
+ * Here it is online_delay.txt (a number of frames, or "auto" for the game's own); without the file, 3 frames: 2 is what a
+ * direct connection between two PCs on a good network can hold, and a lower number makes the game wait for the other player's
+ * input (stutter); 3 leaves room for a frame that comes late. The game's number and ours go to the log ([net] input delay). Only while netplay is on. */
+/* signature: fc1d0fe8 a9014ff4 a9027bfd 910083fd b9403008 4ea01c08 aa0003f3 7100091f 54.....1 .0.....8 f9....08 f9....08 f9....00 5284e261 9....... 1e220000 */
+HLE_WRAP(71016ccae0) {
+    u64 self = c->x[0];
+    f_71016ccae0_orig(c);
+    if (!net_configured()) return;
+    static int want = -2;
+    if (want == -2) {
+        char line[64];
+        want = 3;
+        if (settings_line_read("online_delay.txt", line, sizeof line)) {
+            if (!_strnicmp(line, "auto", 4)) want = -1;
+            else if (line[0] >= '0' && line[0] <= '9') want = atoi(line) < 1 ? 1 : atoi(line) > 25 ? 25 : atoi(line);
+        }
+    }
+    u32 game = ld8(self + 0x41);
+    if (want >= 0) st8(self + 0x41, (u8)want);
+    fprintf(stderr, "[net] input delay: the game chose %u frames, %s\n", game, want >= 0 ? "using the number in online_delay.txt (3 without it)" : "keeping it (online_delay.txt: auto)");
 }
 
 /* ---- nn::ldn: local wireless, emulated on the virtual LAN ------------------------------

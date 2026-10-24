@@ -17,6 +17,7 @@
 #include "gpu.h"   /* (gpu_queue_mark / gpu_queue_wait) */
 #include "cpu_sched.h"
 #include "latency.h"
+#include "net_rbprobe.h"
 
 #define DISPLAY_ID 1
 #define LAYER_ID 1
@@ -295,6 +296,7 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
                 for (int i = 0; i < SLOTS; i++) pending += queue.slots[i].state == QUEUED;
                 lat_frame_queued(pending);
             }
+            if (rbp_on()) rbp_frame_queued();
             queue.slots[slot].skipped = skip_now;   /* (the draws submitted for this frame were left out, if the skip was on) */
             queued_frames++;
             if (skip_now) skipped_frames++;

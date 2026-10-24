@@ -19,6 +19,7 @@
 #include "host.h"
 #include "gpu.h"   /* (gpu_memory_unmapping) */
 #include "cpu_sched.h"
+#include "net_rbprobe.h"
 
 #ifdef __APPLE__
 void rt_upnp_remove(void);   /* (linux/upnp.c: the netplay relay's port mapping, if it made one) */
@@ -638,6 +639,18 @@ void kernel_thread_states(void (*line)(const char *text)) {
     LeaveCriticalSection(&klock);
 }
 
+/* (net_rbprobe.c) Guest threads started and not exited; ~0u when the kernel's lock is busy (not waited for). */
+u32 kernel_thread_count(void) {
+    if (!TryEnterCriticalSection(&klock)) return ~0u;
+    u32 n = 0;
+    for (u32 i = 1; i < 4096; i++) {
+        KThread *t = objects[i].type == OBJ_THREAD ? objects[i].thread : NULL;
+        n += t && t->started && !t->exited;
+    }
+    LeaveCriticalSection(&klock);
+    return n;
+}
+
 void kernel_dump_threads(void) {
     EnterCriticalSection(&klock);
     for (u32 i = 1; i < 4096; i++) {
@@ -691,12 +704,14 @@ void kernel_init(void) {
     rt_clock_ns();   /* (the clock set up - and its line logged - before the game asks it) */
     /* Reserve the areas the guest maps into; pages are committed as they are used. The alias
      * area, where the game keeps its GPU memory, has its writes watched so that the renderer
-     * learns which textures the CPU changed (GetWriteWatch). */
-    static const struct { u64 base, size; const char *what; DWORD flags; } areas[] = {
-        {HEAP_BASE, HEAP_LIMIT, "heap", 0}, {ALIAS_BASE, ALIAS_SIZE, "alias", MEM_WRITE_WATCH}, {STACK_BASE, STACK_SIZE, "stack", 0},
-        {KERNEL_BASE, 0x1000000, "thread-local", 0},
+     * learns which textures the CPU changed (GetWriteWatch). With the rollback probe on
+     * (net_rbprobe.c), the heap's and the stack's are watched too, so it can count them. */
+    static const struct { u64 base, size; const char *what; DWORD flags; int probe; } areas[] = {
+        {HEAP_BASE, HEAP_LIMIT, "heap", 0, 1}, {ALIAS_BASE, ALIAS_SIZE, "alias", MEM_WRITE_WATCH, 0}, {STACK_BASE, STACK_SIZE, "stack", 0, 1},
+        {KERNEL_BASE, 0x1000000, "thread-local", 0, 0},
     };
     for (u32 i = 0; i < sizeof areas / sizeof *areas; i++)
-        if (VirtualAlloc(G2H(areas[i].base), areas[i].size, MEM_RESERVE | areas[i].flags, PAGE_READWRITE) != G2H(areas[i].base))
+        if (VirtualAlloc(G2H(areas[i].base), areas[i].size, MEM_RESERVE | areas[i].flags | (areas[i].probe && rbp_on() ? MEM_WRITE_WATCH : 0),
+                         PAGE_READWRITE) != G2H(areas[i].base))
             rt_fatal("kernel: cannot reserve the %s area at %#llx", areas[i].what, areas[i].base);
 }

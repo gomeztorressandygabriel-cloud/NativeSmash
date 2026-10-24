@@ -71,6 +71,7 @@ u32 kernel_new_session(void *session);                 /* a handle for a native 
 void *kernel_session_of(u32 handle);
 u32 kernel_create_event(void);                         /* a kernel event handle, for native code */
 void fiber_counts(u32 *slots, u32 *finalized, u64 *made);   /* (hle_fiber.c) host fibers in use, spare; guest fibers started */
+u32 kernel_thread_count(void);                         /* guest threads started and not exited (~0u: the kernel's lock is busy) */
 
 /* ---- native system services (ipc.c) ----------------------------------------------- */
 void *ipc_connect(const char *port);                   /* a session on a named port, or NULL */

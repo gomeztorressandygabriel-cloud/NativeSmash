@@ -32,21 +32,30 @@ uno verá el combate de forma distinta: los personajes en sitios distintos.
    Las partidas en red empiezan siempre desde una copia nueva de ese savegame (en `build\netplay_data`), en los
    dos PCs. El savegame propio de cada uno **no se toca**. Si el host juega mucho y su savegame cambia, que lo
    vuelva a crear y a pasar.
-3. Estar en la misma red: una **VPN** como ZeroTier, Tailscale o Radmin VPN (lo más fácil), o que el host
-   abra el **puerto UDP 7810** en su router.
+3. Internet, sin nada más: **no hace falta Radmin, ZeroTier ni abrir puertos.** Los dos juegos se encuentran en el
+   servidor de salas del online (el de `online_server.txt`; el público si no hay otro) con un **código de sala**. El
+   servidor los presenta y los dos juegos hablan **directo** de un PC al otro si sus routers lo permiten; si no, a
+   través del servidor (con algo más de retraso).
 
 **Pasos (desde el launcher, `Play SSBU.bat`):**
-1. El **host** va a la página **En línea**, baja hasta **VS en red con un amigo (prueba)** y elige **Soy el host
-   (jugador 1)**. Ahí mismo sale su dirección de Radmin VPN (la que empieza por 26.): se la pasa a su amigo.
-2. El amigo, en la misma página, elige **Me uno (jugador 2)** y escribe esa dirección.
+1. El **host** va a la página **En línea**, baja hasta **VS en red con un amigo (prueba)** y elige **Crear sala
+   (jugador 1)**. Sale **el código de su sala** (6 letras y números): **Copiar el código** y se lo pasa a su amigo.
+   (**Otro código** hace uno nuevo.)
+2. El amigo, en la misma página, elige **Unirme a una sala (jugador 2)** y escribe ese código.
 3. El host elige el retraso (2 para empezar; manda el del host) y los dos pulsan **JUGAR**. El launcher recuerda la elección para la
    próxima vez (en `vs_netplay.txt`). Para jugar normal otra vez, elegid **Apagado**.
+
+Sigue funcionando la forma anterior, por dirección: si el amigo escribe una dirección (por ejemplo `26.12.34.56`, la de
+Radmin) en vez de un código, su juego va directo a ella (entonces el host necesita la VPN o el puerto UDP 7810 abierto).
 
 También se puede sin el launcher: `launchers\Host VS Netplay (test).bat` y `launchers\Join VS Netplay (test).bat`.
 
 **Después:**
-1. **Abrid los dos juegos más o menos a la vez**: cada uno espera al otro en su primera pantalla (hasta 5
-   minutos). Los dos tienen que empezar desde cero, porque la sincronización empieza al arrancar.
+1. **No hace falta abrirlos a la vez**: cada juego espera al otro en su primera pantalla todo lo que haga falta (con el
+   código de sala; por dirección, hasta 5 minutos), así que el que carga antes (por ejemplo, el que no tiene que
+   precalentar shaders) simplemente espera. Los dos tienen que empezar desde cero, porque la sincronización empieza al
+   arrancar. En `build\play.log`: `in the lobby as ...`, luego `room ... made in the lobby: waiting for player 2` (host) o
+   `joined room ... in the lobby` (amigo), y `player 2 joined` / `joined: player 2`.
 2. Id juntos a **Smash (VS)**. El host es el jugador 1 y el amigo el jugador 2, cada uno con su propio mando.
    Usad solo mando o teclado normal (como "Pro Controller"). Un mando de GameCube funciona, pero sin la
    presión analógica de los gatillos.

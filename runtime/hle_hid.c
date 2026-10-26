@@ -13,6 +13,7 @@
 #include "latency.h"
 #include "net_rbprobe.h"
 #include "net_rbtest.h"
+#include "net_lockstep.h"
 #ifdef __ANDROID__
 #include "android/touch.h"
 #endif
@@ -37,8 +38,11 @@ static int pad_connected(u32 id) {
     return pad_get(id, &p) || (int)id == pad_keyboard_slot() || (id == NPAD_NO1 && scripted);
 }
 
-/* The player's style: a GameCube controller while its pad plays as one, else a Pro Controller. */
+/* The player's style: a GameCube controller while its pad plays as one, else a Pro Controller.
+ * (Netplay: players 1 and 2 are Pro Controllers, the others not connected.) */
 static u32 pad_style(u32 id) {
+    u32 netplay;
+    if (lks_on() && lks_style(id, &netplay)) return netplay;
     if (!pad_connected(id)) return 0;
     PadState p;
     return pad_get(id, &p) && p.gc ? STYLE_GC : STYLE_FULLKEY;
@@ -142,6 +146,12 @@ static void npad_state(u64 out, u32 id, u32 style) {
         if (id == NPAD_NO1) buttons |= scripted_buttons(&lx, &ly);
         if ((int)id == pad_keyboard_slot()) buttons |= keyboard_buttons(&lx, &ly, &rx, &ry);
         if (menu_blocks_input()) { buttons = 0; lx = ly = rx = ry = 0; }   /* the settings menu has them (still connected) */
+        u64 lks_sampling = 0;
+        LksInput lk;
+        if (lks_on() && lks_pad(id, &lk, &lks_sampling)) {   /* (netplay, or its check: the frame's pads, the same on both PCs) */
+            buttons = lk.buttons; lx = lk.lx; ly = lk.ly; rx = lk.rx; ry = lk.ry;
+            lt = buttons & 1ull << B_L ? 32767 : 0; rt = buttons & 1ull << B_R ? 32767 : 0;
+        }
         {
             /* the stick directions also exist as buttons */
             if (lx < -16384) buttons |= 1ull << B_SL_LEFT;
@@ -154,7 +164,10 @@ static void npad_state(u64 out, u32 id, u32 style) {
             if (ry < -16384) buttons |= 1ull << B_SR_DOWN;
         }
     }
-    st64(out, (u64)InterlockedIncrement64(&sampling));
+    u64 lks_n = 0;
+    LksInput lk_unused;
+    if (lks_on() && style && lks_pad(id, &lk_unused, &lks_n)) st64(out, lks_n);
+    else st64(out, (u64)InterlockedIncrement64(&sampling));
     st64(out + 8, buttons);
     st32(out + 16, (u32)lx); st32(out + 20, (u32)ly);
     st32(out + 24, (u32)rx); st32(out + 28, (u32)ry);
@@ -167,6 +180,26 @@ static void npad_state(u64 out, u32 id, u32 style) {
         st32(out + 48, 0);
     }
     if (rbt_on()) rbt_pad(out, style == STYLE_GC ? 0x34 : 0x28);   /* (the rewind test: recorded, or the recorded state put back) */
+}
+
+/* This PC's player for netplay: player 1's pad, the keyboard and the script, as npad_state reads them
+ * (net_lockstep.c sends it). */
+void hid_local_input(LksInput *in) {
+    u64 buttons = 0;
+    i32 lx = 0, ly = 0, rx = 0, ry = 0;
+    PadState p;
+    if (pad_get(NPAD_NO1, &p) && (pad_background() || gfx_window_focused())) {
+        buttons = p.buttons;
+        lx = p.lx; ly = p.ly; rx = p.rx; ry = p.ry;
+        if (p.gc) {   /* (a GameCube pad's triggers press L and R, as the game does with them) */
+            if (p.lt > 0x27FF) buttons |= 1ull << B_L;
+            if (p.rt > 0x27FF) buttons |= 1ull << B_R;
+        }
+    }
+    buttons |= scripted_buttons(&lx, &ly);
+    if (pad_keyboard_slot() == NPAD_NO1) buttons |= keyboard_buttons(&lx, &ly, &rx, &ry);
+    if (menu_blocks_input()) { buttons = 0; lx = ly = rx = ry = 0; }
+    *in = (LksInput){buttons, lx, ly, rx, ry};
 }
 
 HLE(_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj) { npad_state(c->x[0], ld32(c->x[1]), STYLE_FULLKEY); }

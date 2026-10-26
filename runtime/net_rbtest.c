@@ -53,6 +53,7 @@
 #include <string.h>
 
 #include "net_rbtest.h"
+#include "net_lockstep.h"
 
 volatile int rbt_state = -1;
 
@@ -764,6 +765,7 @@ static void frame(Cpu *c) {
 /* The game reads the pads (7103667300, called by the main loop once a frame). */
 /* signature: fc1a0fe8 a90167fa a9025ff8 a90357f6 a9044ff4 a9057bfd 910143fd .0.....8 91....08 08dffd08 360....8 .0.....8 39....08 34.....8 .0.....8 b9....08 */
 HLE_WRAP(7103667300) {
+    if (lks_on() && !rbt_on()) lks_input_step();   /* (netplay: the frame's pads) */
     if (rbt_on() && phase == RECORD && hook == HOOK_RECORD && on_sim_thread() && rec_next <= n_frames) {
         start_frame(rec_next);
         rec[rec_next].input_cpu = *c;
@@ -775,6 +777,14 @@ HLE_WRAP(7103667300) {
 /* The game simulates a frame (71037246a0, called by the main loop once a frame, and by itself). */
 /* signature: d10243ff a9036ffc a90467fa a9055ff8 a90657f6 a9074ff4 a9087bfd 910203fd b9403008 aa0003f3 7100051f 54.....0 7100091f 54.....1 aa1303f4 f8438e80 */
 HLE_WRAP(71037246a0) {
+    if (lks_on() && !rbt_on() && !depth) {   /* (netplay's check: what the frame's simulation writes) */
+        depth++;
+        lks_sim_begin();
+        f_71037246a0_orig(c);
+        lks_sim_end();
+        depth--;
+        return;
+    }
     if (!rbt_on() || phase == DONE || depth) { f_71037246a0_orig(c); return; }
     depth++;
     frame(c);

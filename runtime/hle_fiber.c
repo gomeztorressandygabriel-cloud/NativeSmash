@@ -162,30 +162,28 @@ HLE(_ZN2nn2os6detail20DispatchFiberContextEPPNS1_22FiberContextForHorizonES4_) {
 
 /* ---- the rollback rewind test (net_rbtest.c): every fiber saved and put back ----------
  * With the runtime's own fibers only (Windows: net_rbfiber.c, chosen for the test): the slots, each
- * fiber's guest context and the part of its host stack in use. A fiber running then (the thread
- * saving, or one on another thread) is left as it is. Fibers made after the save are dropped from
- * the slots (their host fibers are kept: a test-only leak). */
+ * fiber's guest context and the part of its host stack in use - in one of FIBER_SAVES saves, each
+ * one put back as often as asked. A fiber running then (the thread saving, or one on another thread)
+ * is left as it is. Fibers made after the save are dropped from the slots (their host fibers are
+ * kept: a test-only leak). */
+#define FIBER_SAVES 2
 #ifdef _WIN32
 typedef struct SavedFib { Fib *f; Fib fields; Cpu cpu; int has_cpu; RbfSaved host; } SavedFib;
-static SavedFib *saved;
-static u32 nsaved, saved_nspare;
-static Fib **saved_spare;
+typedef struct FiberSave { SavedFib *fib; u32 n, nspare; Fib **spare; } FiberSave;
+static FiberSave saves[FIBER_SAVES];
 
-static void fibers_forget(void) {
-    for (u32 i = 0; i < nsaved; i++) free(saved[i].host.stack);
-    nsaved = 0;
-}
-
-int fibers_save(u32 *running) {
-    if (!own_fibers()) return -1;
+int fibers_save(int which, u32 *running) {
+    if (!own_fibers() || which < 0 || which >= FIBER_SAVES) return -1;
+    FiberSave *v = &saves[which];
     AcquireSRWLockExclusive(&lock);
-    fibers_forget();
-    if (!saved) saved = calloc(MAX_FIBERS, sizeof *saved);
-    if (!saved_spare) saved_spare = calloc(MAX_FIBERS, sizeof *saved_spare);
-    if (!saved || !saved_spare) { ReleaseSRWLockExclusive(&lock); return -1; }
+    for (u32 i = 0; i < v->n; i++) free(v->fib[i].host.stack);
+    v->n = 0;
+    if (!v->fib) v->fib = calloc(MAX_FIBERS, sizeof *v->fib);
+    if (!v->spare) v->spare = calloc(MAX_FIBERS, sizeof *v->spare);
+    if (!v->fib || !v->spare) { ReleaseSRWLockExclusive(&lock); return -1; }
     *running = 0;
     for (u32 i = 0; i < fib_count; i++) {
-        SavedFib *k = &saved[i];
+        SavedFib *k = &v->fib[i];
         k->f = fibs[i];
         k->fields = *fibs[i];
         k->has_cpu = fibs[i]->cpu && fibs[i]->host && !rbf_running(fibs[i]->host);
@@ -193,34 +191,35 @@ int fibers_save(u32 *running) {
         if (!fibs[i]->host || !rbf_save(fibs[i]->host, &k->host)) memset(&k->host, 0, sizeof k->host);
         if (fibs[i]->host && rbf_running(fibs[i]->host)) (*running)++;
     }
-    nsaved = fib_count;
-    saved_nspare = nspare;
-    memcpy(saved_spare, spare, nspare * sizeof *spare);
+    v->n = fib_count;
+    v->nspare = nspare;
+    memcpy(v->spare, spare, nspare * sizeof *spare);
     ReleaseSRWLockExclusive(&lock);
-    return (int)nsaved;
+    return (int)v->n;
 }
 
-int fibers_restore(u32 *skipped, u32 *dropped) {
-    if (!own_fibers() || !saved) return -1;
-    AcquireSRWLockExclusive(&lock);
+int fibers_restore(int which, u32 *skipped, u32 *dropped) {
     *skipped = *dropped = 0;
-    for (u32 i = nsaved; i < fib_count; i++) (*dropped)++;
+    if (!own_fibers() || which < 0 || which >= FIBER_SAVES || !saves[which].fib) return -1;
+    FiberSave *v = &saves[which];
+    AcquireSRWLockExclusive(&lock);
+    if (fib_count > v->n) *dropped = fib_count - v->n;
     int restored = 0;
-    for (u32 i = 0; i < nsaved; i++) {
-        SavedFib *k = &saved[i];
+    for (u32 i = 0; i < v->n; i++) {
+        SavedFib *k = &v->fib[i];
         fibs[i] = k->f;
         if (k->f->host && rbf_running(k->f->host)) { (*skipped)++; continue; }   /* (running now: left as it is) */
         *k->f = k->fields;
         if (k->has_cpu && k->f->cpu) *k->f->cpu = k->cpu;
         if (k->host.fiber && rbf_restore(&k->host)) restored++;
     }
-    fib_count = nsaved;
-    nspare = saved_nspare;
-    memcpy(spare, saved_spare, nspare * sizeof *spare);
+    fib_count = v->n;
+    nspare = v->nspare;
+    memcpy(spare, v->spare, nspare * sizeof *spare);
     ReleaseSRWLockExclusive(&lock);
     return restored;
 }
 #else
-int fibers_save(u32 *running) { *running = 0; return -1; }
-int fibers_restore(u32 *skipped, u32 *dropped) { *skipped = *dropped = 0; return -1; }
+int fibers_save(int which, u32 *running) { (void)which; *running = 0; return -1; }
+int fibers_restore(int which, u32 *skipped, u32 *dropped) { (void)which; *skipped = *dropped = 0; return -1; }
 #endif

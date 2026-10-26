@@ -450,6 +450,28 @@ puede guardar (queda contada). Falta medirlo en el PC: pedido 004 del laboratori
 Intel (`error: unknown token in expression` en cada `%registro`); el clang 18 de la nube lo leía como AT&T. Se arregló diciendo la
 sintaxis al principio del bloque (`.att_syntax prefix`), y la prueba en Wine sigue saliendo igual. Se repite como pedido 005.
 
+### Resultado del pedido 005: rebobinar ya no tumba el juego
+
+- Compiló y **el rebobinado funcionó sin caerse**, en 1 cuadro y en 10 cuadros: 5 700 páginas (22 MB) y 26 fibras guardadas en 22–42 ms;
+  15 fibras devueltas a su sitio (6 estaban corriendo y no se pueden guardar en ese momento). Es el obstáculo del pedido 003, superado.
+- **Repetir un cuadro costó ~5,3 ms** (10 cuadros en 53 ms) en el portátil, sin dibujar. Es la primera medida real del precio de
+  re-simular: volver 2 cuadros atrás costaría ~11 ms extra en un cuadro de 16,7 ms. Cabe muy justo; con 3 o más no cabe en ese PC.
+- **El estado no salió igual:** distinto en 1 105 de 5 695 páginas (1 cuadro) y 1 768 de 5 556 (10 cuadros). Pero esa comparación no
+  separaba causas: la repetición se salta el dibujo y el paso `f_71038fe2b0`, que también escriben memoria (el dibujo es el 66 % del
+  cuadro). Así que esas diferencias pueden ser normales y no dicen todavía si la simulación es repetible.
+- **Después de la ronda 2 el juego se congeló** (dejó de entregar cuadros, sin cerrarse). La prueba dejaba al juego con el estado
+  repetido, sin dibujar; la memoria del dibujo (colas y contadores de la GPU) quedaba atrás respecto a la GPU real, y el bucle principal
+  se quedó esperando.
+
+**Cambio para el pedido 006 (la prueba, versión 2):**
+1. Repite **dos veces** desde el mismo guardado y compara una repetición con la otra. Eso es lo que necesita el rollback: que el mismo
+   guardado más los mismos botones den siempre lo mismo. El dibujo no influye, porque ninguna de las dos dibuja.
+2. Separa las páginas distintas según quién las escribió al grabar: la simulación o el resto del cuadro.
+3. Al terminar, **devuelve al juego el estado que tenía** (memoria y fibras), como si la prueba no hubiera ocurrido. Así no debería
+   congelarse y llegan las 4 rondas (1, 10, 30 y 60 cuadros).
+Comprobado en el juego de mentira: sale IDENTICAL entre repeticiones, separa bien lo del dibujo, detecta estado escondido fuera de la
+memoria, y el juego acaba exactamente igual que sin la prueba.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

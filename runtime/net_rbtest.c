@@ -14,21 +14,24 @@
  *      context each frame's input step and simulation are called with.
  *   4. Check: at the start of frame N's simulation, the hash of every hot page (the state the game
  *      reached), and how many pages outside the hot set were written meanwhile (the save missed them).
- *   5. Rewind and replay: copy the saved pages back, then run the recorded frames again - the
- *      simulation, then the next input step, ... - with the recorded pads and ticks, without drawing.
- *   6. Compare: the hash of every hot page again. Equal everywhere: the simulation came back to the
- *      same state. Otherwise, how many pages differ and where.
+ *      While recording, the pages written while each frame's simulation ran are marked: a difference
+ *      there is the simulation's; elsewhere, the rest of the frame's (the drawing, which a replay skips).
+ *   5. Keep the state now, then rewind and replay twice: copy the saved pages back, run the recorded
+ *      frames again - the simulation, then the next input step, ... - with the recorded pads and
+ *      ticks, without drawing; and again from the same save.
+ *   6. Compare: replay 1 with replay 2 - equal, the simulation is repeatable from a save, which is
+ *      what a rollback needs - and replay 1 with the game's own state. Then give the game back the
+ *      state it had (step 5), so it carries on as if the test had not been.
  *
  * It saves the game's fibers too (phase 3b): while the test is on, hle_fiber.c runs them on fibers of
  * the runtime's own (net_rbfiber.c) instead of Windows', so each one's slot, guest context and host
  * stack can be saved with the pages and put back with them (fibers_save, fibers_restore). A fiber
  * running at the save (the one the frame's simulation runs on, if any) cannot be, and is counted.
  *
- * What it does not save: the kernel's objects, the renderer's caches - nor what other threads (the
- * game's workers) do. Those
- * are exactly what the test finds out about: a difference, or a crash while replaying, says the
- * save was not enough. The game carries on with the replayed state, which may look odd for a
- * moment. Every line it writes to the log starts with [rbtest].
+ * What it does not save: the kernel's objects, the renderer's caches, pages outside the hot set -
+ * nor what other threads (the game's workers) do. Those are exactly what the test finds out about:
+ * a difference between the two replays, or a crash while replaying, says the save was not enough.
+ * Every line it writes to the log starts with [rbtest].
  *
  * The frame's steps are the game's own functions, found with the rollback probe and the profiler
  * (docs/ROLLBACK.md): 7103667300 reads the pads, 71037246a0 simulates (and calls itself: only the
@@ -89,7 +92,10 @@ static u64 hot[MAX_HOT];
 static u32 nhot, hot_overflow;
 static u8 *snap;                       /* the saved pages, in hot[] order */
 static u8 snap_ok[MAX_HOT];            /* (a page not committed then was not saved) */
-static u64 sum_before[MAX_HOT];
+static u8 *snap_now;                   /* the game's state at the end of the window, given back after the test */
+static u64 sum_real[MAX_HOT], sum_one[MAX_HOT], sum_two[MAX_HOT];
+static u8 *sim_bits;                   /* one bit an alias page: written while the simulation ran, in the window */
+static u64 sim_seen;
 static u64 region_base[MAX_REGIONS], region_size[MAX_REGIONS], alias_base[MAX_REGIONS], alias_size[MAX_REGIONS];
 static u32 nregions, nalias;
 static u64 escaped, pad_replayed, pad_missing, tick_replayed, tick_missing, fibers_at_save;
@@ -142,6 +148,18 @@ static void mark_hot(u64 page, void *user) {
     u64 i = (page - ALIAS_BASE) / PAGE;
     hot_bits[i >> 3] |= (u8)(1u << (i & 7));
     hot[nhot++] = page;
+}
+
+static int is_sim(u64 page) {
+    u64 i = (page - ALIAS_BASE) / PAGE;
+    return page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE && sim_bits[i >> 3] >> (i & 7) & 1;
+}
+
+static void mark_sim(u64 page, void *user) {
+    (void)user;
+    if (page < ALIAS_BASE || page >= ALIAS_BASE + ALIAS_SIZE) return;
+    u64 i = (page - ALIAS_BASE) / PAGE;
+    sim_bits[i >> 3] |= (u8)(1u << (i & 7));
 }
 
 static void count_escaped(u64 page, void *user) {
@@ -205,7 +223,9 @@ static void start_frame(u32 k) {   /* the hooks now record into (or replay from)
 static void begin_round(void) {
     if (!hot_bits) hot_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
     if (!snap) snap = malloc(MAX_HOT * PAGE);
-    if (!hot_bits || !snap) { fprintf(stderr, "[rbtest] out of memory: off\n"); phase = DONE; return; }
+    if (!snap_now) snap_now = malloc(MAX_HOT * PAGE);
+    if (!sim_bits) sim_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
+    if (!hot_bits || !snap || !snap_now || !sim_bits) { fprintf(stderr, "[rbtest] out of memory: off\n"); phase = DONE; return; }
     memset(hot_bits, 0, ALIAS_SIZE / PAGE / 8);
     nhot = hot_overflow = 0;
     read_regions();
@@ -226,10 +246,11 @@ static void save(Cpu *c) {
     }
     window_seen = 0;
     watch_now(&window_seen, NULL);   /* (the window's writes are counted from here) */
+    memset(sim_bits, 0, ALIAS_SIZE / PAGE / 8);
     u32 slots, finalized;
     fiber_counts(&slots, &finalized, &fibers_at_save);
     u32 fib_running = 0;
-    int fib_saved = fibers_save(&fib_running);
+    int fib_saved = fibers_save(0, &fib_running);
     memset(rec, 0, sizeof rec);
     escaped = pad_replayed = pad_missing = tick_replayed = tick_missing = 0;
     rec[0].sim_cpu = *c;
@@ -242,28 +263,17 @@ static void save(Cpu *c) {
             fib_saved, fib_running, (rt_now_ns() - t0) / 1e6);
 }
 
-static void check_and_replay(Cpu *c) {
-    hook = HOOK_OFF;
-    read_regions();
-    if (watch_now(&window_seen, count_escaped) < 0) escaped = ~0ull;
-    for (u32 i = 0; i < nhot; i++) sum_before[i] = snap_ok[i] && committed(hot[i]) ? page_hash(P(u8, hot[i])) : 0;
-    u32 slots, finalized;
-    u64 made;
-    fiber_counts(&slots, &finalized, &made);
-    fprintf(stderr, "[rbtest] round %u: recorded %u frames; pages written outside the saved ones meanwhile: %lld; fibers started meanwhile: %llu; rewinding and replaying\n",
-            round_i + 1, n_frames, escaped == ~0ull ? -1ll : (long long)escaped, (unsigned long long)(made - fibers_at_save));
-    fflush(stderr);
-
-    /* rewind */
-    u64 t0 = rt_now_ns();
+/* Copy saved pages back: the save at the start of the window (snap) or the game's state at its end (snap_now). */
+static void put_back(const u8 *from) {
     for (u32 i = 0; i < nhot; i++)
-        if (snap_ok[i] && committed(hot[i])) memcpy(P(void, hot[i]), snap + (u64)i * PAGE, PAGE);
-    u32 fib_skipped = 0, fib_dropped = 0;
-    int fib_restored = fibers_restore(&fib_skipped, &fib_dropped);
-    fprintf(stderr, "[rbtest] round %u: fibers restored %d (running, skipped: %u; started since, dropped: %u)\n", round_i + 1, fib_restored, fib_skipped, fib_dropped);
-    fflush(stderr);
-    /* replay: the simulation of frame 0, then each next frame's input step and simulation, then
-     * frame N's input step - back to where the game was when it called this frame's simulation */
+        if (snap_ok[i] && committed(hot[i])) memcpy(P(void, hot[i]), from + (u64)i * PAGE, PAGE);
+}
+
+/* The recorded frames again, from the start of the window: the simulation of frame 0, then each next
+ * frame's input step and simulation, then frame N's input step - back to where the game was when it
+ * called this frame's simulation. The drawing and the other steps of the main loop are not run. */
+static double replay(Cpu *c) {
+    u64 t0 = rt_now_ns();
     Cpu now = *c;
     hook = HOOK_PLAY;
     for (u32 k = 0; k < n_frames; k++) {
@@ -281,31 +291,92 @@ static void check_and_replay(Cpu *c) {
     f_7103667300_orig(c);
     hook = HOOK_OFF;
     *c = now;
-    double replay_ms = (rt_now_ns() - t0) / 1e6;
+    return (rt_now_ns() - t0) / 1e6;
+}
 
-    /* compare */
+static void hash_pages(u64 *out) {
     read_regions();
-    u32 differ = 0, compared = 0;
-    u64 first[8];
-    u32 nfirst = 0;
+    for (u32 i = 0; i < nhot; i++) out[i] = snap_ok[i] && committed(hot[i]) ? page_hash(P(u8, hot[i])) : 0;
+}
+
+/* Pages whose hashes differ, by who wrote them while recording: the simulation (written while it ran on
+ * the main thread, which other threads may also have been doing) or only the rest of the frame. */
+static int compare(const char *what, const u64 *a, const u64 *b, char *line, size_t room) {
+    u32 sim = 0, other = 0, compared = 0, nfirst = 0;
+    u64 first[6];
     for (u32 i = 0; i < nhot; i++) {
-        if (!sum_before[i] || !committed(hot[i])) continue;
+        if (!a[i] || !b[i]) continue;
         compared++;
-        if (page_hash(P(u8, hot[i])) != sum_before[i]) {
-            if (nfirst < 8) first[nfirst++] = hot[i];
-            differ++;
-        }
+        if (a[i] == b[i]) continue;
+        if (is_sim(hot[i])) { sim++; if (nfirst < 6) first[nfirst++] = hot[i]; }
+        else other++;
     }
+    int n = snprintf(line, room, "%s: ", what);
+    if (!sim && !other) return n + snprintf(line + n, room - n, "IDENTICAL (%u pages compared)", compared);
+    n += snprintf(line + n, room - n, "DIFFERENT in %u of %u pages: %u written by the simulation, %u only by the rest of the frame", sim + other, compared, sim, other);
+    if (nfirst) {
+        n += snprintf(line + n, room - n, "; the simulation's first:");
+        for (u32 i = 0; i < nfirst; i++) n += snprintf(line + n, room - n, " %#llx", (unsigned long long)first[i]);
+    }
+    return n;
+}
+
+static void check_and_replay(Cpu *c) {
+    hook = HOOK_OFF;
+    read_regions();
+    if (watch_now(&window_seen, count_escaped) < 0) escaped = ~0ull;
+    u32 slots, finalized, sim_pages = 0;
+    u64 made;
+    fiber_counts(&slots, &finalized, &made);
+    for (u32 i = 0; i < nhot; i++) sim_pages += is_sim(hot[i]);
+    fprintf(stderr, "[rbtest] round %u: recorded %u frames; pages written outside the saved ones meanwhile: %lld; of the saved ones, by the simulation: %u; fibers started meanwhile: %llu\n",
+            round_i + 1, n_frames, escaped == ~0ull ? -1ll : (long long)escaped, sim_pages, (unsigned long long)(made - fibers_at_save));
+
+    /* the game's state now, kept to give it back at the end (the test then leaves no trace) */
+    hash_pages(sum_real);
+    for (u32 i = 0; i < nhot; i++)
+        if (snap_ok[i] && committed(hot[i])) memcpy(snap_now + (u64)i * PAGE, P(void, hot[i]), PAGE);
+    u32 running = 0, skipped, dropped;
+    int fib_now = fibers_save(1, &running);
+    fprintf(stderr, "[rbtest] round %u: the state now kept (fibers %d, running %u); rewinding and replaying twice\n", round_i + 1, fib_now, running);
+    fflush(stderr);
+
+    /* replay 1, from the save */
+    put_back(snap);
+    int fib_restored = fibers_restore(0, &skipped, &dropped);
+    fprintf(stderr, "[rbtest] round %u: fibers restored %d (running, skipped: %u; started since, dropped: %u)\n", round_i + 1, fib_restored, skipped, dropped);
+    fflush(stderr);
+    u64 replay_seen = 0;
+    watch_now(&replay_seen, NULL);
+    double ms1 = replay(c);
+    u64 escaped_before = escaped;
+    escaped = 0;
+    if (watch_now(&replay_seen, count_escaped) < 0) escaped = ~0ull;
+    u64 escaped_replay = escaped;
+    escaped = escaped_before;
+    hash_pages(sum_one);
+    u64 pads1 = pad_replayed, pads_missing1 = pad_missing, ticks1 = tick_replayed, ticks_missing1 = tick_missing;
+
+    /* replay 2, from the save again */
+    put_back(snap);
+    fibers_restore(0, &skipped, &dropped);
+    double ms2 = replay(c);
+    hash_pages(sum_two);
+
+    /* the game's state back as it was */
+    put_back(snap_now);
+    int fib_back = fibers_restore(1, &skipped, &dropped);
+
     char line[1024];
-    int n = snprintf(line, sizeof line, "[rbtest] round %u (%u frames): replayed in %.1f ms (%.2f ms a frame); pads replayed %llu (missing %llu), ticks replayed %llu (missing %llu); RESULT: ",
-                     round_i + 1, n_frames, replay_ms, replay_ms / n_frames, (unsigned long long)pad_replayed, (unsigned long long)pad_missing,
-                     (unsigned long long)tick_replayed, (unsigned long long)tick_missing);
-    if (!differ) n += snprintf(line + n, sizeof line - n, "IDENTICAL (%u pages compared)", compared);
-    else {
-        n += snprintf(line + n, sizeof line - n, "DIFFERENT in %u of %u pages, the first:", differ, compared);
-        for (u32 i = 0; i < nfirst; i++) n += snprintf(line + n, sizeof line - n, " %#llx", (unsigned long long)first[i]);
-    }
+    snprintf(line, sizeof line, "[rbtest] round %u (%u frames): replayed in %.1f and %.1f ms (%.2f ms a frame); pads replayed %llu (missing %llu), ticks replayed %llu (missing %llu); pages written outside the saved ones while replaying: %lld",
+             round_i + 1, n_frames, ms1, ms2, ms2 / n_frames, (unsigned long long)pads1, (unsigned long long)pads_missing1,
+             (unsigned long long)ticks1, (unsigned long long)ticks_missing1, escaped_replay == ~0ull ? -1ll : (long long)escaped_replay);
     fprintf(stderr, "%s\n", line);
+    compare("replay 1 vs replay 2 (the same frames twice from the same save)", sum_one, sum_two, line, sizeof line);
+    fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
+    compare("replay 1 vs the game (which also drew its frames)", sum_one, sum_real, line, sizeof line);
+    fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
+    fprintf(stderr, "[rbtest] round %u: the game's state given back (fibers %d)\n", round_i + 1, fib_back);
 
     phase = IDLE;
     next_round_ns = rt_now_ns() + ROUND_GAP_NS;
@@ -353,7 +424,10 @@ HLE_WRAP(71037246a0) {
     if (!rbt_on() || phase == DONE || depth) { f_71037246a0_orig(c); return; }
     depth++;
     frame(c);
+    int recording = phase == RECORD && hook == HOOK_RECORD && on_sim_thread();
+    if (recording) watch_now(&sim_seen, NULL);       /* (what the simulation writes: from here...) */
     f_71037246a0_orig(c);
+    if (recording) watch_now(&sim_seen, mark_sim);   /* (... to here) */
     if (phase == RECORD && on_sim_thread()) rec_next = cur + 1;
     depth--;
 }

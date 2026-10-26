@@ -67,14 +67,27 @@ y no crece, es ruido normal: hay páginas que el sonido o los efectos escriben a
 mucho, o el combate se ve distinto en cada pantalla, es un desync, y el número de cuadro donde empieza
 es la pista para arreglarlo.
 
+## Novedades de la 0.1.14 (probadas solo a medias)
+
+- **Hasta 4 jugadores** (el host los elige en el launcher; todos entran con el mismo código de sala).
+- **El savegame del host viaja solo** a los demás antes de empezar; los savegames propios no se tocan.
+- **Estado en pantalla** (y en el título de la ventana): esperando, conectado, jugando, con el ping y el retraso.
+- **Retraso "Auto"**: sube enseguida si la red lo pide y baja despacio. Se puede fijar un número como antes.
+- **La intro se salta sola** en el host, y si un PC va justo el otro lo espera un poco en vez de pararse de golpe.
+- **Aviso de desincronización** en pantalla cuando las páginas del juego dejan de coincidir de forma sostenida.
+- Si el otro deja de responder 60 s (antes 15), el netplay se apaga.
+
+**Qué se ha comprobado y qué no:** el código de sala, la entrada de los jugadores y el envío del savegame
+funcionan entre dos juegos en un PC. La partida larga con retraso Auto y varios jugadores NO se ha podido
+medir en un solo PC de 8 GB (dos juegos a la vez se quedan sin memoria y se congelan minutos), así que la
+prueba real son dos PC distintos. Si algo falla, el registro (`[netplay]`) dice dónde.
+
 ## Lo que todavía no hace (o puede fallar)
 
 - **Puede desincronizarse.** Es lo primero que hay que medir. Hay una prueba en un solo PC que lo mide
   (abajo), y el laboratorio la va a hacer.
-- No tiene botones dentro del juego ni código de sala: se elige en el launcher (o con los dos `.bat`) con la dirección del host.
-- Si el otro deja de responder 15 s, el netplay se apaga y el jugador 2 se queda quieto. Todavía no sale
-  el mensaje de desconexión del propio juego.
-- Solo 1 contra 1.
+- No tiene botones dentro del juego: se elige en el launcher.
+- Todavía no sale el mensaje de desconexión del propio juego.
 
 ## La prueba en un solo PC (para el laboratorio)
 

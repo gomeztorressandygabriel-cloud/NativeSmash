@@ -23,5 +23,12 @@ u64 lks_ticks(u64 now);          /* (kernel.c) the system tick the game's main t
 int lks_picture_due(u32 *frame); /* (gpu_d3d11.c) a picture of the frame now, for comparing two runs: SSBU_LOCKSTEP_PICTURES frames apart */
 
 void hid_local_input(LksInput *in);
+/* (host.c) Before the game starts: through the lobby, the room (the host makes it at once) and, for the others, the host's save. */
+void lks_preboot(void);
+/* What the VS netplay is doing, in a line for the window's title and the screen; NULL when it is off. */
+const char *lks_status_text(void);
+extern void (*lks_window_status)(const char *text);   /* (gpu_d3d11.c) set to show it in the title */
+int lks_peer_ip(u32 ip);                               /* (hle_net.c) a packet from this address is the VS netplay's */
+extern volatile u64 lks_movie_ns;                      /* (hle_movie.c) when the movie player last worked */
 /* (hle_net.c) A datagram for this player's virtual sockets: 1 if it is the VS netplay's own (through the online lobby), taken here. */
 int lks_deliver(u32 src_ip, u16 src_port, u16 dst_port, const void *data, u32 len);   /* (hle_hid.c) this PC's player: its pad, keyboard and script, as player 1's */

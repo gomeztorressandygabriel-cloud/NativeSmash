@@ -148,7 +148,7 @@ static const u64 *user_id(void) {
     if (!pending) return id;
     id[0] = SAVE_USER[0];
     id[1] = SAVE_USER[1];
-    if (net_configured()) {
+    if (net_configured() && !getenv("SSBU_NETPLAY")) {   /* (the VS netplay: every PC the same user and save, the host's) */
         char path[600];
         const char *root = getenv("SSBU_DATA_ROOT");
         if (root) snprintf(path, sizeof path, "%s/netplay_id.txt", root);
@@ -201,7 +201,7 @@ HLE(_ZN2nn7account16ShowUserSelectorEPNS0_3UidERKNS0_21UserSelectionSettingsE) {
 }
 HLE(_ZN2nn7account11GetNicknameEPNS0_8NicknameERKNS0_3UidE) {   /* Nickname { char[33] } */
     memset(P(void, c->x[0]), 0, 33);
-    const char *name = net_configured() ? net_player_name() : "Player";
+    const char *name = net_configured() && !getenv("SSBU_NETPLAY") ? net_player_name() : "Player";   /* (the VS netplay: the same on every PC) */
     memcpy(P(void, c->x[0]), name, strlen(name) < 32 ? strlen(name) : 32);
     c->x[0] = 0;
 }

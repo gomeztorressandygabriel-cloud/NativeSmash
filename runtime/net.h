@@ -60,7 +60,7 @@ int ldn_in_network(u32 ip);
 
 /* (hle_net.c) The VS netplay's own room in the online lobby (net_lockstep.c): the host makes it (1 done); the other player looks for
  * it and joins it (the host's virtual address, 0 not yet); either leaves it. code: the room's code, as the launcher gives it. */
-int ldn_direct_host(const char *code);
+int ldn_direct_host(const char *code, int players);
 u32 ldn_direct_join(const char *code);
 void ldn_direct_close(void);
 

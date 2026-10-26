@@ -16,6 +16,7 @@
 
 #include "gpu_overlay.h"
 #include "gpu_menu.h"
+#include "net_lockstep.h"
 
 #define CELL_W 24                 /* the atlas's cells */
 #define CELL_H 48
@@ -200,11 +201,17 @@ void overlay_present(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11RenderTa
     }
     last = now;
     int menu = menu_visible();
-    if (!show && !menu) return;
+    const char *netplay = lks_state > 0 ? lks_status_text() : NULL;   /* (the VS netplay: what it is doing, on screen) */
+    if (!show && !menu && !netplay) return;
     if (!state) state = init(dev) ? 1 : -1;
     if (state < 0) return;
     nverts = 0;
     if (show && !menu_blocks_input()) hud(detail);   /* (an open menu instead of the overlay) */
+    if (netplay && !menu) {
+        float size = h >= 720 ? 18.0f : 14.0f, tw = (float)strlen(netplay) * size / 2;
+        rect(10, (float)h - size * 2.2f, tw + 16, size * 1.6f, RGBA(0, 0, 0, 170));
+        text_sized(18, (float)h - size * 1.9f, size, RGBA(255, 220, 110, 255), netplay);
+    }
     if (menu) menu_draw((float)w, (float)h);
     draw(ctx, rtv, x0, y0, w, h);
 }

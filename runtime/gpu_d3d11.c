@@ -42,6 +42,15 @@
 #endif
 
 static HWND window;
+static void netplay_title(const char *text) {   /* (net_lockstep.c, from its own thread) */
+#ifdef _WIN32
+    wchar_t w[320];
+    swprintf(w, 320, L"Super Smash Bros. Ultimate (native) - %hs", text);
+    if (window) SetWindowTextW(window, w);
+#else
+    (void)text;
+#endif
+}
 static ID3D11Device *dev, *compile_dev;
 static IDXGIAdapter3 *mem_adapter;   /* (asked for the graphics memory in use: gfx_status_lines) */
 static u64 texture_bytes, texture_budget, textures_dropped, textures_reduced, texture_saved;   /* (see "textures") */
@@ -711,6 +720,7 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
     window = (HWND)rt_window();
 #endif
     if (!window) { fprintf(stderr, "[gfx] cannot create the window\n"); return TRUE; }
+    lks_window_status = netplay_title;   /* (the VS netplay says what it is doing in the title) */
 
     D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
     UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;

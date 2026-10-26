@@ -47,7 +47,7 @@ $Defaults = @{
 # What Play SSBU.bat clears, so the files count (the variables win over them in the game).
 $ClearedVars = @('SSBU_DATA_ROOT', 'SSBU_INPUT', 'SSBU_NET_HOST', 'SSBU_NET_RELAY', 'SSBU_NET_BIND',
                  'SSBU_NET_ROOM', 'SSBU_NET_NAME', 'SSBU_NET_DIRECT', 'SSBU_NET_PORT',
-                 'SSBU_NETPLAY', 'SSBU_NETPLAY_PEER', 'SSBU_NETPLAY_PORT', 'SSBU_NETPLAY_DELAY', 'SSBU_NETPLAY_ROOM', 'SSBU_LOCKSTEP', 'SSBU_RB_TEST', 'SSBU_RB_PROBE')
+                 'SSBU_NETPLAY', 'SSBU_NETPLAY_PEER', 'SSBU_NETPLAY_PORT', 'SSBU_NETPLAY_DELAY', 'SSBU_NETPLAY_ROOM', 'SSBU_NETPLAY_PLAYERS', 'SSBU_LOCKSTEP', 'SSBU_RB_TEST', 'SSBU_RB_PROBE')
 
 # ---- files as lines (as hle_settings.c: bytes kept, line ends kept, no BOM) -----------------
 # Text is held as Latin-1 strings, one char per byte, so every byte comes back as it was; a new
@@ -283,6 +283,19 @@ $SaveUser = '0123456789abcdeffedcba9876543210'   # (the save folder's name on ev
 $NetplaySaveDir = Join-Path $Root 'netplay_save'
 
 function Get-SaveFolder([string]$Tree) { if (-not $Tree -or $Tree -eq '.') { return (Join-Path $Root 'save') } return (Join-Path $Root "$Tree\save") }
+
+function Initialize-NetplayRoomData([string]$Tree, [switch]$Host_) {
+    <# The VS netplay by room code: the host's game starts from a fresh copy of its own save, and sends it to the others before their
+       games start (runtime/net_lockstep.c); the others' games start from an empty folder that their save arrives in. The folder, for SSBU_DATA_ROOT. #>
+    $build = if (-not $Tree -or $Tree -eq '.') { Join-Path $Root 'build' } else { Join-Path $Root "$Tree\build" }
+    $data = Join-Path $build 'netplay_data'
+    if ($DryRun) { Write-Host "would make $data$(if ($Host_) { ' from this PC''s save' } else { ' empty: the host''s save comes over the network' })"; return $data }
+    if (Test-Path -LiteralPath $data) { Remove-Item -LiteralPath $data -Recurse -Force }
+    New-Item -ItemType Directory -Path (Join-Path $data 'save') | Out-Null
+    $own = Join-Path (Get-SaveFolder $Tree) $SaveUser
+    if ($Host_ -and (Test-Path -LiteralPath $own)) { Copy-Item -LiteralPath $own -Destination (Join-Path $data 'save') -Recurse }
+    return $data
+}
 
 function Test-NetplaySave { return (Test-Path -LiteralPath (Join-Path $NetplaySaveDir "$SaveUser\save_data") -PathType Container) }
 

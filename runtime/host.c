@@ -18,6 +18,7 @@
 #include "settings.h"
 #include "cpu_sched.h"
 #include "monitor.h"
+#include "net_lockstep.h"
 #ifdef _WIN32
 #include <dbghelp.h>
 #else
@@ -1230,6 +1231,7 @@ int main(int argc, char **argv) {
     rt_data_dir = dir;
     kernel_init();
     load(dir);
+    lks_preboot();   /* (the VS netplay through the lobby: its room, and the host's save for the others, before the game reads its own) */
 #ifndef _WIN32
     rt_window_init();   /* (SDL wants its window and events on the main thread, which then runs them) */
 #endif

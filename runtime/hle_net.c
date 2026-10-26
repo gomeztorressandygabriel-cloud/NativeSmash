@@ -571,7 +571,7 @@ static void direct_name(u8 *out) {   /* (32 bytes) */
     snprintf((char *)out, 32, "%s", nm && *nm ? nm : "player");
 }
 
-int ldn_direct_host(const char *code) {
+int ldn_direct_host(const char *code, int players) {
     if (!net_local_ip()) return 0;
     AcquireSRWLockExclusive(&L.lock);
     direct_agent();
@@ -589,7 +589,7 @@ int ldn_direct_host(const char *code) {
     put_u16(n + NI_CHANNEL, 6);
     n[NI_LINK] = 3;
     n[NI_TYPE] = 2;
-    n[NI_NODE_MAX] = 2;
+    n[NI_NODE_MAX] = (u8)(players >= 2 && players <= 8 ? players : 2);
     n[NI_NODE_COUNT] = 1;
     u8 *host = n + NODE(0);
     put_u32(host, me);
@@ -600,7 +600,7 @@ int ldn_direct_host(const char *code) {
     ldn_state_to(LS_AP_CREATED);
     ldn_send(NET_BROADCAST, LM_ADVERTISE, n, NI_SIZE);
     ReleaseSRWLockExclusive(&L.lock);
-    fprintf(stderr, "[netplay] room %s made in the lobby: waiting for player 2\n", code);
+    fprintf(stderr, "[netplay] room %s made in the lobby for %d players\n", code, n[NI_NODE_MAX]);
     return 1;
 }
 
@@ -669,7 +669,7 @@ HLE(_ZN2nn3ldn10DisconnectEv) { LDN_TRACE;
 static int has_network(void) { return L.state == LS_AP_CREATED || L.state == LS_CONNECTED; }
 int ldn_in_network(u32 ip) {
     AcquireSRWLockShared(&L.lock);
-    int in = has_network() && node_of(ip) >= 0;
+    int in = (has_network() && node_of(ip) >= 0) || lks_peer_ip(ip);
     ReleaseSRWLockShared(&L.lock);
     return in;
 }

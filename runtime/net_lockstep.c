@@ -74,21 +74,21 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define MAX_REGIONS 4096
 #define TICKS_PER_FRAME 320000ull   /* 19.2 MHz / 60 */
 #define HASH_EVERY 60
+#define MAXSEND 48                  /* frames of pads in one packet at most (a player that fell behind is sent what it lacks) */
 #define REDUNDANCY 8                /* frames of pads each packet repeats (a lost packet costs nothing) */
 #define MAGIC 0x4B4C534Eu           /* "NSLK" */
-#define VERSION 1
+#define VERSION 3                   /* (2: up to four players, the sender in every packet) */
 
 enum { M_OFF, M_RECORD, M_REPLAY, M_HOST, M_JOIN };
-enum { P_HELLO = 1, P_WELCOME, P_INPUT, P_HASH, P_BYE, P_ALIVE };
 
 static int mode, started, stopped, delay = 2;
 static DWORD main_thread;
 static u32 frame;                   /* the frame now (the input step's count since the start) */
 static u32 frames_max = 15000;      /* (record) */
 static u64 t0, tick_reads;
-static LksInput in_of[2][RING];     /* the two players' pads, by frame */
-static u32 have[2];                 /* frames known: 0 .. have-1 */
-static int me;                      /* this PC's player: 0 host / record / replay, 1 joiner */
+static LksInput in_of[4][RING];     /* the players' pads, by frame */
+static u32 have[4];                 /* frames known: 0 .. have-1 */
+static int me;                      /* this PC's player: 0 host / record / replay, 1.. a joiner */
 
 /* ---- hashes of the pages the simulation writes ----------------------------------------- */
 typedef struct PageHash { u32 page; u32 pad; u64 hash; } PageHash;   /* (page: address >> 12) */
@@ -229,34 +229,256 @@ static int read_frame(u32 f) {   /* (replay) frame f's pads, and the hashes its 
     return 1;
 }
 
-/* ---- netplay ---------------------------------------------------------------------------- */
+/* ---- netplay ----------------------------------------------------------------------------
+ * Up to MAXP players. The host is player 1 (index 0); the others get an index from the host as they come
+ * (HELLO -> WELCOME), and once all of them are there the host starts the game for everyone (START, with
+ * every player's address, so that each one sends its pads to all the others). Every packet says who sent
+ * it (its byte 6). Through the online lobby (SSBU_NETPLAY_ROOM) any number up to MAXP; to an address
+ * (SSBU_NETPLAY_PEER), two.
+ *
+ * Besides the pads and the hashes:
+ *   - ALIVE / PONG every 250 ms from a thread of its own: a game held a while (its shader loading screen)
+ *     is waited for, and each PC knows its ping to the others;
+ *   - the delay: each player's own (its pads go DELAY frames ahead). With SSBU_NETPLAY_DELAY=auto it
+ *     follows the ping and its jitter (up one at once when it is short, down one after a quiet while);
+ *   - pacing: a PC frames ahead of the slowest one waits a millisecond or two each frame, so that both go
+ *     at the slower one's pace smoothly, instead of stopping dead when its pads run out;
+ *   - the save: through the lobby, the host's save goes to the others before their game starts
+ *     (lks_preboot: SAVE_REQ / SAVE_INFO / SAVE_GET / SAVE_PART), so every game starts from it;
+ *   - while the opening movie plays, the host's pad presses A now and then (sent like any pad: every game
+ *     skips it the same way);
+ *   - a window title and a line on screen say what is happening (lks_status_text), and a probable desync
+ *     (the hashes parting far more than their usual noise) is said there. */
+#define MAXP 4
+enum { P_HELLO = 1, P_WELCOME, P_INPUT, P_HASH, P_BYE, P_ALIVE, P_PONG, P_START, P_SAVE_REQ, P_SAVE_INFO, P_SAVE_GET, P_SAVE_PART };
+#define HEAD 7   /* magic u32, version u8, type u8, sender u8 */
+
+typedef struct Peer {
+    int known;
+    u32 vip;                  /* (through the lobby) its virtual address */
+    struct sockaddr_in addr;  /* (to an address) */
+    u64 last_heard;
+    u32 frame;                /* the frame it says it is at */
+    u32 acked;                /* how many of this PC's pads it says it has */
+    double rtt, jitter;       /* ms, smoothed */
+    int rtt_n;
+} Peer;
+
 static SOCKET sock = INVALID_SOCKET;
-static struct sockaddr_in peer;
-static int peer_known;
-static u64 nonce, last_heard_ns;
-static PageHash mine_at[4][MAX_PAGES / 4];   /* (the last frames' lists, to compare with the other PC's) */
+static Peer peer[MAXP];
+static int nplayers = 2;          /* (the host's number, told to the others) */
+static int welcomed, start_heard, start_sent;
+static u64 nonce;
+static int delay_auto, delay_quiet;
+static u32 stalls;                /* frames this PC waited for another one's pads (the last 60) */
+static volatile u32 desync_frame = ~0u;
+static int compare_with;          /* the player whose hashes this PC compares with its own (the host: player 2) */
+static PageHash mine_at[4][MAX_PAGES / 4];
 static u32 nmine_at[4], mine_frame[4];
 static PageHash theirs[MAX_PAGES / 4];
 static u32 ntheirs, theirs_frame = ~0u, theirs_total;
+volatile u64 lks_movie_ns;        /* (hle_movie.c) when the movie player last worked */
 
 static void put32(u8 *p, u32 v) { memcpy(p, &v, 4); }
 static u32 get32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
+static void put64(u8 *p, u64 v) { memcpy(p, &v, 8); }
+static u64 get64(const u8 *p) { u64 v; memcpy(&v, p, 8); return v; }
 
-/* Through the online lobby: the other player's virtual address, and the packets for this game (lks_deliver, on the relay's thread),
- * kept until the main thread reads them (poll_net). */
+/* Through the online lobby: the packets for this game (lks_deliver, on the relay's thread), kept until the main thread reads them. */
 static int via_lobby;
 static char room_code[64];
 static u16 lobby_port = 7810;
-static u32 peer_vip;
-#define LOBBY_QUEUE 256
+#define LOBBY_QUEUE 512
 #define LOBBY_PACKET 1400
 static struct { u32 src; u16 port, len; u8 data[LOBBY_PACKET]; } lobby_queue[LOBBY_QUEUE];
-static u32 lq_head, lq_tail;   /* (lq_tail - lq_head: packets waiting) */
+static u32 lq_head, lq_tail;
 static SRWLOCK lq_lock = SRWLOCK_INIT;
 static CONDITION_VARIABLE lq_cv = CONDITION_VARIABLE_INIT;
 
+static int header(u8 *p, int type) { put32(p, MAGIC); p[4] = VERSION; p[5] = (u8)type; p[6] = (u8)(welcomed || mode == M_HOST ? me : 0xFF); return HEAD; }
+
+static void send_raw_vip(u32 vip, const u8 *p, int n) { net_send(net_local_ip(), lobby_port, vip, lobby_port, p, (u32)n); }
+static void send_to(int i, const u8 *p, int n) {
+    if (i < 0 || i >= MAXP || i == me || !peer[i].known) return;
+    if (via_lobby) { if (peer[i].vip) send_raw_vip(peer[i].vip, p, n); }
+    else sendto(sock, (const char *)p, n, 0, (const struct sockaddr *)&peer[i].addr, sizeof peer[i].addr);
+}
+static void send_all(const u8 *p, int n) { for (int i = 0; i < MAXP; i++) send_to(i, p, n); }
+
+/* ---- the save, from the host to the others, before their games start ---- */
+#define SAVE_PART_SIZE 1024
+#define SAVE_MAX (96u << 20)
+static SRWLOCK save_lock = SRWLOCK_INIT;
+static u8 *save_blob;             /* "NSS1", count u32, then per file: path length u16, path, size u32, bytes */
+static u32 save_size;
+static u64 save_hash;
+static u8 *save_have;             /* (joiner) which parts came */
+static u32 save_parts, save_got;
+static int save_info_heard;
+
+static u64 fnv64(const u8 *p, u32 n) { u64 h = 0xcbf29ce484222325ull; for (u32 i = 0; i < n; i++) h = (h ^ p[i]) * 0x100000001b3ull; return h; }
+
+static const char *data_dir(void) { const char *r = getenv("SSBU_DATA_ROOT"); return r && *r ? r : NULL; }
+
+typedef struct Blob { u8 *p; u32 n, cap, count; } Blob;
+static int blob_add(Blob *b, const void *d, u32 n) {
+    if (b->n + n > SAVE_MAX) return 0;
+    if (b->n + n > b->cap) {
+        u32 cap = b->cap ? b->cap * 2 : 1u << 20;
+        while (cap < b->n + n) cap *= 2;
+        u8 *q = realloc(b->p, cap);
+        if (!q) return 0;
+        b->p = q; b->cap = cap;
+    }
+    memcpy(b->p + b->n, d, n);
+    b->n += n;
+    return 1;
+}
+static void save_walk(Blob *b, const char *base, const char *rel) {   /* every file under base/rel, by its path from base */
+    char pattern[1024];
+    snprintf(pattern, sizeof pattern, "%s/%s%s*", base, rel, *rel ? "/" : "");
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, "..")) continue;
+        char sub[600];
+        snprintf(sub, sizeof sub, "%s%s%s", rel, *rel ? "/" : "", fd.cFileName);
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { save_walk(b, base, sub); continue; }
+        char path[1200];
+        snprintf(path, sizeof path, "%s/%s", base, sub);
+        FILE *f = fopen(path, "rb");
+        if (!f) continue;
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        u16 pl = (u16)strlen(sub);
+        u32 sz = size > 0 ? (u32)size : 0;
+        u8 *data = sz ? malloc(sz) : NULL;
+        if ((!sz || (data && fread(data, 1, sz, f) == sz)) && blob_add(b, &pl, 2) && blob_add(b, sub, pl) && blob_add(b, &sz, 4) && (!sz || blob_add(b, data, sz)))
+            b->count++;
+        free(data);
+        fclose(f);
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+}
+static void save_snapshot(void) {   /* (host) its save as it is now, for the others */
+    const char *root = data_dir();
+    if (!root) { fprintf(stderr, "[netplay] no SSBU_DATA_ROOT: the save is not sent (each player uses their own)\n"); return; }
+    char base[1024];
+    snprintf(base, sizeof base, "%s/save", root);
+    Blob b = {0};
+    blob_add(&b, "NSS1", 4);
+    u32 zero = 0;
+    blob_add(&b, &zero, 4);
+    save_walk(&b, base, "");
+    put32(b.p + 4, b.count);
+    save_blob = b.p;
+    save_size = b.n;
+    save_hash = fnv64(b.p, b.n);
+    fprintf(stderr, "[netplay] the save to send: %u files, %u KB\n", b.count, b.n >> 10);
+}
+static int mkdirs(const char *path) {   /* the folders of a file's path */
+    char tmp[1200];
+    snprintf(tmp, sizeof tmp, "%s", path);
+    for (char *s = tmp + 1; *s; s++)
+        if (*s == '/' || *s == '\\') { char c = *s; *s = 0; CreateDirectoryA(tmp, NULL); *s = c; }
+    return 1;
+}
+static int save_write(void) {   /* (joiner) the host's save into this game's data folder */
+    const char *root = data_dir();
+    if (!root || save_size < 8 || memcmp(save_blob, "NSS1", 4)) return 0;
+    u32 count = get32(save_blob + 4), at = 8, written = 0;
+    for (u32 i = 0; i < count; i++) {
+        if (at + 2 > save_size) return 0;
+        u16 pl; memcpy(&pl, save_blob + at, 2); at += 2;
+        if (at + pl + 4 > save_size || pl == 0 || pl > 500) return 0;
+        char rel[512]; memcpy(rel, save_blob + at, pl); rel[pl] = 0; at += pl;
+        u32 sz = get32(save_blob + at); at += 4;
+        if (at + sz > save_size || strstr(rel, "..")) return 0;
+        char path[1200];
+        snprintf(path, sizeof path, "%s/save/%s", root, rel);
+        mkdirs(path);
+        FILE *f = fopen(path, "wb");
+        if (!f) return 0;
+        fwrite(save_blob + at, 1, sz, f);
+        fclose(f);
+        at += sz;
+        written++;
+    }
+    fprintf(stderr, "[netplay] the host's save is here: %u files\n", written);
+    return 1;
+}
+
+/* (relay thread) the save's packets, answered or kept at once: they come before the game runs */
+static void on_save_packet(u32 src, const u8 *p, int n) {
+    switch (p[5]) {
+    case P_SAVE_REQ:   /* (host) send the size and hash */
+        if (mode != M_HOST || !save_blob) return;
+        {
+            u8 q[32];
+            int k = header(q, P_SAVE_INFO);
+            put32(q + k, save_size); k += 4;
+            put64(q + k, save_hash); k += 8;
+            send_raw_vip(src, q, k);
+        }
+        return;
+    case P_SAVE_GET:   /* (host) parts: first u32, count u8 */
+        if (mode != M_HOST || !save_blob || n < HEAD + 5) return;
+        {
+            u32 first = get32(p + HEAD), count = p[HEAD + 4];
+            for (u32 i = 0; i < count; i++) {
+                u32 part = first + i, off = part * SAVE_PART_SIZE;
+                if (off >= save_size) break;
+                u32 len = save_size - off < SAVE_PART_SIZE ? save_size - off : SAVE_PART_SIZE;
+                u8 q[HEAD + 8 + SAVE_PART_SIZE];
+                int k = header(q, P_SAVE_PART);
+                put32(q + k, part); k += 4;
+                put32(q + k, len); k += 4;
+                memcpy(q + k, save_blob + off, len); k += (int)len;
+                send_raw_vip(src, q, k);
+            }
+        }
+        return;
+    case P_SAVE_INFO:   /* (joiner) */
+        if (mode != M_JOIN || n < HEAD + 12) return;
+        AcquireSRWLockExclusive(&save_lock);
+        if (!save_info_heard) {
+            u32 size = get32(p + HEAD);
+            if (size <= SAVE_MAX) {
+                save_size = size;
+                save_hash = get64(p + HEAD + 4);
+                save_parts = (size + SAVE_PART_SIZE - 1) / SAVE_PART_SIZE;
+                save_blob = calloc(1, size ? size : 1);
+                save_have = calloc(1, save_parts ? save_parts : 1);
+                save_info_heard = save_blob && save_have;
+            }
+        }
+        ReleaseSRWLockExclusive(&save_lock);
+        return;
+    case P_SAVE_PART:   /* (joiner) */
+        if (mode != M_JOIN || n < HEAD + 8) return;
+        AcquireSRWLockExclusive(&save_lock);
+        if (save_info_heard) {
+            u32 part = get32(p + HEAD), len = get32(p + HEAD + 4), off = part * SAVE_PART_SIZE;
+            if (part < save_parts && !save_have[part] && off + len <= save_size && n >= HEAD + 8 + (int)len) {
+                memcpy(save_blob + off, p + HEAD + 8, len);
+                save_have[part] = 1;
+                save_got++;
+            }
+        }
+        ReleaseSRWLockExclusive(&save_lock);
+        return;
+    }
+}
+
+static void on_packet(const u8 *p, int n, u32 src_vip, const struct sockaddr_in *from);
 int lks_deliver(u32 src_ip, u16 src_port, u16 dst_port, const void *data, u32 len) {
     if (!via_lobby || dst_port != lobby_port) return 0;
+    const u8 *p = data;
+    if (len >= HEAD && get32(p) == MAGIC && p[4] == VERSION && p[5] >= P_SAVE_REQ) { on_save_packet(src_ip, p, (int)len); return 1; }
+    /* (the ping, here: through the main thread's queue it would count the frames the game took too) */
+    if (len >= HEAD && get32(p) == MAGIC && p[4] == VERSION && (p[5] == P_ALIVE || p[5] == P_PONG)) { on_packet(p, (int)len, src_ip, NULL); return 1; }
     if (len <= LOBBY_PACKET) {
         AcquireSRWLockExclusive(&lq_lock);
         if (lq_tail - lq_head < LOBBY_QUEUE) {   /* (full: dropped, as a network would; the next packet repeats the pads) */
@@ -272,30 +494,35 @@ int lks_deliver(u32 src_ip, u16 src_port, u16 dst_port, const void *data, u32 le
     return 1;
 }
 
-static void send_packet(const u8 *p, int n) {
-    if (via_lobby) {
-        if (peer_vip) net_send(net_local_ip(), lobby_port, peer_vip, lobby_port, p, (u32)n);
-        return;
+/* (hle_net.c) Whether a lobby packet from this address is the VS netplay's own: the game's own nn::ldn calls may have left the room's network. */
+int lks_peer_ip(u32 ip) {
+    if (!via_lobby || (mode != M_HOST && mode != M_JOIN)) return 0;
+    if (mode == M_HOST) return 1;   /* (the room's code is private: whoever sent it is in the room) */
+    for (int i = 0; i < MAXP; i++) if (peer[i].known && peer[i].vip == ip) return 1;
+    return 0;
+}
+
+/* ---- the packets ---- */
+static void send_inputs(void) {   /* this PC's pads to each player: from the first one it says it lacks (at least the last REDUNDANCY), and what this PC has of its pads */
+    for (int i = 0; i < MAXP; i++) {
+        if (i == me || !peer[i].known) continue;
+        u8 p[HEAD + 16 + MAXSEND * sizeof(LksInput)];
+        int n = header(p, P_INPUT);
+        u32 last = have[me], first = last > REDUNDANCY ? last - REDUNDANCY : 0;
+        if (peer[i].acked < first && last - peer[i].acked <= MAXSEND) first = peer[i].acked;   /* (it fell behind - a slow load, packets dropped: what it lacks) */
+        else if (peer[i].acked < first && last > MAXSEND) first = last - MAXSEND;
+        put32(p + n, frame); n += 4;
+        put32(p + n, first); n += 4;
+        put32(p + n, have[i]); n += 4;   /* (ack: how many of its pads this PC has) */
+        p[n++] = (u8)(last - first);
+        for (u32 f = first; f < last; f++) { memcpy(p + n, &in_of[me][f % RING], sizeof(LksInput)); n += sizeof(LksInput); }
+        send_to(i, p, n);
     }
-    if (peer_known) sendto(sock, (const char *)p, n, 0, (const struct sockaddr *)&peer, sizeof peer);
 }
 
-static int header(u8 *p, int type) { put32(p, MAGIC); p[4] = VERSION; p[5] = (u8)type; return 6; }
-
-static void send_inputs(void) {   /* this PC's pads, the last REDUNDANCY frames of them, and what it has of the other's */
-    u8 p[64 + REDUNDANCY * sizeof(LksInput)];
-    int n = header(p, P_INPUT);
-    u32 last = have[me], first = last > REDUNDANCY ? last - REDUNDANCY : 0;
-    put32(p + n, first); n += 4;
-    p[n++] = (u8)(last - first);
-    put32(p + n, have[!me]); n += 4;
-    for (u32 f = first; f < last; f++) { memcpy(p + n, &in_of[me][f % RING], sizeof(LksInput)); n += sizeof(LksInput); }
-    send_packet(p, n);
-}
-
-static void send_hashes(u32 f, const PageHash *list, u32 count) {   /* in pieces of 100 */
+static void send_hashes(u32 f, const PageHash *list, u32 count) {   /* in pieces of 100, to the player compared with */
     for (u32 off = 0; off < count || off == 0; off += 100) {
-        u8 p[32 + 100 * 12];   /* (a header of 19 bytes, then up to 100 entries of 12: 16 + 1200 was 3 bytes short, and a full piece overran the stack) */
+        u8 p[HEAD + 13 + 100 * 12 + 8];
         int n = header(p, P_HASH);
         u32 k = count - off < 100 ? count - off : 100;
         put32(p + n, f); n += 4;
@@ -303,12 +530,14 @@ static void send_hashes(u32 f, const PageHash *list, u32 count) {   /* in pieces
         put32(p + n, off); n += 4;
         p[n++] = (u8)k;
         for (u32 i = 0; i < k; i++) { put32(p + n, list[off + i].page); memcpy(p + n + 4, &list[off + i].hash, 8); n += 12; }
-        send_packet(p, n);
+        send_to(compare_with, p, n);
         if (!count) break;
     }
 }
 
 static void their_hashes_done(void) {
+    static u32 base_n, base_sum;
+    static int over;
     for (int s = 0; s < 4; s++)
         if (mine_frame[s] == theirs_frame) {
             qsort(theirs, ntheirs, sizeof *theirs, by_page);
@@ -318,68 +547,124 @@ static void their_hashes_done(void) {
             else if (first_bad == ~0u) first_bad = theirs_frame;
             tally_diffs(mine_at[s], nmine_at[s], theirs, ntheirs);
             print_diff("netplay", theirs_frame, d, "here", "there");
+            /* A desync: the pages written differently far above their usual noise (sound and effects write some at their own pace), three times running. */
+            if (base_n < 10) { base_sum += d.differ; base_n++; }
+            else if (d.differ > 200 && d.differ > 4 * (base_sum / base_n) + 60) {
+                if (++over >= 3 && desync_frame == ~0u) {
+                    desync_frame = theirs_frame;
+                    fprintf(stderr, "[netplay] probable desync from frame %u: %u pages differ (usually ~%u)\n", theirs_frame, d.differ, base_sum / base_n);
+                }
+            } else over = 0;
             return;
         }
 }
 
-static void on_packet(const u8 *p, int n, const struct sockaddr_in *from) {
-    if (n < 6 || get32(p) != MAGIC || p[4] != VERSION) return;
-    last_heard_ns = rt_now_ns();
+static int player_of(u32 vip, const struct sockaddr_in *addr) {   /* the index of a known player at this address, else -1 */
+    for (int i = 0; i < MAXP; i++) {
+        if (!peer[i].known || i == me) continue;
+        if (via_lobby ? peer[i].vip == vip : (peer[i].addr.sin_addr.s_addr == addr->sin_addr.s_addr && peer[i].addr.sin_port == addr->sin_port)) return i;
+    }
+    return -1;
+}
+
+static void on_packet(const u8 *p, int n, u32 src_vip, const struct sockaddr_in *from) {
+    if (n < HEAD || get32(p) != MAGIC || p[4] != VERSION) return;
+    int who = p[6] < MAXP ? p[6] : -1;
+    u64 now = rt_now_ns();
+    if (who >= 0 && who != me && peer[who].known) peer[who].last_heard = now;
     switch (p[5]) {
-    case P_HELLO:   /* (host) a player joins: the delay and the clock are the host's */
-        if (mode != M_HOST || n < 14) return;
+    case P_HELLO: {   /* (host) a player comes: an index of its own, the clock and the number of players */
+        if (mode != M_HOST || n < HEAD + 8) return;
+        int i = player_of(src_vip, from);
+        if (i < 0) {
+            if (start_sent) return;   /* (the game has started: no one else comes in) */
+            for (int k = 1; k < nplayers && i < 0; k++) if (!peer[k].known) i = k;
+            if (i < 0) return;
+            memset(&peer[i], 0, sizeof peer[i]);
+            peer[i].known = 1;
+            peer[i].vip = src_vip;
+            if (from) peer[i].addr = *from;
+            peer[i].last_heard = now;
+            fprintf(stderr, "[netplay] player %d joined (%u.%u.%u.%u)\n", i + 1, src_vip >> 24, src_vip >> 16 & 255, src_vip >> 8 & 255, src_vip & 255);
+        }
         if (!t0) t0 = rt_clock_ns() * 12 / 625;
-        if (!peer_known) fprintf(stderr, "[netplay] player 2 joined from %s:%u\n", inet_ntoa(from->sin_addr), ntohs(from->sin_port));
-        peer = *from;
-        if (via_lobby) peer_vip = ntohl(from->sin_addr.s_addr);
-        peer_known = 1;
-        {
-            u8 q[32];
-            int k = header(q, P_WELCOME);
-            memcpy(q + k, p + 6, 8); k += 8;   /* (their nonce) */
-            memcpy(q + k, &t0, 8); k += 8;
-            q[k++] = (u8)delay;
-            send_packet(q, k);
-        }
+        u8 q[64];
+        int k = header(q, P_WELCOME);
+        memcpy(q + k, p + HEAD, 8); k += 8;   /* (their nonce) */
+        put64(q + k, t0); k += 8;
+        q[k++] = (u8)i;
+        q[k++] = (u8)nplayers;
+        send_to(i, q, k);
         break;
+    }
     case P_WELCOME:   /* (joiner) */
-        if (mode != M_JOIN || n < 23) return;
-        {
-            u64 their_nonce;
-            memcpy(&their_nonce, p + 6, 8);
-            if (their_nonce != nonce || peer_known == 2) return;
-            memcpy(&t0, p + 14, 8);
-            delay = p[22];
-            peer_known = 2;
-            fprintf(stderr, "[netplay] joined: player 2, %d frames of delay\n", delay);
+        if (mode != M_JOIN || n < HEAD + 18 || welcomed) return;
+        if (get64(p + HEAD) != nonce || p[HEAD + 16] == 0 || p[HEAD + 16] >= MAXP) return;
+        t0 = get64(p + HEAD + 8);
+        me = p[HEAD + 16];
+        nplayers = p[HEAD + 17] >= 2 && p[HEAD + 17] <= MAXP ? p[HEAD + 17] : 2;
+        welcomed = 1;
+        peer[0].last_heard = now;
+        fprintf(stderr, "[netplay] joined: player %d of %d, %d frames of delay to start with\n", me + 1, nplayers, delay);
+        break;
+    case P_START:   /* (joiner) every player's address: send to all of them */
+        if (mode != M_JOIN || !welcomed || n < HEAD + 1 + MAXP * 4 || start_heard) return;
+        nplayers = p[HEAD] >= 2 && p[HEAD] <= MAXP ? p[HEAD] : nplayers;
+        for (int i = 1; i < nplayers; i++) {
+            if (i == me) continue;
+            u32 v = get32(p + HEAD + 1 + i * 4);
+            if (v && via_lobby) { peer[i].known = 1; peer[i].vip = v; peer[i].last_heard = now; }
         }
+        start_heard = 1;
+        fprintf(stderr, "[netplay] start: %d players\n", nplayers);
         break;
     case P_INPUT: {
-        if (n < 15) return;
-        u32 first = get32(p + 6), count = p[10];
-        if (n < 15 + (int)(count * sizeof(LksInput))) return;
+        if (who < 0 || who == me || n < HEAD + 13) return;
+        u32 at = get32(p + HEAD), first = get32(p + HEAD + 4), ack = get32(p + HEAD + 8), count = p[HEAD + 12];
+        if (n < HEAD + 13 + (int)(count * sizeof(LksInput))) return;
+        peer[who].frame = at;
+        if (ack > peer[who].acked) peer[who].acked = ack;
         for (u32 i = 0; i < count; i++) {
             u32 f = first + i;
-            if (f < have[!me] || f >= have[!me] + RING / 2) continue;
-            if (f == have[!me]) {
-                memcpy(&in_of[!me][f % RING], p + 15 + i * sizeof(LksInput), sizeof(LksInput));
-                have[!me] = f + 1;
-            }
+            if (f != have[who] || f >= have[who] + RING / 2) continue;
+            memcpy(&in_of[who][f % RING], p + HEAD + 13 + i * sizeof(LksInput), sizeof(LksInput));
+            have[who] = f + 1;
         }
         break;
     }
     case P_HASH: {
-        if (n < 19) return;
-        u32 f = get32(p + 6), total = get32(p + 10), off = get32(p + 14), k = p[18];
-        if (n < 19 + (int)k * 12 || total > MAX_PAGES / 4) return;
+        if (who != compare_with || n < HEAD + 13) return;
+        u32 f = get32(p + HEAD), total = get32(p + HEAD + 4), off = get32(p + HEAD + 8), k = p[HEAD + 12];
+        if (n < HEAD + 13 + (int)k * 12 || total > MAX_PAGES / 4) return;
         if (f != theirs_frame) { theirs_frame = f; ntheirs = 0; theirs_total = total; }
         if (off != ntheirs) return;   /* (a piece lost or out of order: this frame is not compared) */
-        for (u32 i = 0; i < k; i++) { theirs[ntheirs].page = get32(p + 19 + i * 12); memcpy(&theirs[ntheirs].hash, p + 23 + i * 12, 8); ntheirs++; }
+        for (u32 i = 0; i < k; i++) { theirs[ntheirs].page = get32(p + HEAD + 13 + i * 12); memcpy(&theirs[ntheirs].hash, p + HEAD + 17 + i * 12, 8); ntheirs++; }
         if (ntheirs == theirs_total) their_hashes_done();
         break;
     }
+    case P_ALIVE:   /* answer, so that the sender knows its ping */
+        if (who < 0 || who == me || n < HEAD + 8) return;
+        {
+            u8 q[HEAD + 8];
+            int k = header(q, P_PONG);
+            memcpy(q + k, p + HEAD, 8); k += 8;
+            send_to(who, q, k);
+        }
+        break;
+    case P_PONG:
+        if (who < 0 || who == me || n < HEAD + 8) return;
+        {
+            double rtt = (double)(now - get64(p + HEAD)) / 1e6;
+            Peer *q = &peer[who];
+            if (rtt < 0 || rtt > 5000) break;
+            if (!q->rtt_n++) { q->rtt = rtt; q->jitter = 0; }
+            else { q->jitter = q->jitter * 0.9 + (rtt > q->rtt ? rtt - q->rtt : q->rtt - rtt) * 0.1; q->rtt = q->rtt * 0.9 + rtt * 0.1; }
+        }
+        break;
     case P_BYE:
-        fprintf(stderr, "[netplay] the other player left\n");
+        if (who < 0) return;
+        fprintf(stderr, "[netplay] player %d left\n", who + 1);
+        peer[who].known = 0;
         stopped = 1;
         break;
     }
@@ -393,13 +678,10 @@ static void poll_net(int wait_ms) {   /* every packet waiting, after up to wait_
             static u8 p[LOBBY_PACKET];
             u32 k = lq_head++ % LOBBY_QUEUE;
             int n = lobby_queue[k].len;
-            struct sockaddr_in from = {0};
-            from.sin_family = AF_INET;
-            from.sin_addr.s_addr = htonl(lobby_queue[k].src);
-            from.sin_port = htons(lobby_queue[k].port);
+            u32 src = lobby_queue[k].src;
             memcpy(p, lobby_queue[k].data, (size_t)n);
             ReleaseSRWLockExclusive(&lq_lock);
-            on_packet(p, n, &from);
+            on_packet(p, n, src, NULL);
             AcquireSRWLockExclusive(&lq_lock);
         }
         ReleaseSRWLockExclusive(&lq_lock);
@@ -415,7 +697,7 @@ static void poll_net(int wait_ms) {   /* every packet waiting, after up to wait_
         struct sockaddr_in from;
         socklen_t len = sizeof from;
         int n = (int)recvfrom(sock, (char *)p, sizeof p, 0, (struct sockaddr *)&from, &len);
-        if (n > 0) on_packet(p, n, &from);
+        if (n > 0) on_packet(p, n, 0, &from);
         wait_ms = 0;
     }
 }
@@ -456,43 +738,189 @@ static int resolve(const char *text, u16 default_port, struct sockaddr_in *out) 
     return 1;
 }
 
-/* At the first input step: wait for the other PC (the host for a joiner, a joiner for the host). */
+/* ---- what is happening, for the window's title and the screen ---- */
+static volatile int phase;   /* 0 off, 1 the lobby, 2 the room / waiting for players, 3 the save, 4 playing, 5 over */
+static volatile char phase_note[96];
+static int spanish(void) {
+#ifdef _WIN32
+    return (GetUserDefaultUILanguage() & 0x3FF) == 0x0A;
+#else
+    return 0;
+#endif
+}
+void (*lks_window_status)(const char *text);   /* (gpu_d3d11.c) shows it in the window's title */
+
+const char *lks_status_text(void) {
+    static char text[200];
+    if (mode != M_HOST && mode != M_JOIN) return NULL;
+    int es = spanish(), joined = 0;
+    for (int i = 0; i < MAXP; i++) joined += peer[i].known && i != me;
+    double ping = 0, jit = 0;
+    for (int i = 0; i < MAXP; i++) if (i != me && peer[i].known && peer[i].rtt_n) { if (peer[i].rtt > ping) ping = peer[i].rtt; if (peer[i].jitter > jit) jit = peer[i].jitter; }
+    switch (phase) {
+    case 1: snprintf(text, sizeof text, es ? "Online Direct: entrando al servidor de salas..." : "Online Direct: entering the lobby..."); break;
+    case 2:
+        if (mode == M_HOST) snprintf(text, sizeof text, es ? "Online Direct: sala %s - esperando jugadores (%d de %d)" : "Online Direct: room %s - waiting for players (%d of %d)", room_code, joined + 1, nplayers);
+        else snprintf(text, sizeof text, es ? "Online Direct: buscando la sala %s..." : "Online Direct: looking for room %s...", room_code);
+        break;
+    case 3: snprintf(text, sizeof text, es ? "Online Direct: recibiendo el savegame del host (%u%%)" : "Online Direct: getting the host's save (%u%%)", save_parts ? save_got * 100 / save_parts : 0); break;
+    case 4:
+        if (desync_frame != ~0u) snprintf(text, sizeof text, es ? "Online Direct: posible desincronizacion desde el cuadro %u - reiniciad la partida" : "Online Direct: probable desync from frame %u - restart the game", desync_frame);
+        else if (!started) snprintf(text, sizeof text, es ? "Online Direct: esperando a que los demas carguen..." : "Online Direct: waiting for the others to load...");
+        else snprintf(text, sizeof text, es ? "Online Direct: jugador %d de %d - ping %.0f ms - retraso %d%s" : "Online Direct: player %d of %d - ping %.0f ms - delay %d%s",
+                      me + 1, nplayers, ping, delay, stalls > 6 ? (es ? " - tirones (la red o el otro PC)" : " - stuttering (the network or the other PC)") : "");
+        break;
+    case 5: snprintf(text, sizeof text, "Online Direct: %s", (const char *)phase_note); break;
+    default: return NULL;
+    }
+    (void)jit;
+    return text;
+}
+
+/* (its own thread, from the start) ALIVE every 250 ms whatever this game's main thread is doing, and the window's title */
+static DWORD WINAPI alive_main(void *unused) {
+    (void)unused;
+    SetThreadDescription(GetCurrentThread(), L"netplay alive");
+    char last[200] = "";
+    for (;;) {
+        if (stopped && phase != 5) { phase = 5; snprintf((char *)phase_note, sizeof phase_note, "%s", spanish() ? "red apagada" : "netplay off"); }
+        if (!stopped) {
+            u8 p[HEAD + 8];
+            int k = header(p, P_ALIVE);
+            put64(p + k, rt_now_ns()); k += 8;
+            send_all(p, k);
+        }
+        const char *s = lks_status_text();
+        if (s && lks_window_status && strcmp(s, last)) { snprintf(last, sizeof last, "%s", s); lks_window_status(s); }
+        Sleep(250);
+    }
+    return 0;
+}
+
+/* ---- before the game starts: the lobby, the room, and (joiners) the host's save ---- */
+static void room_tick(int *in_lobby, int *room_ready, u64 *next_try) {
+    if (*room_ready) return;
+    if (!*in_lobby) {
+        if (net_local_ip()) { *in_lobby = 1; phase = 2; fprintf(stderr, "[netplay] in the lobby as %u.%u.%u.%u\n", net_local_ip() >> 24, net_local_ip() >> 16 & 255, net_local_ip() >> 8 & 255, net_local_ip() & 255); }
+        else if (net_unreachable() && rt_now_ns() >= *next_try) { fprintf(stderr, "[netplay] the lobby does not answer (internet? the lobby's address?)\n"); *next_try = rt_now_ns() + 30000000000ull; }
+        return;
+    }
+    if (rt_now_ns() < *next_try) return;
+    *next_try = rt_now_ns() + 2000000000ull;
+    if (mode == M_HOST) *room_ready = ldn_direct_host(room_code, nplayers);
+    else {
+        u32 host = ldn_direct_join(room_code);
+        if (host) { peer[0].known = 1; peer[0].vip = host; peer[0].last_heard = rt_now_ns(); *room_ready = 1; }
+    }
+}
+
+static DWORD WINAPI host_room_main(void *unused) {   /* (host) the room made as soon as the lobby lets: the others find it while this game loads */
+    (void)unused;
+    SetThreadDescription(GetCurrentThread(), L"netplay room");
+    int in_lobby = 0, ready = 0;
+    u64 next = 0;
+    while (!ready && !stopped) { room_tick(&in_lobby, &ready, &next); Sleep(50); }
+    return 0;
+}
+
+void lks_preboot(void) {
+    if (!lks_on()) return;
+    if ((mode != M_HOST && mode != M_JOIN) || !via_lobby) return;
+    phase = 1;
+    CloseHandle(CreateThread(NULL, 0, alive_main, NULL, 0, NULL));
+    if (mode == M_HOST) {
+        save_snapshot();
+        CloseHandle(CreateThread(NULL, 0, host_room_main, NULL, 0, NULL));
+        return;
+    }
+    /* joiner: the room, then the host's save, before this game reads its own */
+    int in_lobby = 0, ready = 0;
+    u64 next = 0;
+    while (!ready) { room_tick(&in_lobby, &ready, &next); Sleep(50); }
+    if (!data_dir()) return;
+    phase = 3;
+    u64 next_req = 0, t_start = rt_now_ns();
+    u32 cursor = 0;
+    for (;;) {
+        u64 now = rt_now_ns();
+        AcquireSRWLockShared(&save_lock);
+        int info = save_info_heard;
+        u32 got = save_got, parts = save_parts;
+        ReleaseSRWLockShared(&save_lock);
+        if (!info) {
+            if (now >= next_req) { u8 p[HEAD]; send_raw_vip(peer[0].vip, p, header(p, P_SAVE_REQ)); next_req = now + 1000000000ull; }
+            if (now - t_start > 120000000000ull) { fprintf(stderr, "[netplay] the host did not send its save: this game uses its own\n"); break; }
+            Sleep(20);
+            continue;
+        }
+        if (got >= parts) break;
+        if (now >= next_req) {   /* the next missing parts, 32 at a time */
+            AcquireSRWLockShared(&save_lock);
+            u32 tries = 0;
+            while (tries++ < parts && save_have[cursor % parts]) cursor++;
+            ReleaseSRWLockShared(&save_lock);
+            u8 p[HEAD + 5];
+            int k = header(p, P_SAVE_GET);
+            u32 first = cursor % parts, count = parts - first < 32 ? parts - first : 32;
+            put32(p + k, first); k += 4;
+            p[k++] = (u8)count;
+            send_raw_vip(peer[0].vip, p, k);
+            cursor = first + count;
+            next_req = now + 30000000ull;
+        }
+        Sleep(2);
+    }
+    if (save_info_heard && save_got >= save_parts) {
+        if (fnv64(save_blob, save_size) == save_hash) save_write();
+        else fprintf(stderr, "[netplay] the host's save came damaged: this game uses its own\n");
+    }
+}
+
+/* At the first input step: everyone there. The host waits for all its players and starts them; a joiner says hello and waits for the start. */
 static int connect_peer(void) {
     const char *w = getenv("SSBU_NETPLAY_WAIT");
-    double wait_s = w && *w ? atof(w) : via_lobby ? 3600.0 : 300.0;   /* (through the lobby: as long as the other takes to start) */
+    double wait_s = w && *w ? atof(w) : via_lobby ? 3600.0 : 300.0;   /* (through the lobby: as long as the others take to start) */
     u64 until = rt_now_ns() + (u64)(wait_s * 1e9), next_hello = 0, next_note = 0, next_room = 0;
-    int in_lobby = 0, room_ready = 0;
-    fprintf(stderr, mode == M_HOST ? "[netplay] waiting for player 2 (up to %.0f s)\n" : "[netplay] joining the host (up to %.0f s)\n", wait_s);
-    while (rt_now_ns() < until) {
-        if (via_lobby && !room_ready) {   /* (first in the lobby, then the room: made by the host, found and joined by the other) */
-            if (!in_lobby) {
-                if (net_local_ip()) { in_lobby = 1; fprintf(stderr, "[netplay] in the lobby as %u.%u.%u.%u\n", net_local_ip() >> 24, net_local_ip() >> 16 & 255, net_local_ip() >> 8 & 255, net_local_ip() & 255); }
-                else if (net_unreachable() && rt_now_ns() >= next_room) { fprintf(stderr, "[netplay] the lobby does not answer (internet? the lobby's address?)\n"); next_room = rt_now_ns() + 30000000000ull; }
-            }
-            if (in_lobby && rt_now_ns() >= next_room) {
-                if (mode == M_HOST) room_ready = ldn_direct_host(room_code);
-                else if ((peer_vip = ldn_direct_join(room_code)) != 0) { room_ready = 1; peer_known = 1; }
-                next_room = rt_now_ns() + 2000000000ull;
-            }
-            if (!room_ready) { Sleep(50); continue; }
-        }
-        if (mode == M_JOIN && rt_now_ns() >= next_hello) {
-            u8 p[32];
+    int in_lobby = net_local_ip() != 0, room_ready = mode == M_HOST ? 0 : peer[0].known;
+    if (mode == M_HOST && via_lobby) in_lobby = 1;   /* (its room is made by host_room_main) */
+    phase = via_lobby ? 2 : 4;
+    if (mode == M_HOST) fprintf(stderr, "[netplay] waiting for %d players (up to %.0f s)\n", nplayers - 1, wait_s);
+    else fprintf(stderr, "[netplay] joining the host (up to %.0f s)\n", wait_s);
+    while (rt_now_ns() < until && !stopped) {
+        if (via_lobby && mode == M_JOIN && !room_ready) { room_tick(&in_lobby, &room_ready, &next_room); if (!room_ready) { Sleep(50); continue; } }
+        u64 now = rt_now_ns();
+        if (mode == M_JOIN && !welcomed && now >= next_hello) {
+            u8 p[HEAD + 8];
             int n = header(p, P_HELLO);
-            memcpy(p + n, &nonce, 8); n += 8;
-            send_packet(p, n);
-            next_hello = rt_now_ns() + 200000000ull;
+            put64(p + n, nonce); n += 8;
+            send_to(0, p, n);
+            next_hello = now + 200000000ull;
         }
         poll_net(20);
-        if (mode == M_HOST && peer_known) return 1;
-        if (mode == M_JOIN && peer_known == 2) return 1;
-        if (rt_now_ns() >= next_note) {
+        if (mode == M_HOST) {
+            int joined = 0;
+            for (int i = 1; i < nplayers; i++) joined += peer[i].known;
+            if (joined == nplayers - 1) return 1;
+        }
+        if (mode == M_JOIN && welcomed && (start_heard || !via_lobby || nplayers == 2)) {
+            if (!start_heard && nplayers == 2) start_heard = 1;   /* (two players: the host is the only other) */
+            if (start_heard) return 1;
+        }
+        if (now >= next_note) {
             if (next_note) fprintf(stderr, "[netplay] still waiting...\n");
-            next_note = rt_now_ns() + 10000000000ull;
+            next_note = now + 10000000000ull;
         }
     }
     fprintf(stderr, "[netplay] nobody came: netplay off\n");
     return 0;
+}
+
+static void send_start(void) {   /* (host) every player's address, to all */
+    u8 p[HEAD + 1 + MAXP * 4];
+    int k = header(p, P_START);
+    p[k++] = (u8)nplayers;
+    for (int i = 0; i < MAXP; i++) { put32(p + k, i == 0 ? net_local_ip() : peer[i].known ? peer[i].vip : 0); k += 4; }
+    send_all(p, k);
 }
 
 /* ---- the switches --------------------------------------------------------------------------- */
@@ -504,8 +932,10 @@ int lks_probe(void) {
         else if (np && !strcmp(np, "join")) mode = M_JOIN;
         else if (ls && !strcmp(ls, "record")) mode = M_RECORD;
         else if (ls && !strcmp(ls, "replay")) mode = M_REPLAY;
-        const char *d = getenv("SSBU_NETPLAY_DELAY"), *fr = getenv("SSBU_LOCKSTEP_FRAMES"), *fn = getenv("SSBU_LOCKSTEP_FILE");
-        if (d && *d) delay = atoi(d) < 0 ? 0 : atoi(d) > 30 ? 30 : atoi(d);
+        const char *d = getenv("SSBU_NETPLAY_DELAY"), *fr = getenv("SSBU_LOCKSTEP_FRAMES"), *fn = getenv("SSBU_LOCKSTEP_FILE"), *pl = getenv("SSBU_NETPLAY_PLAYERS");
+        if (d && !strcmp(d, "auto")) { delay_auto = 1; delay = 2; }
+        else if (d && *d) delay = atoi(d) < 0 ? 0 : atoi(d) > 30 ? 30 : atoi(d);
+        if (pl && *pl) nplayers = atoi(pl) < 2 ? 2 : atoi(pl) > MAXP ? MAXP : atoi(pl);
         if (fr && *fr) frames_max = (u32)atoi(fr);
         const char *name = fn && *fn ? fn : "lockstep.bin";
         if (mode == M_RECORD || mode == M_REPLAY) {
@@ -513,35 +943,34 @@ int lks_probe(void) {
             if (!file) { fprintf(stderr, "[lockstep] cannot open %s: off\n", name); mode = M_OFF; }
             else if (mode == M_REPLAY && fread(&t0, 8, 1, file) != 1) { fprintf(stderr, "[lockstep] %s is empty: off\n", name); mode = M_OFF; }
         }
+        u64 r = rt_clock_ns();
+        nonce = r ^ (r << 21) ^ 0x5DEECE66Dull;
+        me = mode == M_JOIN ? -1 : 0;   /* (a joiner has no index until the host gives it one: WELCOME) */
         const char *rc = getenv("SSBU_NETPLAY_ROOM");
         if ((mode == M_HOST || mode == M_JOIN) && rc && *rc) {   /* (through the online lobby) */
             const char *pt = getenv("SSBU_NETPLAY_PORT");
             if (pt && *pt) lobby_port = (u16)atoi(pt);
             snprintf(room_code, sizeof room_code, "%s", rc);
             via_lobby = 1;
-            me = mode == M_JOIN;
-            u64 r = rt_clock_ns();
-            nonce = r ^ (r << 21) ^ 0x5DEECE66Dull;
             if (!net_configured()) {
                 fprintf(stderr, "[netplay] SSBU_NETPLAY_ROOM without a lobby (SSBU_NET_RELAY): off\n");
                 via_lobby = 0;
                 mode = M_OFF;
             } else
-                fprintf(stderr, "[netplay] on: %s, room %s in the lobby %s, %d frames of delay\n", mode == M_HOST ? "host (player 1)" : "join (player 2)",
-                        room_code, net_relay_address() ? net_relay_address() : "?", delay);
+                fprintf(stderr, "[netplay] on: %s, room %s in the lobby %s, %s%d frames of delay%s\n", mode == M_HOST ? "host (player 1)" : "join",
+                        room_code, net_relay_address() ? net_relay_address() : "?", delay_auto ? "auto from " : "", delay,
+                        mode == M_HOST && nplayers > 2 ? ", waiting for more players" : "");
         } else if (mode == M_HOST || mode == M_JOIN) {
             const char *pt = getenv("SSBU_NETPLAY_PORT"), *pe = getenv("SSBU_NETPLAY_PEER");
             u16 port = pt && *pt ? (u16)atoi(pt) : 7810;
+            nplayers = 2;   /* (to an address: two) */
             if (!open_socket(mode == M_HOST ? port : 0)) mode = M_OFF;
-            else if (mode == M_JOIN && !(pe && *pe && resolve(pe, port, &peer))) {
+            else if (mode == M_JOIN && !(pe && *pe && resolve(pe, port, &peer[0].addr))) {
                 fprintf(stderr, "[netplay] SSBU_NETPLAY_PEER: the host's address is missing or unknown: off\n");
                 mode = M_OFF;
-            } else if (mode == M_JOIN) peer_known = 1;
-            me = mode == M_JOIN;
-            u64 r = rt_clock_ns();
-            nonce = r ^ (r << 21) ^ 0x5DEECE66Dull;
+            } else if (mode == M_JOIN) { peer[0].known = 1; peer[0].last_heard = rt_now_ns(); }
             if (mode == M_HOST) fprintf(stderr, "[netplay] on: host (player 1), UDP port %u, %d frames of delay\n", port, delay);
-            if (mode == M_JOIN) fprintf(stderr, "[netplay] on: join (player 2), the host at %s:%u\n", inet_ntoa(peer.sin_addr), ntohs(peer.sin_port));
+            if (mode == M_JOIN) fprintf(stderr, "[netplay] on: join, the host at %s:%u\n", inet_ntoa(peer[0].addr.sin_addr), ntohs(peer[0].addr.sin_port));
         }
         if (mode == M_RECORD || mode == M_REPLAY)
             fprintf(stderr, "[lockstep] on: %s %s\n", mode == M_RECORD ? "recording to" : "replaying", name);
@@ -557,21 +986,25 @@ static void stop(const char *why) {
     if (stopped) return;
     stopped = 1;
     fprintf(stderr, "%s\n", why);
+    snprintf((char *)phase_note, sizeof phase_note, "%s", why + (why[0] == '[' ? 10 : 0));
+    phase = 5;
     if (mode == M_REPLAY || mode == M_HOST || mode == M_JOIN) print_tally(mode == M_REPLAY ? "lockstep" : "netplay");
     if (mode == M_RECORD && file) { fclose(file); file = NULL; }
-    if ((mode == M_HOST || mode == M_JOIN) && peer_known) { u8 p[8]; send_packet(p, header(p, P_BYE)); }
+    if (mode == M_HOST || mode == M_JOIN) { u8 p[HEAD]; send_all(p, header(p, P_BYE)); }
 }
 
-/* (its own thread, from the start of netplay) "alive" every 250 ms, whatever this game's main thread is doing */
-static DWORD WINAPI alive_main(void *unused) {
-    (void)unused;
-    SetThreadDescription(GetCurrentThread(), L"netplay alive");
-    while (!stopped) {
-        u8 p[8];
-        send_packet(p, header(p, P_ALIVE));
-        Sleep(250);
-    }
-    return 0;
+/* (auto delay) every second: the frames the pads need to travel to the farthest player, with room for its jitter */
+static void adapt_delay(void) {
+    if (!delay_auto || frame % 60) return;
+    double ping = 0, jit = 0;
+    for (int i = 0; i < MAXP; i++) if (i != me && peer[i].known && peer[i].rtt_n >= 4) { if (peer[i].rtt > ping) ping = peer[i].rtt; if (peer[i].jitter > jit) jit = peer[i].jitter; }
+    if (ping <= 0) return;
+    int need = (int)((ping / 2 + 2 * jit + 3.0) / 16.67) + 1;
+    if (stalls > 6) need++;   /* (it still waited often: one more) */
+    need = need < 1 ? 1 : need > 8 ? 8 : need;
+    if (need > delay) { delay++; delay_quiet = 0; fprintf(stderr, "[netplay] delay up to %d (ping %.0f ms, jitter %.0f ms)\n", delay, ping, jit); }
+    else if (need < delay) { if (++delay_quiet >= 5) { delay--; delay_quiet = 0; fprintf(stderr, "[netplay] delay down to %d (ping %.0f ms, jitter %.0f ms)\n", delay, ping, jit); } }
+    else delay_quiet = 0;
 }
 
 /* The game's input step begins: frame + 1, and its pads. */
@@ -581,12 +1014,21 @@ void lks_input_step(void) {
         main_thread = GetCurrentThreadId();
         read_regions();
         if (mode == M_RECORD) { t0 = rt_clock_ns() * 12 / 625; fwrite(&t0, 8, 1, file); }
-        if ((mode == M_HOST || mode == M_JOIN) && !connect_peer()) { stopped = 1; return; }
-        if (mode == M_HOST || mode == M_JOIN) CloseHandle(CreateThread(NULL, 0, alive_main, NULL, 0, NULL));
+        if (mode == M_HOST || mode == M_JOIN) {
+            if (!via_lobby || mode == M_JOIN) {   /* (the host's lobby thread runs from lks_preboot) */
+                static int alive;
+                if (!alive) { alive = 1; if (!via_lobby) CloseHandle(CreateThread(NULL, 0, alive_main, NULL, 0, NULL)); }
+            }
+            if (!connect_peer()) { stopped = 1; phase = 5; return; }
+            if (mode == M_HOST) { if (!t0) t0 = rt_clock_ns() * 12 / 625; send_start(); start_sent = 1; }
+            compare_with = me == 0 ? 1 : 0;
+            phase = 4;
+        }
         started = 1;
         frame = 0;
         memset(in_of, 0, sizeof in_of);
-        have[0] = have[1] = mode == M_HOST || mode == M_JOIN ? (u32)delay : 0;
+        memset(have, 0, sizeof have);
+        if (mode == M_HOST || mode == M_JOIN) have[me] = (u32)delay;
         fprintf(stderr, "[%s] started: frame 0\n", mode == M_RECORD || mode == M_REPLAY ? "lockstep" : "netplay");
     } else {
         if (!on_main()) return;
@@ -616,19 +1058,41 @@ void lks_input_step(void) {
         break;
     case M_HOST:
     case M_JOIN: {
+        if (mode == M_HOST && frame < 300 && frame % 15 == 0) send_start();   /* (a START lost: the others would wait) */
+        adapt_delay();
         LksInput local;
         hid_local_input(&local);
-        if (have[me] == frame + (u32)delay) { in_of[me][have[me] % RING] = local; have[me]++; }
+        if (me == 0 && lks_movie_ns && rt_now_ns() - lks_movie_ns < 300000000ull && (frame & 8)) local.buttons |= 1;   /* (the opening movie: A, to skip it) */
+        while (have[me] < frame + (u32)delay + 1 && have[me] < frame + RING / 2) { in_of[me][have[me] % RING] = local; have[me]++; }
         send_inputs();
+        /* pacing: frames ahead of the slowest player - a little wait now, not a stop later */
+        u32 slowest = frame;
+        for (int i = 0; i < nplayers; i++) if (i != me && peer[i].known && peer[i].frame < slowest) slowest = peer[i].frame;
+        if (frame > slowest + 2 && frame > 120) Sleep(frame - slowest - 2 > 4 ? 4 : frame - slowest - 2);
+        if (frame % 60 == 0) stalls = 0;
         u64 waited_from = rt_now_ns(), next_send = waited_from + 10000000ull;
-        while (have[!me] <= frame) {
+        int waited = 0;
+        for (;;) {
+            int ready = 1;
+            for (int i = 0; i < nplayers; i++) if (i != me && have[i] <= frame) ready = 0;
+            if (ready) break;
+            waited = 1;
             poll_net(2);
             if (stopped) { stop("[netplay] netplay off"); return; }
             u64 now = rt_now_ns();
             if (now >= next_send) { send_inputs(); next_send = now + 10000000ull; }
-            u64 heard = last_heard_ns > waited_from ? last_heard_ns : waited_from;   /* (its game may be busy - loading shaders - but alive: wait) */
-            if (now - heard > 15000000000ull) { stop("[netplay] the other player is not answering: netplay off (player 2 stands still)"); return; }
+            for (int i = 0; i < nplayers; i++) {
+                if (i == me || have[i] > frame) continue;
+                u64 heard = peer[i].last_heard > waited_from ? peer[i].last_heard : waited_from;   /* (its game may be busy - loading shaders - but alive: wait) */
+                if (now - heard > 60000000000ull) {
+                    char why[120];
+                    snprintf(why, sizeof why, "[netplay] player %d is not answering: netplay off", i + 1);
+                    stop(why);
+                    return;
+                }
+            }
         }
+        if (waited && rt_now_ns() - waited_from > 2000000ull) stalls++;
         poll_net(0);
         break;
     }
@@ -681,9 +1145,10 @@ void lks_sim_end(void) {
 }
 
 int lks_pad(u32 id, LksInput *in, u64 *sampling) {
-    if (!active() || id > 1) return 0;
-    if (mode == M_RECORD && id == 1) return 0;   /* (recording: player 2 is whatever it is - the CPU) */
-    if (mode == M_REPLAY && id == 1) return 0;
+    if (!active()) return 0;
+    if (mode == M_RECORD || mode == M_REPLAY) {
+        if (id > 1 || id == 1) return 0;   /* (record, replay: player 2 is whatever it is - the CPU) */
+    } else if ((int)id >= nplayers) return 0;
     *in = in_of[id][frame % RING];
     *sampling = 1000 + frame;
     return 1;
@@ -691,7 +1156,7 @@ int lks_pad(u32 id, LksInput *in, u64 *sampling) {
 
 int lks_style(u32 id, u32 *style) {
     if (!active() || (mode != M_HOST && mode != M_JOIN)) return 0;
-    *style = id <= 1 ? 1u /* full key */ : 0;
+    *style = (int)id < nplayers ? 1u /* full key */ : 0;
     return 1;
 }
 

@@ -20,6 +20,7 @@
  * anyway. Then no free buffer is listed while `pending` is gone: only Open lists buffers again,
  * after it has made a new `pending`. */
 #include "host.h"
+#include "net_lockstep.h"
 
 #define RENDERER_FREE 0x70   /* std::vector<movie::Buffer>: PCM buffers to fill */
 #define RENDERER_FULL 0x88   /* std::vector<movie::Buffer>: PCM buffers filled, for the audio out callback */
@@ -59,6 +60,7 @@ HLE_WRAP(71036149d0) {
 /* signature: d101c3ff f9000bfb a90267fa a9035ff8 a90457f6 a9054ff4 a9067bfd 910183fd 9102e013 aa0003f4 aa1303e0 9....... a945a299 cb190108 d343fd08 52955569 */
 HLE_WRAP(71036f4d90) {
     u64 renderer = c->x[0];
+    lks_movie_ns = rt_now_ns();   /* (the VS netplay's host skips the opening movie while it plays) */
     if (ld8(renderer + RENDERER_PLAYING) && !ld64(renderer + RENDERER_PENDING)) return;
     f_71036f4d90_orig(c);
 }

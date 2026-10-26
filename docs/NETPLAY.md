@@ -90,6 +90,17 @@ Pueblo Smash) sin fallos, en más de 8 400 cuadros. La comparación por páginas
 cuadro 2 (la "simulación" también corre en los menús, y en ella escriben otros hilos), así que no sirve para
 decidir. Por eso se añadieron las fotos por cuadro.
 
+**Resultado del pedido 013 (fotos del mismo cuadro):** sin fallos en las dos partidas. En **el combate** las fotos
+coinciden: en el cuadro 7 200 difiere el 5,13 % de los píxeles, en el 7 800 un 0,31 % (una franja pequeña) y en el
+8 400 son **prácticamente idénticas**, con los mismos personajes en las mismas posiciones y los mismos porcentajes,
+el luchador de la CPU incluido. Antes del combate (cuadros 600–6 600: menús, carga, presentación) las fotos sí
+difieren mucho (8–65 %). La explicación más probable es que esas pantallas se animan al ritmo del dibujo y no al
+de los cuadros, y que las cargas tardan distinto en cada partida. No es seguro, pero en el combate no queda
+rastro de esas diferencias. **Lectura: con el mismo savegame y los mismos botones cuadro a cuadro, el combate sale
+igual.** Falta comprobarlo entre dos PCs distintos. Las operaciones de coma flotante que podrían dar distinto
+entre procesadores Intel y AMD (las estimaciones de recíproco y raíz) el runtime las calcula en software, bit a bit,
+así que no deberían separar dos PCs.
+
 ## Detalles técnicos
 
 `runtime/net_lockstep.c` contiene todo. Las variables de entorno son `SSBU_NETPLAY` (`host`/`join`),

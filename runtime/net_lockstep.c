@@ -590,6 +590,23 @@ int lks_style(u32 id, u32 *style) {
     return 1;
 }
 
+/* Pictures at the same frames of two runs (or of two PCs), to compare by eye or byte by byte: every
+ * SSBU_LOCKSTEP_PICTURES frames (0: none; 600 by default with SSBU_LOCKSTEP). The renderer asks at
+ * each frame it shows; the frame it shows may be the game's last or the one before. */
+int lks_picture_due(u32 *f) {
+    static u32 every = ~0u, next;
+    if (!active()) return 0;
+    if (every == ~0u) {
+        const char *e = getenv("SSBU_LOCKSTEP_PICTURES");
+        every = e && *e ? (u32)atoi(e) : mode == M_RECORD || mode == M_REPLAY ? 600 : 0;
+        next = every;
+    }
+    if (!every || frame < next) return 0;
+    *f = next;
+    next += every;
+    return 1;
+}
+
 u64 lks_ticks(u64 now) {
     if (!active() || !on_main()) return now;
     return t0 + (u64)frame * TICKS_PER_FRAME + 16 * ++tick_reads;

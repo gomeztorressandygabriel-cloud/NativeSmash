@@ -80,6 +80,15 @@ salen iguales, dos PCs también saldrán iguales.
   resumen con las páginas que más difieren.
 
 En las dos partidas el reloj del hilo principal es un reloj de cuadros, igual que en el netplay.
+Con `SSBU_CAPTURE=<carpeta>`, cada `SSBU_LOCKSTEP_PICTURES` cuadros (600 por defecto) guarda una foto
+`lockstep_<cuadro>.bmp`: las fotos del mismo cuadro de las dos partidas se pueden comparar directamente. Es la
+comprobación más clara, porque la comparación por páginas incluye páginas que otros hilos escriben a su ritmo.
+
+**Resultado del pedido 012:** compiló bien, una partida normal fue perfecta (240 s a 60 fps, sin errores), y la
+grabación y la repetición pasaron por los mismos menús y llegaron al mismo combate (Bayonetta contra Corrin en
+Pueblo Smash) sin fallos, en más de 8 400 cuadros. La comparación por páginas salió con mucho ruido desde el
+cuadro 2 (la "simulación" también corre en los menús, y en ella escriben otros hilos), así que no sirve para
+decidir. Por eso se añadieron las fotos por cuadro.
 
 ## Detalles técnicos
 

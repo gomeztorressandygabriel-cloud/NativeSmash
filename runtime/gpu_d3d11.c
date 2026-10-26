@@ -15,6 +15,7 @@
 #include "gpu_backend.h"
 #include "gpu_menu.h"
 #include "latency.h"
+#include "net_lockstep.h"
 #include "gpu_overlay.h"
 #include "gpu_fsr.h"
 #include "net.h"
@@ -4706,9 +4707,14 @@ static void capture(ID3D11Texture2D *back, ID3D11Texture2D *window) {
         if (getenv("SSBU_CAPTURE_MAX")) most = atoi(getenv("SSBU_CAPTURE_MAX"));
         if (getenv("SSBU_CAPTURE_EVERY")) every = (u64)(atof(getenv("SSBU_CAPTURE_EVERY")) * 1e9);
     }
+    char path[1024];
+    u32 lks_frame;
+    if (dir && lks_on() && lks_picture_due(&lks_frame)) {   /* (netplay's check: the same frames of two runs) */
+        snprintf(path, sizeof path, "%s/lockstep_%06u.bmp", dir, lks_frame);
+        save_bmp(back, path);
+    }
     if (!dir || count >= most || rt_now_ns() - last < every) return;
     last = rt_now_ns();
-    char path[1024];
     snprintf(path, sizeof path, "%s/frame_%03d.bmp", dir, count);
     save_bmp(back, path);
     if (window && getenv("SSBU_CAPTURE_WINDOW")) {

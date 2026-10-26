@@ -1,4 +1,4 @@
-﻿# Resultado del pedido 001: combate automatico con la sonda
+# Resultado del pedido 001: combate automatico con la sonda
 
 **Estado: terminado, con exito en el intento 2 de 3.**
 
@@ -19,7 +19,7 @@
 2. **Intento 2** (330 s, todos los tiempos del guion desplazados +125 s): **llego al combate.**
    - Capturas: menu principal ("Combate normal") -> seleccion de personajes (Bayonetta vs. CPU nivel 3) -> combate 1 contra 1 en un escenario con plataformas (Bayonetta contra Estela/Rosalina) con marcadores de porcentaje.
    - Segundo de inicio del combate (cuenta atras "1"): ~171 s desde el arranque del proceso.
-   - Duracion: el combate sigue hasta que se corto el proceso a los 330 s (la ultima captura, a +252 s, aun muestra combate; una captura anterior muestra la pantalla de resultado de un punto "2 - 3"). Duracion visible del combate: al menos ~80 s en capturas; el proceso corrio ~160 s despues del inicio.
+   - Duracion: el combate empezo a ~171 s y la ultima captura (a +252 s, limite de 40 capturas) aun muestra combate en curso, con porcentajes en pantalla; una captura intermedia muestra un marcador grande "2 - 3" con efecto de golpe (no se pudo determinar su significado exacto). Se detuvo el proceso a los 330 s: el combate duro al menos ~80 s en capturas y el proceso corrio ~160 s tras empezar.
    - Sin `host exception`, `stopped during` ni `fatal` en el log.
 3. No hizo falta el intento 3.
 

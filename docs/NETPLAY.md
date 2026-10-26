@@ -23,8 +23,11 @@ uno verá el combate de forma distinta: los personajes en sitios distintos.
 **Los dos necesitan:**
 1. La **misma versión** del juego y **NativeSmash al día**: en el launcher, página **Juego** → **Buscar
    actualizaciones** → **Actualizar ahora**.
-2. **Los mismos luchadores desbloqueados**. Lo más fácil es que los dos usen `Unlock All Fighters.bat`
-   antes. Si las pantallas de selección no son iguales, los juegos se separan desde el menú.
+2. **El mismo savegame.** El juego lo lee al empezar (luchadores desbloqueados, últimas reglas, posición del
+   cursor, música...): con savegames distintos, los menús ya empiezan distintos y los juegos se separan. El
+   host, con el juego cerrado, comprime su carpeta `save` (en la carpeta de NativeSmash) y se la pasa a su
+   amigo **en privado**, nunca por GitHub. El amigo, con el juego cerrado, renombra la suya a `save-mio` (su
+   copia de seguridad) y pone la del host en su lugar. Conviene repetirlo antes de cada sesión de prueba.
 3. Estar en la misma red: una **VPN** como ZeroTier, Tailscale o Radmin VPN (lo más fácil), o que el host
    abra el **puerto UDP 7810** en su router.
 

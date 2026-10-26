@@ -497,8 +497,8 @@ static void census_span(int in_sim) {   /* a span begins: every page read-only a
 }
 
 static void census_end(void) {
+    census_protect(PAGE_READWRITE);   /* (before the handler stops: a write to a page still read-only now would find no one to let it through) */
     census_on = 0;
-    census_protect(PAGE_READWRITE);
     nguest = 0;
     kernel_thread_each(note_guest, NULL);
     u64 foreign_threads = 0;

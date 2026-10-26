@@ -579,6 +579,28 @@ a su ritmo (sonido, efectos, bibliotecas del sistema): todas las páginas que to
 Los hilos que solo escriben mientras corre la simulación (los ayudantes del sistema de trabajos) se mantienen. Probado en Wine con un
 juego de mentira con un ayudante y un "hilo de sonido": el censo separa bien los dos, y **la ronda 1 ya sale IDENTICAL**.
 
+### Resultado del pedido 011: el censo dice que separar por hilos no basta
+
+- El censo de 10 cuadros funcionó y dio la foto más completa hasta ahora de quién escribe la memoria del combate (5 732 páginas):
+  - **El hilo principal escribe 29 páginas mientras corre la simulación y 1 297 fuera de ella.** Casi todo lo que hace en un cuadro
+    (el dibujo, entre otras cosas) va fuera de la función que se tomó como "la simulación".
+  - **Solo dos hilos escriben únicamente durante la simulación**: el 12 (382 páginas) y el 13 (356). Son ayudantes de verdad.
+  - **Otros 20 hilos escriben dentro y fuera.** Entre ellos están **el 3 y el 4, los trabajadores del sistema de tareas** del juego
+    (`main+0x353d1b0`), que ejecutan el código de los personajes (`lua2cpp_*`), y el 30 y el 44, con más de 1 000 páginas cada uno.
+  - Con la regla de la versión 6 ("quien escribe fuera de la simulación va a su ritmo") quedaron fuera **3 293 de 5 732 páginas**.
+    Eso incluye trabajo de la simulación: los mismos hilos hacen tareas del combate y tareas de otras cosas.
+- Después del censo el juego se cerró en el hilo 3 al escribir en `0x60864751b8`. Fue un **fallo de la prueba**: al terminar el censo
+  se apagaba el manejador antes de volver a dejar escribir en todas las páginas, y una escritura en ese instante no tenía quien la
+  dejara pasar. Está corregido (primero se desprotege, luego se apaga).
+
+**Conclusión de la línea "rebobinar memoria por páginas":** las páginas y los hilos están demasiado mezclados en este juego. Un mismo hilo
+hace trabajo del combate y de otras cosas, y una misma página puede tener datos de los dos. Seguir afinando reglas por página o por hilo
+es dar vueltas al mismo tema. Lo que sí quedó demostrado: el juego se deja guardar y rebobinar (fibras incluidas) sin romperse, y
+repetir un cuadro cuesta 3–4 ms en el portátil. **El siguiente método para el rollback**, cuando se retome, será guardar **los objetos
+del combate** (luchadores, escenario, objetos, el generador aleatorio de la partida), localizados por sus estructuras, en vez de la
+memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
+necesita rebobinar.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

@@ -82,6 +82,10 @@ funcionan entre dos juegos en un PC. La partida larga con retraso Auto y varios 
 medir en un solo PC de 8 GB (dos juegos a la vez se quedan sin memoria y se congelan minutos), así que la
 prueba real son dos PC distintos. Si algo falla, el registro (`[netplay]`) dice dónde.
 
+## Esperar a los shaders (0.1.16)
+
+Nadie empieza la partida hasta que **todos** los juegos han terminado su pantalla de carga de shaders, tarde lo que tarde. Cada juego avisa de que está listo dentro de su paquete de "sigo vivo" (cada 250 ms, desde un hilo propio, así que un juego cargando sigue contestando). El host manda la salida solo cuando todos estan listos, y el titulo de la ventana dice quien falta. Protocolo 4: todos deben tener la misma version.
+
 ## Lo que todavía no hace (o puede fallar)
 
 - **Puede desincronizarse.** Es lo primero que hay que medir. Hay una prueba en un solo PC que lo mide

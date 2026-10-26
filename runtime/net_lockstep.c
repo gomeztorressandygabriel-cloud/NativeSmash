@@ -77,7 +77,7 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define MAXSEND 48                  /* frames of pads in one packet at most (a player that fell behind is sent what it lacks) */
 #define REDUNDANCY 8                /* frames of pads each packet repeats (a lost packet costs nothing) */
 #define MAGIC 0x4B4C534Eu           /* "NSLK" */
-#define VERSION 3                   /* (2: up to four players, the sender in every packet) */
+#define VERSION 4                   /* (2: up to four players, the sender in every packet) */
 
 enum { M_OFF, M_RECORD, M_REPLAY, M_HOST, M_JOIN };
 
@@ -258,6 +258,7 @@ typedef struct Peer {
     u32 vip;                  /* (through the lobby) its virtual address */
     struct sockaddr_in addr;  /* (to an address) */
     u64 last_heard;
+    int ready;                /* its game has finished loading its shaders (it says so in its ALIVE) */
     u32 frame;                /* the frame it says it is at */
     u32 acked;                /* how many of this PC's pads it says it has */
     double rtt, jitter;       /* ms, smoothed */
@@ -268,6 +269,8 @@ static SOCKET sock = INVALID_SOCKET;
 static Peer peer[MAXP];
 static int nplayers = 2;          /* (the host's number, told to the others) */
 static int welcomed, start_heard, start_sent;
+volatile int lks_gfx_loading;   /* (gpu_d3d11.c) the start's shader loading screen is still up: this game is not ready */
+static int local_ready(void) { return !lks_gfx_loading; }
 static u64 nonce;
 static int delay_auto, delay_quiet;
 static u32 stalls;                /* frames this PC waited for another one's pads (the last 60) */
@@ -644,6 +647,7 @@ static void on_packet(const u8 *p, int n, u32 src_vip, const struct sockaddr_in 
     }
     case P_ALIVE:   /* answer, so that the sender knows its ping */
         if (who < 0 || who == me || n < HEAD + 8) return;
+        if (n >= HEAD + 9 && peer[who].known) peer[who].ready = p[HEAD + 8];
         {
             u8 q[HEAD + 8];
             int k = header(q, P_PONG);
@@ -766,6 +770,7 @@ const char *lks_status_text(void) {
     case 3: snprintf(text, sizeof text, es ? "Online Direct: recibiendo el savegame del host (%u%%)" : "Online Direct: getting the host's save (%u%%)", save_parts ? save_got * 100 / save_parts : 0); break;
     case 4:
         if (desync_frame != ~0u) snprintf(text, sizeof text, es ? "Online Direct: posible desincronizacion desde el cuadro %u - reiniciad la partida" : "Online Direct: probable desync from frame %u - restart the game", desync_frame);
+        else if (!started && !local_ready()) snprintf(text, sizeof text, es ? "Online Direct: cargando shaders - los demas esperan" : "Online Direct: loading shaders - the others wait");
         else if (!started) snprintf(text, sizeof text, es ? "Online Direct: esperando a que los demas carguen..." : "Online Direct: waiting for the others to load...");
         else snprintf(text, sizeof text, es ? "Online Direct: jugador %d de %d - ping %.0f ms - retraso %d%s" : "Online Direct: player %d of %d - ping %.0f ms - delay %d%s",
                       me + 1, nplayers, ping, delay, stalls > 6 ? (es ? " - tirones (la red o el otro PC)" : " - stuttering (the network or the other PC)") : "");
@@ -785,9 +790,10 @@ static DWORD WINAPI alive_main(void *unused) {
     for (;;) {
         if (stopped && phase != 5) { phase = 5; snprintf((char *)phase_note, sizeof phase_note, "%s", spanish() ? "red apagada" : "netplay off"); }
         if (!stopped) {
-            u8 p[HEAD + 8];
+            u8 p[HEAD + 9];
             int k = header(p, P_ALIVE);
             put64(p + k, rt_now_ns()); k += 8;
+            p[k++] = (u8)local_ready();
             send_all(p, k);
         }
         const char *s = lks_status_text();
@@ -897,17 +903,27 @@ static int connect_peer(void) {
             next_hello = now + 200000000ull;
         }
         poll_net(20);
+        /* Nobody starts until every game has finished its shader loading screen - however long that takes (a game
+         * that is not ready still answers ALIVE, and says so there). The host starts them all with START. */
+        int waiting_for = -1;
         if (mode == M_HOST) {
             int joined = 0;
-            for (int i = 1; i < nplayers; i++) joined += peer[i].known;
-            if (joined == nplayers - 1) return 1;
+            for (int i = 1; i < nplayers; i++) { joined += peer[i].known; if (peer[i].known && !peer[i].ready && waiting_for < 0) waiting_for = i; }
+            if (joined == nplayers - 1) {
+                phase = 4;
+                if (waiting_for < 0 && local_ready()) return 1;
+            }
         }
-        if (mode == M_JOIN && welcomed && (start_heard || !via_lobby || nplayers == 2)) {
-            if (!start_heard && nplayers == 2) start_heard = 1;   /* (two players: the host is the only other) */
-            if (start_heard) return 1;
+        if (mode == M_JOIN && welcomed) {
+            phase = 4;
+            if (start_heard && local_ready()) return 1;
         }
         if (now >= next_note) {
-            if (next_note) fprintf(stderr, "[netplay] still waiting...\n");
+            if (next_note) {
+                if (!local_ready()) fprintf(stderr, "[netplay] this game is still loading its shaders: the others wait\n");
+                else if (waiting_for >= 0) fprintf(stderr, "[netplay] player %d is still loading its shaders: waiting\n", waiting_for + 1);
+                else fprintf(stderr, "[netplay] still waiting...\n");
+            }
             next_note = now + 10000000000ull;
         }
     }
@@ -1080,7 +1096,7 @@ void lks_input_step(void) {
             poll_net(2);
             if (stopped) { stop("[netplay] netplay off"); return; }
             u64 now = rt_now_ns();
-            if (now >= next_send) { send_inputs(); next_send = now + 10000000ull; }
+            if (now >= next_send) { send_inputs(); if (mode == M_HOST && frame < 300) send_start(); next_send = now + 10000000ull; }
             for (int i = 0; i < nplayers; i++) {
                 if (i == me || have[i] > frame) continue;
                 u64 heard = peer[i].last_heard > waited_from ? peer[i].last_heard : waited_from;   /* (its game may be busy - loading shaders - but alive: wait) */

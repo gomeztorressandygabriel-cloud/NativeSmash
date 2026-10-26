@@ -27,6 +27,7 @@ void hid_local_input(LksInput *in);
 void lks_preboot(void);
 /* What the VS netplay is doing, in a line for the window's title and the screen; NULL when it is off. */
 const char *lks_status_text(void);
+extern volatile int lks_gfx_loading;   /* (gpu_d3d11.c) 1 while the start's shader loading screen is up: netplay does not start until every game is past it */
 extern void (*lks_window_status)(const char *text);   /* (gpu_d3d11.c) set to show it in the title */
 int lks_peer_ip(u32 ip);                               /* (hle_net.c) a packet from this address is the VS netplay's */
 extern volatile u64 lks_movie_ns;                      /* (hle_movie.c) when the movie player last worked */

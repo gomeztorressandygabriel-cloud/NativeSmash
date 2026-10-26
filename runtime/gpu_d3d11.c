@@ -922,7 +922,7 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
      * behind them (5,948 shaders: 600 CPU-seconds, no frame for over 30 s). So under DXVK it is
      * off unless SSBU_SHADER_PREWARM=1. */
     const char *prewarm = getenv("SSBU_SHADER_PREWARM");
-    if (prewarm ? atoi(prewarm) != 0 : !on_dxvk()) { prewarm_on = 1; CloseHandle(CreateThread(NULL, 0, prewarm_main, NULL, 0, NULL)); }
+    if (prewarm ? atoi(prewarm) != 0 : !on_dxvk()) { prewarm_on = 1; if (!getenv("SSBU_SHADER_WAIT") || atoi(getenv("SSBU_SHADER_WAIT")) != 0) lks_gfx_loading = 1;   /* (netplay: not ready until the loading screen is over) */ CloseHandle(CreateThread(NULL, 0, prewarm_main, NULL, 0, NULL)); }
     else if (!prewarm) fprintf(stderr, "[gfx] prewarm: off under DXVK (SSBU_SHADER_PREWARM=1 turns it on)\n");
     ready = 1;
     fprintf(stderr, "[gfx] Direct3D 11 ready%s\n", compile_dev ? " (shaders compile on a device of their own first)" : "");
@@ -5367,6 +5367,7 @@ void gfx_present(u64 guest, u32 width, u32 height) {
         fprintf(stderr, "[gfx] loading screen: %ld of %ld shaders made in %.1f s%s\n", (long)prewarm_done, (long)prewarm_total,
                 (GetTickCount64() - t0) / 1000.0, prewarm_done < prewarm_total ? " (the rest while playing)" : "");
     }
+    lks_gfx_loading = 0;
     InterlockedExchange(&prewarm_background, 1);   /* (what the prewarm still has to do, it does behind the game) */
     Surface *src = NULL;
     for (u32 i = 0; i < nsurfaces; i++)

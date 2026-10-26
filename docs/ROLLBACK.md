@@ -417,6 +417,18 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
 
+### El laboratorio automático (rama `cloud/rollback-lab`)
+
+Desde el pedido 001, las pruebas en el PC del usuario las hace un agente local (Antigravity) sin que el usuario juegue: lee el pedido en
+`lab/PEDIDO.md` de la rama `cloud/rollback-lab`, arranca el juego con botones guionizados (`tools/dev/autobattle.sh`, con una copia de la
+partida guardada) y sube el resultado a `lab/resultados/`. Reglas en `lab/README.md` de esa rama.
+
+**Pedido 001 (combate automático con la sonda v4):** funcionó al segundo intento. En este PC el juego tarda ~133 s en dar su primera imagen,
+así que el guion de `autobattle.sh` necesita sus tiempos **+125 s**; el combate empieza hacia el segundo 171. Los números coinciden con las
+mediciones a mano (ALIAS ~2 400–2 600 páginas por cuadro, 1 lectura del mando por cuadro, mismas pilas). La primera función de la pila de la
+lectura del mando sale unas veces como `lua2cpp_item+…` y otras como `lua2cpp_gamewatch+…`: es la función nativa `GetNpadState` (fuera de los
+módulos del juego) nombrada por el módulo más cercano, no código de esos módulos.
+
 ### Cuarta medición: dónde lee el mando y dónde entrega el cuadro (sonda versión 4)
 
 Las 46 pilas de cada tipo fueron idénticas:

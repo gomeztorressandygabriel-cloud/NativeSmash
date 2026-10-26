@@ -228,10 +228,18 @@ $xaml = @'
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
         <Border x:Name="b" CornerRadius="12" Padding="16,11" Background="Transparent">
           <Grid><Border x:Name="bar" Width="4" CornerRadius="2" HorizontalAlignment="Left" Margin="-8,2" Background="{StaticResource Accent}" Opacity="0"/>
-            <ContentPresenter Margin="6,0,0,0" TextBlock.Foreground="{TemplateBinding Foreground}"/></Grid></Border>
+            <StackPanel Orientation="Horizontal" Margin="6,0,0,0">
+              <TextBlock x:Name="ico" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="26" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}" Opacity="0.75"/>
+              <ContentPresenter VerticalAlignment="Center" TextBlock.Foreground="{TemplateBinding Foreground}"/></StackPanel></Grid></Border>
         <ControlTemplate.Triggers>
-          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#10FFFFFF"/></Trigger>
-          <Trigger Property="IsChecked" Value="True"><Setter TargetName="b" Property="Background" Value="#1CFFFFFF"/><Setter TargetName="bar" Property="Opacity" Value="1"/><Setter Property="Foreground" Value="{StaticResource Ink}"/></Trigger>
+          <Trigger Property="Tag" Value="play"><Setter TargetName="ico" Property="Text" Value="&#xE768;"/></Trigger>
+          <Trigger Property="Tag" Value="online"><Setter TargetName="ico" Property="Text" Value="&#xE774;"/></Trigger>
+          <Trigger Property="Tag" Value="pads"><Setter TargetName="ico" Property="Text" Value="&#xE7FC;"/></Trigger>
+          <Trigger Property="Tag" Value="video"><Setter TargetName="ico" Property="Text" Value="&#xE7F4;"/></Trigger>
+          <Trigger Property="Tag" Value="shaders"><Setter TargetName="ico" Property="Text" Value="&#xE790;"/></Trigger>
+          <Trigger Property="Tag" Value="game"><Setter TargetName="ico" Property="Text" Value="&#xE713;"/></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#12FFFFFF"/><Setter TargetName="ico" Property="Opacity" Value="1"/></Trigger>
+          <Trigger Property="IsChecked" Value="True"><Setter TargetName="b" Property="Background" Value="#22FFFFFF"/><Setter TargetName="bar" Property="Opacity" Value="1"/><Setter TargetName="ico" Property="Opacity" Value="1"/><Setter Property="Foreground" Value="{StaticResource Ink}"/></Trigger>
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
 
@@ -296,19 +304,52 @@ $xaml = @'
       </ControlTemplate></Setter.Value></Setter>
     </Style>
 
+    <!-- minimize and close -->
+    <Style x:Key="WinBtn" TargetType="Button">
+      <Setter Property="Foreground" Value="{StaticResource Muted}"/><Setter Property="FontFamily" Value="Segoe MDL2 Assets"/><Setter Property="FontSize" Value="11"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Width" Value="34"/><Setter Property="Height" Value="34"/><Setter Property="Margin" Value="4,0,0,0"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="b" CornerRadius="10" Background="Transparent">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.Foreground="{TemplateBinding Foreground}"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#22FFFFFF"/><Setter Property="Foreground" Value="{StaticResource Ink}"/></Trigger>
+          <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Background" Value="#33FFFFFF"/></Trigger>
+        </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="CloseWin" TargetType="Button" BasedOn="{StaticResource WinBtn}">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="b" CornerRadius="10" Background="Transparent">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.Foreground="{TemplateBinding Foreground}"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#CCE5484D"/><Setter Property="Foreground" Value="White"/></Trigger>
+          <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Background" Value="#FFC93A40"/></Trigger>
+        </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+
     <Style x:Key="PlayBtn" TargetType="Button">
       <Setter Property="Foreground" Value="White"/><Setter Property="FontSize" Value="20"/><Setter Property="FontWeight" Value="Bold"/><Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-        <Grid><Border x:Name="glow" CornerRadius="32" Background="{StaticResource Accent}" Opacity="0.55"><Border.Effect><BlurEffect Radius="26"/></Border.Effect></Border>
-          <Border x:Name="b" CornerRadius="32" Background="{StaticResource Accent}" Padding="56,18"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.Foreground="White"/></Border></Grid>
+        <Grid x:Name="root" RenderTransformOrigin="0.5,0.5"><Grid.RenderTransform><ScaleTransform x:Name="sc" ScaleX="1" ScaleY="1"/></Grid.RenderTransform>
+          <Border x:Name="glow" CornerRadius="32" Background="{StaticResource Accent}" Opacity="0.55"><Border.Effect><BlurEffect Radius="26"/></Border.Effect></Border>
+          <Border x:Name="b" CornerRadius="32" Background="{StaticResource Accent}" Padding="56,18" BorderBrush="#55FFFFFF" BorderThickness="1"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.Foreground="White"/></Border></Grid>
         <ControlTemplate.Triggers>
-          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="glow" Property="Opacity" Value="0.9"/></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="glow" Property="Opacity" Value="0.9"/>
+            <Trigger.EnterActions><BeginStoryboard><Storyboard>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="1.035" Duration="0:0:0.14"/>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="1.035" Duration="0:0:0.14"/></Storyboard></BeginStoryboard></Trigger.EnterActions>
+            <Trigger.ExitActions><BeginStoryboard><Storyboard>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.18"/>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.18"/></Storyboard></BeginStoryboard></Trigger.ExitActions></Trigger>
+          <Trigger Property="IsPressed" Value="True">
+            <Trigger.EnterActions><BeginStoryboard><Storyboard>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="0.97" Duration="0:0:0.06"/>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="0.97" Duration="0:0:0.06"/></Storyboard></BeginStoryboard></Trigger.EnterActions></Trigger>
           <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.35"/></Trigger>
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
   </Window.Resources>
 
-  <Border x:Name="Shell" CornerRadius="26" BorderBrush="#33FFFFFF" BorderThickness="1" Margin="22">
+  <Border x:Name="Shell" CornerRadius="26" BorderThickness="1" Margin="22">
+    <Border.BorderBrush><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#55FFFFFF" Offset="0"/><GradientStop Color="#1AFFFFFF" Offset="0.45"/><GradientStop Color="#33A66BFF" Offset="1"/></LinearGradientBrush></Border.BorderBrush>
     <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
       <GradientStop Color="#FF141935" Offset="0"/><GradientStop x:Name="Mid" Color="#FF0E1124" Offset="0.55"/><GradientStop Color="#FF080A15" Offset="1"/></LinearGradientBrush></Border.Background>
     <Border.Effect><DropShadowEffect BlurRadius="40" ShadowDepth="0" Opacity="0.65"/></Border.Effect>
@@ -338,8 +379,10 @@ $xaml = @'
 
         <!-- pages -->
         <Grid Grid.Column="1" x:Name="Pages" Margin="46,40,46,34">
-          <Button x:Name="CloseBtn" Content="✕" Width="34" Height="34" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-18,-22,0" Panel.ZIndex="5"
-                  Foreground="{StaticResource Muted}" Background="Transparent" BorderThickness="0" FontSize="14" Cursor="Hand"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-22,-26,0" Panel.ZIndex="5">
+            <Button x:Name="MinBtn" Style="{StaticResource WinBtn}" Content="&#xE921;" ToolTip="Minimizar"/>
+            <Button x:Name="CloseBtn" Style="{StaticResource CloseWin}" Content="&#xE8BB;" ToolTip="Cerrar"/>
+          </StackPanel>
 
           <StackPanel x:Name="PagePlay" VerticalAlignment="Center">
             <Border x:Name="UpdBanner" Visibility="Collapsed" CornerRadius="14" Background="#22A66BFF" BorderBrush="#55A66BFF" BorderThickness="1" Padding="16,6,6,0" HorizontalAlignment="Left" Margin="0,0,0,26">
@@ -884,6 +927,7 @@ function Open-Path([string]$Path, [string]$Verb) {
     if (Test-Path -LiteralPath $Path) { Start-Process -FilePath $Path } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
 }
 (Find 'CloseBtn').Add_Click({ $win.Close() })
+(Find 'MinBtn').Add_Click({ $win.WindowState = [Windows.WindowState]::Minimized })
 (Find 'Shell').Add_MouseLeftButtonDown({ param($s, $e) if ($e.OriginalSource -is [Windows.Controls.Border] -or $e.OriginalSource -is [Windows.Controls.Grid]) { try { $win.DragMove() } catch { } } })
 $install = {
     $bat = Join-Path $Root 'Install NativeSmash.bat'

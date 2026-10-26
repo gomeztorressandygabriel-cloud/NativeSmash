@@ -29,16 +29,22 @@ uno verá el combate de forma distinta: los personajes en sitios distintos.
 3. Estar en la misma red: una **VPN** como ZeroTier, Tailscale o Radmin VPN (lo más fácil), o que el host
    abra el **puerto UDP 7810** en su router.
 
-**Pasos:**
-1. El **host** abre `launchers\Host VS Netplay (test).bat`. Elige el puerto (Enter: 7810) y el retraso
-   (Enter: 2). Le pasa a su amigo la dirección que sale en pantalla (la de la VPN, si usáis una).
-2. El amigo abre `launchers\Join VS Netplay (test).bat` y escribe esa dirección.
-3. **Abrid los dos juegos más o menos a la vez**: cada uno espera al otro en su primera pantalla (hasta 5
+**Pasos (desde el launcher, `Play SSBU.bat`):**
+1. El **host** va a la página **En línea**, baja hasta **VS en red con un amigo (prueba)** y elige **Soy el host
+   (jugador 1)**. Ahí mismo sale su dirección de Radmin VPN (la que empieza por 26.): se la pasa a su amigo.
+2. El amigo, en la misma página, elige **Me uno (jugador 2)** y escribe esa dirección.
+3. Los dos eligen el mismo retraso (2 para empezar) y pulsan **JUGAR**. El launcher recuerda la elección para la
+   próxima vez (en `vs_netplay.txt`). Para jugar normal otra vez, elegid **Apagado**.
+
+También se puede sin el launcher: `launchers\Host VS Netplay (test).bat` y `launchers\Join VS Netplay (test).bat`.
+
+**Después:**
+1. **Abrid los dos juegos más o menos a la vez**: cada uno espera al otro en su primera pantalla (hasta 5
    minutos). Los dos tienen que empezar desde cero, porque la sincronización empieza al arrancar.
-4. Id juntos a **Smash (VS)**. El host es el jugador 1 y el amigo el jugador 2, cada uno con su propio mando.
+2. Id juntos a **Smash (VS)**. El host es el jugador 1 y el amigo el jugador 2, cada uno con su propio mando.
    Usad solo mando o teclado normal (como "Pro Controller"). Un mando de GameCube funciona, pero sin la
    presión analógica de los gatillos.
-5. Si va a tirones, subid el retraso (3 o 4). Si va bien, probad a bajarlo (1).
+3. Si va a tirones, subid el retraso (3 o 4). Si va bien, probad a bajarlo (1).
 
 **Qué mirar y mandarme:** las líneas de `build\play.log` que empiecen por `[netplay]`. Las importantes
 dicen `frame N: pages the simulation wrote: same X, different Y`. Si `different` se queda en unos pocos
@@ -50,7 +56,7 @@ es la pista para arreglarlo.
 
 - **Puede desincronizarse.** Es lo primero que hay que medir. Hay una prueba en un solo PC que lo mide
   (abajo), y el laboratorio la va a hacer.
-- No tiene botones en el juego (Host/Join con código). De momento se configura con los dos `.bat`.
+- No tiene botones dentro del juego ni código de sala: se elige en el launcher (o con los dos `.bat`) con la dirección del host.
 - Si el otro deja de responder 15 s, el netplay se apaga y el jugador 2 se queda quieto. Todavía no sale
   el mensaje de desconexión del propio juego.
 - Solo 1 contra 1.

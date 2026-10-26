@@ -67,6 +67,14 @@ $Words = @{
     delayLabel = @('Retraso de entrada en línea, en cuadros (menos es más rápido; si es muy poco, se traba)', 'Online input delay, in frames (lower is quicker; too low and it stutters)')
     delayAuto = @('Auto (el del juego)', 'Auto (the game''s)')
     delayHelp = @('Cuántos cuadros guarda el juego antes de aplicar tu botón, para esperar al otro jugador. Menos es más rápido, pero si es muy poco para la conexión el juego se traba esperando. Con una buena conexión directa, prueba 2 o 3.', 'How many frames the game holds your button before applying it, to wait for the other player. Lower is quicker, but if it is too low for the connection the game stutters waiting. On a good direct connection, try 2 or 3.')
+    vsTitle = @('VS en red con un amigo (prueba)', 'VS netplay with a friend (test)')
+    vsOff = @('Apagado', 'Off'); vsHost = @('Soy el host (jugador 1)', 'I host (player 1)'); vsJoin = @('Me uno (jugador 2)', 'I join (player 2)')
+    vsPeer = @('Dirección del host (la de Radmin VPN, por ejemplo 26.12.34.56)', 'The host''s address (its Radmin VPN one, e.g. 26.12.34.56)')
+    vsDelay = @('Retraso en cuadros (sube si va a tirones)', 'Delay in frames (raise it if it stutters)')
+    vsMine = @('Tu dirección para tu amigo: {0}', 'Your address for your friend: {0}')
+    vsMineNone = @('No encontré tu dirección de Radmin VPN: ¿está conectado?', 'Your Radmin VPN address was not found: is it connected?')
+    vsHelp = @('Los dos veis el mismo VS local: el host es el jugador 1 y el otro el jugador 2. Pulsad Jugar los dos más o menos a la vez: cada juego espera al otro al empezar. Los dos necesitáis la misma versión y los mismos luchadores desbloqueados. Es una prueba: puede desincronizarse.', 'You both see the same local VS: the host is player 1, the other player 2. Both press Play at about the same time: each game waits for the other at the start. You both need the same version and the same fighters unlocked. It is a test: it may go out of sync.')
+    vsNoPeer = @('Escribe la dirección del host para unirte.', 'Type the host''s address to join.')
     directHelp = @('Más rápidas. Apagadas, todo pasa por la sala y nadie ve tu dirección de internet.', 'Faster. Off: everything goes through the lobby and nobody learns your internet address.')
     padsTitle = @('Controles', 'Controllers'); kbPlays = @('El teclado juega como', 'The keyboard plays as'); nobody = @('Nadie', 'Nobody')
     background = @('Los mandos funcionan con otra ventana al frente', 'Controllers work while another window is in front')
@@ -146,6 +154,7 @@ $serverFile = Join-Path $Root 'online_server.txt'
 $nameFile = Join-Path $Root 'online_name.txt'
 $directFile = Join-Path $Root 'online_direct.txt'
 $delayFile = Join-Path $Root 'online_delay.txt'
+$vsFile = Join-Path $Root 'vs_netplay.txt'   # the VS netplay (docs\NETPLAY.md): off | host <delay> | join <address> <delay>
 
 function Get-Setting([string]$Path, [string]$Section, [string]$Key) {
     $v = Get-IniValue $Path $Section $Key
@@ -337,7 +346,8 @@ $xaml = @'
             <CheckBox x:Name="DirectBox" Style="{StaticResource Switch}" Margin="0,34,0,0"/>
           </StackPanel>
 
-          <StackPanel x:Name="PageOnline" Visibility="Collapsed">
+          <ScrollViewer x:Name="PageOnline" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
+          <StackPanel>
             <TextBlock x:Name="OnlineTitle" Style="{StaticResource Title}"/>
             <TextBlock x:Name="NameLabel" Style="{StaticResource Label}"/>
             <TextBox x:Name="NameBox" Style="{StaticResource Field}" MaxLength="32" Width="360" HorizontalAlignment="Left"/>
@@ -351,7 +361,16 @@ $xaml = @'
             <TextBlock x:Name="DirectHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
             <TextBlock x:Name="DelayLabel" Style="{StaticResource Label}" Margin="0,26,0,8"/>
             <WrapPanel x:Name="DelayChips" MaxWidth="660" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="VsTitle" Style="{StaticResource Label}" Margin="0,30,0,8" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="SemiBold"/>
+            <WrapPanel x:Name="VsChips"/>
+            <TextBlock x:Name="VsMine" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="VsPeerLabel" Style="{StaticResource Label}"/>
+            <TextBox x:Name="VsPeerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="VsDelayLabel" Style="{StaticResource Label}"/>
+            <WrapPanel x:Name="VsDelayChips"/>
+            <TextBlock x:Name="VsHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
           </StackPanel>
+          </ScrollViewer>
 
           <ScrollViewer x:Name="PagePads" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
           <StackPanel>
@@ -488,7 +507,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('DelayLabel', 'delayLabel'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsHelp', 'vsHelp'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -571,6 +590,29 @@ $delayItems = @(@{ Value = 'auto'; Text = (T 'delayAuto') }); foreach ($n in 1..
 if ($delayNow -notin ($delayItems | ForEach-Object { $_.Value })) { $delayItems += @{ Value = $delayNow; Text = $delayNow } }
 New-Chips (Find 'DelayChips') $delayItems $delayNow
 (Find 'DelayChips').ToolTip = (T 'delayHelp')
+
+# ---- the VS netplay (vs_netplay.txt; the game gets it as SSBU_NETPLAY* variables when Play starts it) ----
+$vsWords = @(([string](Get-LineValue $vsFile)).Trim() -split '\s+' | Where-Object { $_ })
+$vsMode = if ($vsWords.Count -and $vsWords[0] -in @('host', 'join')) { $vsWords[0] } else { 'off' }
+$vsPeer = if ($vsMode -eq 'join' -and $vsWords.Count -gt 1) { $vsWords[1] } else { '' }
+$vsDelay = if ($vsMode -eq 'host' -and $vsWords.Count -gt 1) { $vsWords[1] } elseif ($vsMode -eq 'join' -and $vsWords.Count -gt 2) { $vsWords[2] } else { '2' }
+if ($vsDelay -notmatch '^[0-8]$') { $vsDelay = '2' }
+New-Chips (Find 'VsChips') @(@{ Value = 'off'; Text = (T 'vsOff') }, @{ Value = 'host'; Text = (T 'vsHost') }, @{ Value = 'join'; Text = (T 'vsJoin') }) $vsMode
+New-Chips (Find 'VsDelayChips') @(0..8 | ForEach-Object { @{ Value = "$_"; Text = "$_" } }) $vsDelay
+(Find 'VsPeerBox').Text = $vsPeer
+$script:vsMine = @()
+try { $script:vsMine = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | ForEach-Object { $_.IPAddress } | Where-Object { $_ -like '26.*' }) } catch { }
+function Show-VsChoice {
+    $m = Get-Chip (Find 'VsChips')
+    $join = if ($m -eq 'join') { 'Visible' } else { 'Collapsed' }
+    (Find 'VsPeerLabel').Visibility = $join; (Find 'VsPeerBox').Visibility = $join
+    $on = if ($m -ne 'off') { 'Visible' } else { 'Collapsed' }
+    (Find 'VsDelayLabel').Visibility = $on; (Find 'VsDelayChips').Visibility = $on; (Find 'VsHelp').Visibility = $on
+    (Find 'VsMine').Visibility = if ($m -eq 'host') { 'Visible' } else { 'Collapsed' }
+    (Find 'VsMine').Text = if ($script:vsMine.Count) { (T 'vsMine') -f ($script:vsMine -join ', ') } else { T 'vsMineNone' }
+}
+foreach ($c in (Find 'VsChips').Children) { $c.Add_Checked({ Show-VsChoice }) }
+Show-VsChoice
 (Find 'BackgroundBox').IsChecked = (Get-Number (Get-Setting $padsIni 'general' 'background')) -ne 0
 (Find 'VsyncBox').IsChecked = @('off', '0', 'no') -notcontains ([string](Get-Setting $displayIni '' 'vsync')).Trim().ToLower()
 (Find 'FskipBox').IsChecked = @('on', '1', 'yes') -contains ([string](Get-Setting $displayIni '' 'frameskip')).Trim().ToLower()
@@ -720,6 +762,11 @@ function Get-WindowValues {
         "$nameFile|" = (Find 'NameBox').Text.Trim()
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
         "$delayFile|" = Get-Chip (Find 'DelayChips')
+        "$vsFile|" = switch (Get-Chip (Find 'VsChips')) {
+            'host' { "host $(Get-Chip (Find 'VsDelayChips'))" }
+            'join' { "join $(((Find 'VsPeerBox').Text -replace '\s', '')) $(Get-Chip (Find 'VsDelayChips'))" }
+            default { 'off' }
+        }
     }
     foreach ($a in $KeyActions.Keys) { $result["$padsIni|keyboard|$a"] = [string]$script:KeyValue[$a] }
     foreach ($kv in (Get-PadValues).GetEnumerator()) { $result[$kv.Key] = $kv.Value }
@@ -920,13 +967,21 @@ $poll.Add_Tick({
     if ((Get-Chip (Find 'LobbyChips')) -eq 'custom' -and (Find 'ServerBox').Text.Trim() -and (Find 'ServerBox').Text.Trim() -notmatch '^\S+:\d+$') {
         [void][Windows.MessageBox]::Show($win, (T 'badServer'), 'NativeSmash', 'OK', 'Warning'); return
     }
+    $vs = Get-Chip (Find 'VsChips')
+    $vsPeerNow = (Find 'VsPeerBox').Text -replace '\s', ''
+    if ($vs -eq 'join' -and -not $vsPeerNow) { [void][Windows.MessageBox]::Show($win, (T 'vsNoPeer'), 'NativeSmash', 'OK', 'Warning'); return }
+    $vars = @{}
+    if ($vs -in @('host', 'join')) {
+        $vars = @{ SSBU_NETPLAY = $vs; SSBU_NETPLAY_DELAY = (Get-Chip (Find 'VsDelayChips')) }
+        if ($vs -eq 'join') { $vars.SSBU_NETPLAY_PEER = $vsPeerNow }
+    }
     try { Save-WindowValues $before (Get-WindowValues) } catch {
         [void][Windows.MessageBox]::Show($win, "$(T 'saveFail')$($_.Exception.Message)", 'NativeSmash', 'OK', 'Error'); return
     }
     $script:played = $script:tree
     (Find 'Starting').Visibility = 'Visible'
     Save-Version $script:tree
-    Start-Game $script:tree
+    Start-Game $script:tree $vars
     if ($DryRun) { $win.Close(); return }
     $script:waited = 0
     $poll.Start()

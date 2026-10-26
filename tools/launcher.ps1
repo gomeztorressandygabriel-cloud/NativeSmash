@@ -46,7 +46,8 @@ $Defaults = @{
 }
 # What Play SSBU.bat clears, so the files count (the variables win over them in the game).
 $ClearedVars = @('SSBU_DATA_ROOT', 'SSBU_INPUT', 'SSBU_NET_HOST', 'SSBU_NET_RELAY', 'SSBU_NET_BIND',
-                 'SSBU_NET_ROOM', 'SSBU_NET_NAME', 'SSBU_NET_DIRECT', 'SSBU_NET_PORT')
+                 'SSBU_NET_ROOM', 'SSBU_NET_NAME', 'SSBU_NET_DIRECT', 'SSBU_NET_PORT',
+                 'SSBU_NETPLAY', 'SSBU_NETPLAY_PEER', 'SSBU_NETPLAY_PORT', 'SSBU_NETPLAY_DELAY', 'SSBU_LOCKSTEP', 'SSBU_RB_TEST', 'SSBU_RB_PROBE')
 
 # ---- files as lines (as hle_settings.c: bytes kept, line ends kept, no BOM) -----------------
 # Text is held as Latin-1 strings, one char per byte, so every byte comes back as it was; a new
@@ -272,11 +273,13 @@ function Get-GameCommand([string]$Tree) {
     return "$Tree\build\ssbu.exe $Tree\dump\modules --status 30 --online > $Tree\build\play.log 2>&1"
 }
 
-function Start-Game([string]$Tree) {
+function Start-Game([string]$Tree, [hashtable]$Vars = @{}) {
+    <# $Vars: variables for the game on top (the VS netplay's: docs\NETPLAY.md). #>
     $cmd = Get-GameCommand $Tree
     $line = "start `"SSBU log`" /min cmd /c `"$cmd`""
-    if ($DryRun) { Write-Host "would start, in $Root`: $line"; return }
+    if ($DryRun) { Write-Host "would start, in $Root`: $line$(foreach ($k in $Vars.Keys) { " $k=$($Vars[$k])" })"; return }
     foreach ($v in $ClearedVars) { Remove-Item -LiteralPath "Env:$v" -ErrorAction SilentlyContinue }
+    foreach ($k in $Vars.Keys) { Set-Item -LiteralPath "Env:$k" -Value ([string]$Vars[$k]) }
     Start-Process -FilePath $env:ComSpec -ArgumentList "/c $line" -WorkingDirectory $Root -WindowStyle Hidden
 }
 

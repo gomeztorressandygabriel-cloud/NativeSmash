@@ -22,4 +22,6 @@ int lks_style(u32 id, u32 *style);                  /* (hle_hid.c) whether playe
 u64 lks_ticks(u64 now);          /* (kernel.c) the system tick the game's main thread reads */
 int lks_picture_due(u32 *frame); /* (gpu_d3d11.c) a picture of the frame now, for comparing two runs: SSBU_LOCKSTEP_PICTURES frames apart */
 
-void hid_local_input(LksInput *in);   /* (hle_hid.c) this PC's player: its pad, keyboard and script, as player 1's */
+void hid_local_input(LksInput *in);
+/* (hle_net.c) A datagram for this player's virtual sockets: 1 if it is the VS netplay's own (through the online lobby), taken here. */
+int lks_deliver(u32 src_ip, u16 src_port, u16 dst_port, const void *data, u32 len);   /* (hle_hid.c) this PC's player: its pad, keyboard and script, as player 1's */

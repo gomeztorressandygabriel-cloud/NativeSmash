@@ -68,19 +68,21 @@ $Words = @{
     delayAuto = @('Auto (el del juego)', 'Auto (the game''s)')
     delayHelp = @('Cuántos cuadros guarda el juego antes de aplicar tu botón, para esperar al otro jugador. Menos es más rápido, pero si es muy poco para la conexión el juego se traba esperando. Con una buena conexión directa, prueba 2 o 3.', 'How many frames the game holds your button before applying it, to wait for the other player. Lower is quicker, but if it is too low for the connection the game stutters waiting. On a good direct connection, try 2 or 3.')
     vsTitle = @('VS en red con un amigo (prueba)', 'VS netplay with a friend (test)')
-    vsOff = @('Apagado', 'Off'); vsHost = @('Soy el host (jugador 1)', 'I host (player 1)'); vsJoin = @('Me uno (jugador 2)', 'I join (player 2)')
-    vsPeer = @('Dirección del host (la de Radmin VPN, por ejemplo 26.12.34.56)', 'The host''s address (its Radmin VPN one, e.g. 26.12.34.56)')
+    vsOff = @('Apagado', 'Off'); vsHost = @('Crear sala (jugador 1)', 'Make a room (player 1)'); vsJoin = @('Unirme a una sala (jugador 2)', 'Join a room (player 2)')
+    vsPeer = @('Código de la sala de tu amigo', 'Your friend''s room code')
+    vsCode = @('Código de tu sala: {0}   (pásaselo a tu amigo)', 'Your room code: {0}   (give it to your friend)')
+    vsCopy = @('Copiar el código', 'Copy the code'); vsNewCode = @('Otro código', 'Another code'); vsCopied = @('Código copiado: pégaselo a tu amigo (WhatsApp, Discord...).', 'Code copied: paste it to your friend (WhatsApp, Discord...).')
     vsDelay = @('Retraso en cuadros (sube si va a tirones)', 'Delay in frames (raise it if it stutters)')
     vsMine = @('Tu dirección para tu amigo: {0}', 'Your address for your friend: {0}')
     vsMineNone = @('No encontré tu dirección de Radmin VPN: ¿está conectado?', 'Your Radmin VPN address was not found: is it connected?')
-    vsHelp = @('Los dos veis el mismo VS local: el host es el jugador 1 y el otro el jugador 2. Pulsad Jugar los dos más o menos a la vez: cada juego espera al otro al empezar. Los dos necesitáis la misma versión y los mismos luchadores desbloqueados. Es una prueba: puede desincronizarse.', 'You both see the same local VS: the host is player 1, the other player 2. Both press Play at about the same time: each game waits for the other at the start. You both need the same version and the same fighters unlocked. It is a test: it may go out of sync.')
+    vsHelp = @('Sin Radmin ni puertos: los dos se encuentran en el servidor de salas por el código. Pulsad Jugar los dos; el que esté listo antes espera al otro el tiempo que haga falta. El host es el jugador 1 y maneja los menús; el otro es el jugador 2. Los dos necesitáis la misma versión del juego y el savegame del host. Es una prueba: puede desincronizarse.', 'No Radmin, no ports: you both meet in the lobby server by the code. Both press Play; whoever is ready first waits for the other as long as it takes. The host is player 1 and drives the menus; the other is player 2. You both need the same game version and the host''s save. It is a test: it may go out of sync.')
     vsSaveMake = @('Crear el savegame para el netplay', 'Make the save for netplay')
     vsSaveUse = @('Usar el savegame del host (ZIP)', 'Use the host''s save (ZIP)')
     vsSaveReady = @('Savegame del netplay: listo. Las partidas en red empiezan siempre desde él; tu savegame propio no se toca.', 'Netplay save: ready. Netplay games always start from it; your own save is not touched.')
     vsSaveNone = @('Todavía no hay savegame del netplay. El host lo crea con su botón y os pasa el ZIP (Discord, WhatsApp...); el otro lo elige con "Usar el savegame del host". Sin él, cada uno usa el suyo y es fácil que los juegos se separen.', 'No netplay save yet. The host makes it with the button and sends the ZIP (Discord...); the other picks it with "Use the host''s save". Without it each uses their own, and the games easily part.')
     vsSaveMade = @('Hecho: {0}. Pásaselo a tu amigo (Discord, WhatsApp...). Vuelve a crearlo si tu savegame cambia.', 'Done: {0}. Send it to your friend (Discord...). Make it again if your save changes.')
     vsSaveFail = @('No se pudo: ', 'It could not be done: ')
-    vsNoPeer = @('Escribe la dirección del host para unirte.', 'Type the host''s address to join.')
+    vsNoPeer = @('Escribe el código de la sala de tu amigo para unirte.', 'Type your friend''s room code to join.')
     directHelp = @('Más rápidas. Apagadas, todo pasa por la sala y nadie ve tu dirección de internet.', 'Faster. Off: everything goes through the lobby and nobody learns your internet address.')
     padsTitle = @('Controles', 'Controllers'); kbPlays = @('El teclado juega como', 'The keyboard plays as'); nobody = @('Nadie', 'Nobody')
     background = @('Los mandos funcionan con otra ventana al frente', 'Controllers work while another window is in front')
@@ -369,7 +371,8 @@ $xaml = @'
             <WrapPanel x:Name="DelayChips" MaxWidth="660" HorizontalAlignment="Left"/>
             <TextBlock x:Name="VsTitle" Style="{StaticResource Label}" Margin="0,30,0,8" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="SemiBold"/>
             <WrapPanel x:Name="VsChips"/>
-            <TextBlock x:Name="VsMine" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="VsMine" Style="{StaticResource Label}" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="SemiBold" MaxWidth="560" HorizontalAlignment="Left"/>
+            <WrapPanel x:Name="VsCodeRow" Margin="0,6,0,0"><Button x:Name="VsCopy" Style="{StaticResource Soft}"/><Button x:Name="VsNewCode" Style="{StaticResource Soft}"/></WrapPanel>
             <TextBlock x:Name="VsPeerLabel" Style="{StaticResource Label}"/>
             <TextBox x:Name="VsPeerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
             <TextBlock x:Name="VsDelayLabel" Style="{StaticResource Label}"/>
@@ -515,7 +518,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -603,13 +606,13 @@ New-Chips (Find 'DelayChips') $delayItems $delayNow
 $vsWords = @(([string](Get-LineValue $vsFile)).Trim() -split '\s+' | Where-Object { $_ })
 $vsMode = if ($vsWords.Count -and $vsWords[0] -in @('host', 'join')) { $vsWords[0] } else { 'off' }
 $vsPeer = if ($vsMode -eq 'join' -and $vsWords.Count -gt 1) { $vsWords[1] } else { '' }
+function New-RoomCode { $abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; -join (1..6 | ForEach-Object { $abc[(Get-Random -Maximum $abc.Length)] }) }
+$script:vsCode = if ($vsMode -eq 'host' -and $vsWords.Count -gt 2 -and $vsWords[2] -match '^[A-Za-z0-9]{4,12}$') { $vsWords[2].ToUpper() } else { New-RoomCode }
 $vsDelay = if ($vsMode -eq 'host' -and $vsWords.Count -gt 1) { $vsWords[1] } elseif ($vsMode -eq 'join' -and $vsWords.Count -gt 2) { $vsWords[2] } else { '2' }
 if ($vsDelay -notmatch '^[0-8]$') { $vsDelay = '2' }
 New-Chips (Find 'VsChips') @(@{ Value = 'off'; Text = (T 'vsOff') }, @{ Value = 'host'; Text = (T 'vsHost') }, @{ Value = 'join'; Text = (T 'vsJoin') }) $vsMode
 New-Chips (Find 'VsDelayChips') @(0..8 | ForEach-Object { @{ Value = "$_"; Text = "$_" } }) $vsDelay
 (Find 'VsPeerBox').Text = $vsPeer
-$script:vsMine = @()
-try { $script:vsMine = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | ForEach-Object { $_.IPAddress } | Where-Object { $_ -like '26.*' }) } catch { }
 function Show-VsChoice {
     $m = Get-Chip (Find 'VsChips')
     $join = if ($m -eq 'join') { 'Visible' } else { 'Collapsed' }
@@ -617,13 +620,18 @@ function Show-VsChoice {
     $on = if ($m -ne 'off') { 'Visible' } else { 'Collapsed' }
     (Find 'VsDelayLabel').Visibility = $on; (Find 'VsDelayChips').Visibility = $on; (Find 'VsHelp').Visibility = $on
     (Find 'VsMine').Visibility = if ($m -eq 'host') { 'Visible' } else { 'Collapsed' }
+    (Find 'VsCodeRow').Visibility = if ($m -eq 'host') { 'Visible' } else { 'Collapsed' }
     (Find 'VsSaveRow').Visibility = $on; (Find 'VsSaveState').Visibility = $on
     (Find 'VsSaveMake').Visibility = if ($m -eq 'host') { 'Visible' } else { 'Collapsed' }
     (Find 'VsSaveUse').Visibility = if ($m -eq 'join') { 'Visible' } else { 'Collapsed' }
     if (-not $script:vsSaveNote) { (Find 'VsSaveState').Text = if (Test-NetplaySave) { T 'vsSaveReady' } else { T 'vsSaveNone' } }
-    (Find 'VsMine').Text = if ($script:vsMine.Count) { (T 'vsMine') -f ($script:vsMine -join ', ') } else { T 'vsMineNone' }
+    (Find 'VsMine').Text = (T 'vsCode') -f $script:vsCode
 }
 foreach ($c in (Find 'VsChips').Children) { $c.Add_Checked({ Show-VsChoice }) }
+(Find 'VsCopy').Add_Click({
+    try { [Windows.Clipboard]::SetText($script:vsCode); (Find 'VsSaveState').Text = T 'vsCopied'; $script:vsSaveNote = $true } catch { }
+})
+(Find 'VsNewCode').Add_Click({ $script:vsCode = New-RoomCode; Show-VsChoice })
 (Find 'VsSaveMake').Add_Click({
     try {
         $zip = Join-Path ([Environment]::GetFolderPath('Desktop')) 'savegame-netplay.zip'
@@ -793,7 +801,7 @@ function Get-WindowValues {
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
         "$delayFile|" = Get-Chip (Find 'DelayChips')
         "$vsFile|" = switch (Get-Chip (Find 'VsChips')) {
-            'host' { "host $(Get-Chip (Find 'VsDelayChips'))" }
+            'host' { "host $(Get-Chip (Find 'VsDelayChips')) $script:vsCode" }
             'join' { "join $(((Find 'VsPeerBox').Text -replace '\s', '')) $(Get-Chip (Find 'VsDelayChips'))" }
             default { 'off' }
         }
@@ -1003,7 +1011,18 @@ $poll.Add_Tick({
     $vars = @{}
     if ($vs -in @('host', 'join')) {
         $vars = @{ SSBU_NETPLAY = $vs; SSBU_NETPLAY_DELAY = (Get-Chip (Find 'VsDelayChips')) }
-        if ($vs -eq 'join') { $vars.SSBU_NETPLAY_PEER = $vsPeerNow }
+        # A room code: both games meet in the online lobby (private, named after the code), no VPN or port needed. An address (a.b.c.d[:port]):
+        # straight to it, as before (a LAN or a VPN).
+        if ($vs -eq 'join' -and $vsPeerNow -match '^\d{1,3}(\.\d{1,3}){3}(:\d+)?$') { $vars.SSBU_NETPLAY_PEER = $vsPeerNow }
+        else {
+            $room = if ($vs -eq 'host') { $script:vsCode } else { $vsPeerNow.ToUpper() }
+            $lobbyNow = if ($lobbyHost -and $lobbyHost -ne 'off' -and $lobbyHost -match ':\d+$') { $lobbyHost } else { $PublicLobby }
+            $vars.SSBU_NETPLAY_ROOM = $room
+            $vars.SSBU_NET_RELAY = $lobbyNow
+            $vars.SSBU_NET_ROOM = "nsd-$($room.ToLower())"
+            $me = (Find 'NameBox').Text.Trim()
+            if ($me) { $vars.SSBU_NET_NAME = $me }
+        }
         try { $data = Initialize-NetplayData $script:tree; if ($data) { $vars.SSBU_DATA_ROOT = $data } } catch {
             [void][Windows.MessageBox]::Show($win, "$(T 'vsSaveFail')$($_.Exception.Message)", 'NativeSmash', 'OK', 'Warning'); return
         }

@@ -17,6 +17,7 @@
 
 #include "host.h"
 #include "net.h"
+#include "net_lockstep.h"
 #include "online.h"
 #include "latency.h"
 #include "settings.h"
@@ -496,8 +497,8 @@ HLE(_ZN2nn3ldn4ScanEPNS0_11NetworkInfoEPiiRKNS0_10ScanFilterEi) { LDN_TRACE; sca
 HLE(_ZN2nn3ldn11ScanPrivateEPNS0_11NetworkInfoEPiiRKNS0_10ScanFilterEi) { LDN_TRACE; scan(c, c->x[0], c->x[1], (i32)c->x[2], c->x[3]); }
 
 /* Join the network with this session id: ask its host (from its advertisement), wait for the
- * answer - a few tries, a few seconds. */
-static void join(Cpu *c, const u8 *session, u64 user, u16 version) {
+ * answer - a few tries, a few seconds. 0 joined, else the result to give the game. (name: 32 bytes) */
+static u32 join_network(const u8 *session, const u8 *name, u16 version) {
     AcquireSRWLockExclusive(&L.lock);
     u32 host = 0;
     for (int i = 0; i < SEEN_NETWORKS && !host; i++)
@@ -505,12 +506,11 @@ static void join(Cpu *c, const u8 *session, u64 user, u16 version) {
     if (L.state != LS_STATION || !host) {
         ReleaseSRWLockExclusive(&L.lock);
         if (net_log()) fprintf(stderr, "[net] ldn: cannot join (%s)\n", host ? "not a station" : "network not seen");
-        c->x[0] = host ? R_LDN_STATE : R_LDN_CONNECT;
-        return;
+        return host ? R_LDN_STATE : R_LDN_CONNECT;
     }
     u8 ask[52] = {0};
     memcpy(ask, session, 16);
-    memcpy(ask + 16, P(void, user), 32);
+    memcpy(ask + 16, name, 32);
     memcpy(ask + 48, &version, 2);
     L.join_answer = 0;
     L.join_host = host;
@@ -531,13 +531,129 @@ static void join(Cpu *c, const u8 *session, u64 user, u16 version) {
     L.join_answer = 0;
     L.join_host = 0;
     ReleaseSRWLockExclusive(&L.lock);
-    c->x[0] = accepted ? 0 : R_LDN_CONNECT;
+    return accepted ? 0 : R_LDN_CONNECT;
+}
+static void join(Cpu *c, const u8 *session, u64 user, u16 version) {
+    u8 name[32];
+    memcpy(name, P(void, user), 32);
+    c->x[0] = join_network(session, name, version);
 }
 HLE(_ZN2nn3ldn7ConnectERKNS0_11NetworkInfoERKNS0_14SecurityConfigERKNS0_10UserConfigEiNS0_13ConnectOptionE) { LDN_TRACE;
     join(c, P(u8, c->x[0] + NI_SESSION), c->x[2], (u16)c->x[3]);
 }
 HLE(_ZN2nn3ldn14ConnectPrivateERKNS0_13NetworkConfigERKNS0_14SecurityConfigERKNS0_17SecurityParameterERKNS0_10UserConfigEiNS0_13ConnectOptionE) { LDN_TRACE;
     join(c, P(u8, c->x[2] + 16), c->x[3], (u16)c->x[4]);
+}
+
+/* ---- the VS netplay's own room (net_lockstep.c) -----------------------------------------------
+ * VS netplay through the online lobby needs the lobby to introduce the two players to each other (it
+ * does that for the players of a room; then their games talk directly where their routers let them, or
+ * through the lobby). So the runtime makes a local wireless network of its own, which the game never
+ * sees: its local communication id is "NSDirect" (the game's scans ask for the game's own id, so they
+ * leave it out) and its advertise data says "NSD1" and the room's code. The host makes it; the other
+ * player finds it in the lobby's list (the launcher puts both in a private lobby named after the code)
+ * and joins it. The two are then nodes of one network, the lobby introduces them, and net_send between
+ * their virtual addresses takes the direct path. */
+static const u8 DIRECT_LCID[8] = {'N', 'S', 'D', 'i', 'r', 'e', 'c', 't'};
+static void direct_agent(void) {   /* (lock held) */
+    if (!L.agent) { L.agent = 1; CloseHandle(CreateThread(NULL, 0, ldn_agent, NULL, 0, NULL)); }
+}
+static int direct_advert(u8 *adv, const char *code) {   /* "NSD1" and the code: its length */
+    int n = (int)strlen(code);
+    if (n > 60) n = 60;
+    memcpy(adv, "NSD1", 4);
+    memcpy(adv + 4, code, (size_t)n);
+    return 4 + n;
+}
+static void direct_name(u8 *out) {   /* (32 bytes) */
+    memset(out, 0, 32);
+    const char *nm = net_player_name();
+    snprintf((char *)out, 32, "%s", nm && *nm ? nm : "player");
+}
+
+int ldn_direct_host(const char *code) {
+    if (!net_local_ip()) return 0;
+    AcquireSRWLockExclusive(&L.lock);
+    direct_agent();
+    if (L.state == LS_AP_CREATED && !memcmp(L.net + NI_LCID, DIRECT_LCID, 8)) { ReleaseSRWLockExclusive(&L.lock); return 1; }
+    if (L.state != LS_NONE && L.state != LS_INITIALIZED) { ReleaseSRWLockExclusive(&L.lock); return 0; }   /* (the game's own local wireless is in use) */
+    u8 *n = L.net;
+    memset(n, 0, NI_SIZE);
+    memcpy(n + NI_LCID, DIRECT_LCID, 8);
+    for (int i = 0; i < 32; i++) { unsigned int r; rand_s(&r); n[(i < 16 ? NI_SECPARAM : NI_SESSION - 16) + i] = (u8)r; }
+    u32 me = net_local_ip();
+    make_mac(n + NI_BSSID, me);
+    static const char HEX[] = "0123456789abcdef";
+    n[NI_SSID_LEN] = 32;
+    for (int i = 0; i < 32; i++) n[NI_SSID + i] = (u8)HEX[n[NI_SESSION + i / 2] >> (i & 1 ? 0 : 4) & 15];
+    put_u16(n + NI_CHANNEL, 6);
+    n[NI_LINK] = 3;
+    n[NI_TYPE] = 2;
+    n[NI_NODE_MAX] = 2;
+    n[NI_NODE_COUNT] = 1;
+    u8 *host = n + NODE(0);
+    put_u32(host, me);
+    make_mac(host + 4, me);
+    host[0xB] = 1;
+    direct_name(host + 0xC);
+    put_u16(n + NI_ADV_SIZE, (u16)direct_advert(n + NI_ADV, code));
+    ldn_state_to(LS_AP_CREATED);
+    ldn_send(NET_BROADCAST, LM_ADVERTISE, n, NI_SIZE);
+    ReleaseSRWLockExclusive(&L.lock);
+    fprintf(stderr, "[netplay] room %s made in the lobby: waiting for player 2\n", code);
+    return 1;
+}
+
+u32 ldn_direct_join(const char *code) {
+    if (!net_local_ip()) return 0;
+    AcquireSRWLockExclusive(&L.lock);
+    direct_agent();
+    if (L.state == LS_CONNECTED && !memcmp(L.net + NI_LCID, DIRECT_LCID, 8)) { u32 h = get_u32(L.net + NODE(0)); ReleaseSRWLockExclusive(&L.lock); return h; }
+    if (L.state != LS_NONE && L.state != LS_INITIALIZED && L.state != LS_STATION) { ReleaseSRWLockExclusive(&L.lock); return 0; }
+    L.reason = DR_NONE;
+    ldn_state_to(LS_STATION);
+    u32 seq = ++L.list_asked;
+    ReleaseSRWLockExclusive(&L.lock);
+    if (net_lobby()) {   /* (the lobby lists the rooms; a private relay's hosts advertise to everyone) */
+        net_lobby_list(seq);
+        u64 until = now_ms_() + 2 * LIST_WAIT_MS, now;
+        AcquireSRWLockExclusive(&L.lock);
+        while (L.list_done != seq && (now = now_ms_()) < until) SleepConditionVariableSRW(&L.changed, &L.lock, (DWORD)(until - now), 0);
+        ReleaseSRWLockExclusive(&L.lock);
+    }
+    u8 want[64];
+    int wn = direct_advert(want, code);
+    u8 session[16];
+    int found = 0;
+    u64 t = now_ms_();
+    AcquireSRWLockShared(&L.lock);
+    for (int i = 0; i < SEEN_NETWORKS && !found; i++) {
+        const u8 *n = L.seen[i].info;
+        if (!L.seen[i].at || t - L.seen[i].at > 3500 || memcmp(n + NI_LCID, DIRECT_LCID, 8)) continue;
+        if (get_u16(n + NI_ADV_SIZE) != wn || memcmp(n + NI_ADV, want, (size_t)wn)) continue;
+        memcpy(session, n + NI_SESSION, 16);
+        found = 1;
+    }
+    ReleaseSRWLockShared(&L.lock);
+    if (!found) return 0;
+    u8 name[32];
+    direct_name(name);
+    if (join_network(session, name, 0)) return 0;
+    AcquireSRWLockShared(&L.lock);
+    u32 host = get_u32(L.net + NODE(0));
+    ReleaseSRWLockShared(&L.lock);
+    fprintf(stderr, "[netplay] joined room %s in the lobby\n", code);
+    return host;
+}
+
+void ldn_direct_close(void) {
+    AcquireSRWLockExclusive(&L.lock);
+    if (!memcmp(L.net + NI_LCID, DIRECT_LCID, 8)) {
+        if (L.state == LS_AP_CREATED) ldn_send(NET_BROADCAST, LM_GONE, L.net + NI_SESSION, 16);
+        if (L.state == LS_CONNECTED) ldn_send(get_u32(L.net + NODE(0)), LM_LEAVE, L.net + NI_SESSION, 16);
+        if (L.state != LS_NONE) ldn_state_to(LS_INITIALIZED);
+    }
+    ReleaseSRWLockExclusive(&L.lock);
 }
 HLE(_ZN2nn3ldn10DisconnectEv) { LDN_TRACE;
     AcquireSRWLockExclusive(&L.lock);
@@ -720,6 +836,7 @@ void vsock_deliver(u32 src_ip, u16 src_port, u32 dst_ip, u16 dst_port, const voi
         if (src_port == LDN_PORT) ldn_receive(src_ip, data, len);
         return;
     }
+    if (lks_deliver(src_ip, src_port, dst_port, data, len)) return;   /* (the VS netplay's own packets, through the lobby) */
     int broadcast = dst_ip == ANY_BROADCAST || dst_ip == NET_BROADCAST, delivered = 0;
     AcquireSRWLockExclusive(&lock);
     for (u32 i = 0; i < VSOCKS; i++) {

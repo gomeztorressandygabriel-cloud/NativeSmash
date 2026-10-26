@@ -58,5 +58,11 @@ void vsock_deliver(u32 src_ip, u16 src_port, u32 dst_ip, u16 dst_port, const voi
  * nodes: only then do that player's direct packets reach the game. */
 int ldn_in_network(u32 ip);
 
+/* (hle_net.c) The VS netplay's own room in the online lobby (net_lockstep.c): the host makes it (1 done); the other player looks for
+ * it and joins it (the host's virtual address, 0 not yet); either leaves it. code: the room's code, as the launcher gives it. */
+int ldn_direct_host(const char *code);
+u32 ldn_direct_join(const char *code);
+void ldn_direct_close(void);
+
 /* One line about the connection for the overlay (empty when netplay is off). */
 void net_status(char *out, size_t n);

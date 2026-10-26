@@ -47,7 +47,7 @@ $Defaults = @{
 # What Play SSBU.bat clears, so the files count (the variables win over them in the game).
 $ClearedVars = @('SSBU_DATA_ROOT', 'SSBU_INPUT', 'SSBU_NET_HOST', 'SSBU_NET_RELAY', 'SSBU_NET_BIND',
                  'SSBU_NET_ROOM', 'SSBU_NET_NAME', 'SSBU_NET_DIRECT', 'SSBU_NET_PORT',
-                 'SSBU_NETPLAY', 'SSBU_NETPLAY_PEER', 'SSBU_NETPLAY_PORT', 'SSBU_NETPLAY_DELAY', 'SSBU_LOCKSTEP', 'SSBU_RB_TEST', 'SSBU_RB_PROBE')
+                 'SSBU_NETPLAY', 'SSBU_NETPLAY_PEER', 'SSBU_NETPLAY_PORT', 'SSBU_NETPLAY_DELAY', 'SSBU_NETPLAY_ROOM', 'SSBU_LOCKSTEP', 'SSBU_RB_TEST', 'SSBU_RB_PROBE')
 
 # ---- files as lines (as hle_settings.c: bytes kept, line ends kept, no BOM) -----------------
 # Text is held as Latin-1 strings, one char per byte, so every byte comes back as it was; a new

@@ -27,6 +27,12 @@
  * at the same time: each waits at its first frame for the other (SSBU_NETPLAY_WAIT seconds, 300). If
  * the other stops answering for 15 s, netplay ends: player 2 stands still.
  *
+ * Through the online lobby instead (no VPN, no port to open): SSBU_NETPLAY_ROOM=<code>, with SSBU_NET_RELAY=<the lobby> and
+ * SSBU_NET_ROOM=<a private lobby code> (the launcher sets the three). The host makes a room of the runtime's own in the lobby
+ * (hle_net.c: ldn_direct_host), the other player finds it by its code and joins it, the lobby introduces the two, and the packets
+ * below go between their virtual addresses (net_send) - straight from one PC to the other where their routers let them, else
+ * through the lobby. Then the same as above, with no time limit on the wait (SSBU_NETPLAY_WAIT still sets one).
+ *
  * Every line it writes to the log starts with [netplay] or [lockstep]. */
 #define _CRT_SECURE_NO_WARNINGS
 #ifdef _WIN32
@@ -48,6 +54,7 @@ typedef int SOCKET;
 #include <string.h>
 
 #include "net_lockstep.h"
+#include "net.h"
 
 volatile int lks_state = -1;
 
@@ -234,7 +241,41 @@ static u32 ntheirs, theirs_frame = ~0u, theirs_total;
 static void put32(u8 *p, u32 v) { memcpy(p, &v, 4); }
 static u32 get32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 
+/* Through the online lobby: the other player's virtual address, and the packets for this game (lks_deliver, on the relay's thread),
+ * kept until the main thread reads them (poll_net). */
+static int via_lobby;
+static char room_code[64];
+static u16 lobby_port = 7810;
+static u32 peer_vip;
+#define LOBBY_QUEUE 256
+#define LOBBY_PACKET 1400
+static struct { u32 src; u16 port, len; u8 data[LOBBY_PACKET]; } lobby_queue[LOBBY_QUEUE];
+static u32 lq_head, lq_tail;   /* (lq_tail - lq_head: packets waiting) */
+static SRWLOCK lq_lock = SRWLOCK_INIT;
+static CONDITION_VARIABLE lq_cv = CONDITION_VARIABLE_INIT;
+
+int lks_deliver(u32 src_ip, u16 src_port, u16 dst_port, const void *data, u32 len) {
+    if (!via_lobby || dst_port != lobby_port) return 0;
+    if (len <= LOBBY_PACKET) {
+        AcquireSRWLockExclusive(&lq_lock);
+        if (lq_tail - lq_head < LOBBY_QUEUE) {   /* (full: dropped, as a network would; the next packet repeats the pads) */
+            u32 k = lq_tail++ % LOBBY_QUEUE;
+            lobby_queue[k].src = src_ip;
+            lobby_queue[k].port = src_port;
+            lobby_queue[k].len = (u16)len;
+            memcpy(lobby_queue[k].data, data, len);
+        }
+        ReleaseSRWLockExclusive(&lq_lock);
+        WakeAllConditionVariable(&lq_cv);
+    }
+    return 1;
+}
+
 static void send_packet(const u8 *p, int n) {
+    if (via_lobby) {
+        if (peer_vip) net_send(net_local_ip(), lobby_port, peer_vip, lobby_port, p, (u32)n);
+        return;
+    }
     if (peer_known) sendto(sock, (const char *)p, n, 0, (const struct sockaddr *)&peer, sizeof peer);
 }
 
@@ -289,6 +330,7 @@ static void on_packet(const u8 *p, int n, const struct sockaddr_in *from) {
         if (!t0) t0 = rt_clock_ns() * 12 / 625;
         if (!peer_known) fprintf(stderr, "[netplay] player 2 joined from %s:%u\n", inet_ntoa(from->sin_addr), ntohs(from->sin_port));
         peer = *from;
+        if (via_lobby) peer_vip = ntohl(from->sin_addr.s_addr);
         peer_known = 1;
         {
             u8 q[32];
@@ -343,6 +385,25 @@ static void on_packet(const u8 *p, int n, const struct sockaddr_in *from) {
 }
 
 static void poll_net(int wait_ms) {   /* every packet waiting, after up to wait_ms for the first */
+    if (via_lobby) {
+        AcquireSRWLockExclusive(&lq_lock);
+        if (lq_tail == lq_head && wait_ms > 0) SleepConditionVariableSRW(&lq_cv, &lq_lock, (DWORD)wait_ms, 0);
+        while (lq_tail != lq_head) {
+            static u8 p[LOBBY_PACKET];
+            u32 k = lq_head++ % LOBBY_QUEUE;
+            int n = lobby_queue[k].len;
+            struct sockaddr_in from = {0};
+            from.sin_family = AF_INET;
+            from.sin_addr.s_addr = htonl(lobby_queue[k].src);
+            from.sin_port = htons(lobby_queue[k].port);
+            memcpy(p, lobby_queue[k].data, (size_t)n);
+            ReleaseSRWLockExclusive(&lq_lock);
+            on_packet(p, n, &from);
+            AcquireSRWLockExclusive(&lq_lock);
+        }
+        ReleaseSRWLockExclusive(&lq_lock);
+        return;
+    }
     for (;;) {
         fd_set r;
         FD_ZERO(&r);
@@ -397,10 +458,23 @@ static int resolve(const char *text, u16 default_port, struct sockaddr_in *out) 
 /* At the first input step: wait for the other PC (the host for a joiner, a joiner for the host). */
 static int connect_peer(void) {
     const char *w = getenv("SSBU_NETPLAY_WAIT");
-    double wait_s = w && *w ? atof(w) : 300.0;
-    u64 until = rt_now_ns() + (u64)(wait_s * 1e9), next_hello = 0, next_note = 0;
+    double wait_s = w && *w ? atof(w) : via_lobby ? 3600.0 : 300.0;   /* (through the lobby: as long as the other takes to start) */
+    u64 until = rt_now_ns() + (u64)(wait_s * 1e9), next_hello = 0, next_note = 0, next_room = 0;
+    int in_lobby = 0, room_ready = 0;
     fprintf(stderr, mode == M_HOST ? "[netplay] waiting for player 2 (up to %.0f s)\n" : "[netplay] joining the host (up to %.0f s)\n", wait_s);
     while (rt_now_ns() < until) {
+        if (via_lobby && !room_ready) {   /* (first in the lobby, then the room: made by the host, found and joined by the other) */
+            if (!in_lobby) {
+                if (net_local_ip()) { in_lobby = 1; fprintf(stderr, "[netplay] in the lobby as %u.%u.%u.%u\n", net_local_ip() >> 24, net_local_ip() >> 16 & 255, net_local_ip() >> 8 & 255, net_local_ip() & 255); }
+                else if (net_unreachable() && rt_now_ns() >= next_room) { fprintf(stderr, "[netplay] the lobby does not answer (internet? the lobby's address?)\n"); next_room = rt_now_ns() + 30000000000ull; }
+            }
+            if (in_lobby && rt_now_ns() >= next_room) {
+                if (mode == M_HOST) room_ready = ldn_direct_host(room_code);
+                else if ((peer_vip = ldn_direct_join(room_code)) != 0) { room_ready = 1; peer_known = 1; }
+                next_room = rt_now_ns() + 2000000000ull;
+            }
+            if (!room_ready) { Sleep(50); continue; }
+        }
         if (mode == M_JOIN && rt_now_ns() >= next_hello) {
             u8 p[32];
             int n = header(p, P_HELLO);
@@ -438,7 +512,23 @@ int lks_probe(void) {
             if (!file) { fprintf(stderr, "[lockstep] cannot open %s: off\n", name); mode = M_OFF; }
             else if (mode == M_REPLAY && fread(&t0, 8, 1, file) != 1) { fprintf(stderr, "[lockstep] %s is empty: off\n", name); mode = M_OFF; }
         }
-        if (mode == M_HOST || mode == M_JOIN) {
+        const char *rc = getenv("SSBU_NETPLAY_ROOM");
+        if ((mode == M_HOST || mode == M_JOIN) && rc && *rc) {   /* (through the online lobby) */
+            const char *pt = getenv("SSBU_NETPLAY_PORT");
+            if (pt && *pt) lobby_port = (u16)atoi(pt);
+            snprintf(room_code, sizeof room_code, "%s", rc);
+            via_lobby = 1;
+            me = mode == M_JOIN;
+            u64 r = rt_clock_ns();
+            nonce = r ^ (r << 21) ^ 0x5DEECE66Dull;
+            if (!net_configured()) {
+                fprintf(stderr, "[netplay] SSBU_NETPLAY_ROOM without a lobby (SSBU_NET_RELAY): off\n");
+                via_lobby = 0;
+                mode = M_OFF;
+            } else
+                fprintf(stderr, "[netplay] on: %s, room %s in the lobby %s, %d frames of delay\n", mode == M_HOST ? "host (player 1)" : "join (player 2)",
+                        room_code, net_relay_address() ? net_relay_address() : "?", delay);
+        } else if (mode == M_HOST || mode == M_JOIN) {
             const char *pt = getenv("SSBU_NETPLAY_PORT"), *pe = getenv("SSBU_NETPLAY_PEER");
             u16 port = pt && *pt ? (u16)atoi(pt) : 7810;
             if (!open_socket(mode == M_HOST ? port : 0)) mode = M_OFF;

@@ -1,36 +1,35 @@
-# Pedido 003: la prueba de "rebobinar" con el juego real
+# Pedido 004: rebobinar otra vez, ahora guardando también las fibras
 
-**Para qué:** es la prueba que decide si el rollback es posible. El juego guarda la memoria del combate en un cuadro, juega N cuadros,
-vuelve atrás, repite esos N cuadros con los mismos botones y compara si llega exactamente al mismo estado. Está explicada en
-`docs/ROLLBACK.md` ("La prueba de rebobinar") y el código está en `runtime/net_rbtest.c`.
+**Para qué:** en el pedido 003 el juego se cerró al repetir el primer cuadro porque la memoria volvía atrás pero las "fibras" del juego
+(tareas internas con su propia pila) no. El código nuevo (`runtime/net_rbfiber.c`, y cambios en `runtime/hle_fiber.c` y
+`runtime/net_rbtest.c`) las guarda y las devuelve a su sitio junto con la memoria. Solo se activa con `SSBU_RB_TEST=1`; sin esa variable
+el juego usa las fibras de Windows como siempre.
 
-**Resultado del pedido 002:** las 5 firmas, una coincidencia cada una. Gracias; dos de ellas ya están en el código.
+**Resultado del pedido 003:** muy útil, gracias. Explicado en `docs/ROLLBACK.md` ("Resultado de la prueba de rebobinar (pedido 003)").
 
-**Aviso:** esta prueba ya no solo mide: engancha funciones del juego y le cambia la memoria (solo con `SSBU_RB_TEST=1`). Es posible que
-el juego se cuelgue o se cierre al repetir los cuadros. **Eso también es un resultado útil**: apúntalo y no insistas más de una vez.
+**Aviso:** igual que antes, es posible que el juego se cuelgue o se cierre. **Eso también es un resultado útil**: apúntalo y no insistas
+más de una vez. Si el juego se cierra **antes** del segundo 200 (antes de que la prueba empiece), también apúntalo: querría decir que
+las fibras nuevas fallan por sí solas.
 
 ## Pasos
 
 1. En `C:\WindowSmash`: `git status` (sin cambios locales en archivos con seguimiento), `git pull mine cloud/rollback-probe`
-   (fast-forward). El último commit debe ser `27ece57` ("runtime: rollback rewind test ...") o posterior. Apunta el commit.
-2. Compila con `launchers\Build NativeSmash.bat`. **Puede tardar bastante más que otras veces**: el código nuevo engancha dos funciones
-   del juego (`HLE_WRAP`) y la compilación tiene que regenerar el módulo principal. Si falla, escribe el error completo y para. Si el
-   error habla de una firma (`signature`) que no coincide, cópialo tal cual: es importante.
-3. Ejecuta el combate automático igual que en el pedido 001 (la copia de la partida guardada en `SSBU_DATA_ROOT`, el mismo `SSBU_INPUT`
-   que funcionó, con los tiempos +125 s, y la carpeta de capturas), con estas variables:
-   - `SSBU_RB_TEST=1` y `SSBU_RB_TEST_AT=200` (la prueba empieza a los 200 s, con el combate ya en marcha).
-   - **No** pongas `SSBU_RB_PROBE` esta vez.
-   - `SSBU_LATENCY=1` sí.
-   - Duración: 300 segundos.
-4. Mira las capturas desde el segundo ~195 hasta el final: ¿el combate sigue con normalidad? ¿Algo raro (personajes que saltan de sitio,
-   imagen congelada, el juego cerrado)? Descríbelo (sin subir imágenes).
-5. Escribe `lab/resultados/003-rebobinar.md` con:
-   - el commit, si compiló y cuánto tardó la compilación;
+   (fast-forward). El último commit debe ser `0cc5b7f` ("Rollback test, phase 3b: save and restore the game's fibers") o posterior.
+   Apunta el commit.
+2. Compila con `launchers\Build NativeSmash.bat`. Si falla, escribe el error completo y para (si menciona `net_rbfiber.c`, el
+   ensamblador o `__asm__`, cópialo tal cual: es importante).
+3. Ejecuta el combate automático exactamente como en el pedido 003 (la copia de la partida guardada en `SSBU_DATA_ROOT`, el mismo
+   `SSBU_INPUT`, los tiempos +125 s, la carpeta de capturas), con `SSBU_RB_TEST=1`, `SSBU_RB_TEST_AT=200`, `SSBU_LATENCY=1`, **sin**
+   `SSBU_RB_PROBE`, durante 300 segundos.
+4. Mira las capturas desde el segundo ~195 hasta el final y describe lo que veas (sin subir imágenes). Mira también una captura de
+   antes del segundo 200: ¿el juego iba normal hasta ahí?
+5. Escribe `lab/resultados/004-fibras.md` con lo mismo que el 003:
+   - el commit, si compiló y cuánto tardó;
    - el comando y las variables usadas;
    - **todas** las líneas de `<salida>.log` que empiecen por `[rbtest]`;
    - las líneas `[latency]` que contengan `vsync event -> game queues its frame` desde el segundo ~180 en adelante;
-   - cualquier línea con `host exception`, `stopped during`, `fatal` o `guest backtrace`, y las 30 líneas siguientes a cada una;
+   - cualquier línea con `host exception`, `stopped during`, `fatal`, `fiber` o `guest backtrace`, y las 30 líneas siguientes a cada una;
    - si se creó algún `reports\crash_*.txt` o `reports\stopped_*.txt` durante la prueba: su nombre y, de dentro, solo las líneas que
-     contengan `main+`, `sdk+`, `lua2cpp`, `exception` o `fault` (sin rutas de carpetas personales);
+     contengan `main+`, `sdk+`, `lua2cpp`, `exception`, `fault` o `rbf_` (sin rutas de carpetas personales);
    - lo que viste en las capturas (paso 4).
 6. Sube el resultado (procedimiento de `lab/README.md`) y avisa al usuario.

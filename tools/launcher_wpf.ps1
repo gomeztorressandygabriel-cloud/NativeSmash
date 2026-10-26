@@ -34,7 +34,7 @@ if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
 $Root = (Resolve-Path -LiteralPath $Root).Path
 
 # The settings writer, the version list and the game's command line are the upstream launcher's.
-. (Join-Path $PSScriptRoot 'launcher.ps1') -NoWindow -Root $Root
+. (Join-Path $PSScriptRoot 'launcher.ps1') -NoWindow -Root $Root -DryRun:$DryRun   # (its param block would reset $DryRun otherwise)
 
 try {
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
@@ -977,16 +977,16 @@ $poll.Add_Tick({
         $script:fading = $true
         $poll.Stop()
         # the game's window is up: let it settle for a moment, then melt this one away
-        $hold = New-Object Windows.Threading.DispatcherTimer
-        $hold.Interval = [TimeSpan]::FromMilliseconds(700)
-        $hold.Add_Tick({
-            $hold.Stop()
+        $script:hold = New-Object Windows.Threading.DispatcherTimer   # (script scope: its own tick finds it there)
+        $script:hold.Interval = [TimeSpan]::FromMilliseconds(700)
+        $script:hold.Add_Tick({
+            $script:hold.Stop()
             $out = New-Object Windows.Media.Animation.DoubleAnimation(1, 0, [TimeSpan]::FromMilliseconds(900))
             $out.EasingFunction = New-Object Windows.Media.Animation.CubicEase
             $out.Add_Completed({ $win.Close() })
             $win.BeginAnimation([Windows.Window]::OpacityProperty, $out)
         })
-        $hold.Start()
+        $script:hold.Start()
     } elseif ($script:waited -gt 240) {
         $poll.Stop()
         (Find 'Starting').Visibility = 'Collapsed'
@@ -1041,10 +1041,10 @@ $win.Add_ContentRendered({
     $win.BeginAnimation([Windows.Window]::OpacityProperty, $in)
     Start-UpdateCheck
     if ($ClickPlay) {
-        $auto = New-Object Windows.Threading.DispatcherTimer
-        $auto.Interval = [TimeSpan]::FromMilliseconds(1500)
-        $auto.Add_Tick({ $auto.Stop(); (Find 'PlayBtn').RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Primitives.ButtonBase]::ClickEvent)) })
-        $auto.Start()
+        $script:clickTimer = New-Object Windows.Threading.DispatcherTimer   # (not $auto: that is the -Auto switch)
+        $script:clickTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
+        $script:clickTimer.Add_Tick({ $script:clickTimer.Stop(); (Find 'PlayBtn').RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Primitives.ButtonBase]::ClickEvent)) })
+        $script:clickTimer.Start()
     }
 })
 [void]$win.ShowDialog()

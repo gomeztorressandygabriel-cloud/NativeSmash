@@ -268,14 +268,69 @@ function Get-DefaultVersion($Versions, [string]$Dir) {
     return $pick
 }
 
-function Get-GameCommand([string]$Tree) {
-    <# What Play SSBU.bat runs, inside start "SSBU log" /min cmd /c "...". #>
-    return "$Tree\build\ssbu.exe $Tree\dump\modules --status 30 --online > $Tree\build\play.log 2>&1"
+function Get-GameCommand([string]$Tree, [switch]$Local) {
+    <# What Play SSBU.bat runs, inside start "SSBU log" /min cmd /c "...". -Local: without --online
+       (the VS netplay: both games the same, with no online identity of their own). #>
+    $online = if ($Local) { '' } else { ' --online' }
+    return "$Tree\build\ssbu.exe $Tree\dump\modules --status 30$online > $Tree\build\play.log 2>&1"
+}
+
+# ---- the VS netplay's save (docs\NETPLAY.md) ----------------------------------------------
+# Both games of a VS netplay start from the same save: the host's, as a ZIP the host makes and the
+# other player picks. It is kept in netplay_save\ and copied fresh into <version>\build\netplay_data
+# for each game (SSBU_DATA_ROOT), so the players' own saves are never touched.
+$SaveUser = '0123456789abcdeffedcba9876543210'   # (the save folder's name on every install: runtime/hle_env.c)
+$NetplaySaveDir = Join-Path $Root 'netplay_save'
+
+function Get-SaveFolder([string]$Tree) { if (-not $Tree -or $Tree -eq '.') { return (Join-Path $Root 'save') } return (Join-Path $Root "$Tree\save") }
+
+function Test-NetplaySave { return (Test-Path -LiteralPath (Join-Path $NetplaySaveDir "$SaveUser\save_data") -PathType Container) }
+
+function Import-NetplaySave([string]$Zip) {
+    <# A save ZIP (its root: the save folder's contents, or a save folder) into netplay_save\. Throws with a reason. #>
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("nativesmash-save-" + [guid]::NewGuid().ToString('N'))
+    try {
+        [IO.Compression.ZipFile]::ExtractToDirectory($Zip, $tmp)
+        $found = Get-ChildItem -LiteralPath $tmp -Directory -Recurse -Filter $SaveUser | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'save_data') } | Select-Object -First 1
+        if (-not $found) { throw "the ZIP has no save ($SaveUser\save_data)" }
+        if (Test-Path -LiteralPath $NetplaySaveDir) { Remove-Item -LiteralPath $NetplaySaveDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $NetplaySaveDir | Out-Null
+        Copy-Item -LiteralPath $found.FullName -Destination $NetplaySaveDir -Recurse
+    } finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
+}
+
+function Export-NetplaySave([string]$Tree, [string]$Zip) {
+    <# This version's save as a ZIP for the other player, and into netplay_save\ (the host plays from the same copy). #>
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $src = Join-Path (Get-SaveFolder $Tree) $SaveUser
+    if (-not (Test-Path -LiteralPath (Join-Path $src 'save_data'))) { throw "there is no save in $(Get-SaveFolder $Tree) yet (play once first)" }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("nativesmash-save-" + [guid]::NewGuid().ToString('N'))
+    try {
+        New-Item -ItemType Directory -Path $tmp | Out-Null
+        Copy-Item -LiteralPath $src -Destination $tmp -Recurse
+        if (Test-Path -LiteralPath $Zip) { Remove-Item -LiteralPath $Zip -Force }
+        [IO.Compression.ZipFile]::CreateFromDirectory($tmp, $Zip)
+    } finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
+    Import-NetplaySave $Zip
+}
+
+function Initialize-NetplayData([string]$Tree) {
+    <# A fresh copy of netplay_save\ for this game; its folder (for SSBU_DATA_ROOT), or $null without one. #>
+    if (-not (Test-NetplaySave)) { return $null }
+    $build = if (-not $Tree -or $Tree -eq '.') { Join-Path $Root 'build' } else { Join-Path $Root "$Tree\build" }
+    $data = Join-Path $build 'netplay_data'
+    if ($DryRun) { Write-Host "would copy netplay_save into $data\save"; return $data }
+    if (Test-Path -LiteralPath $data) { Remove-Item -LiteralPath $data -Recurse -Force }
+    New-Item -ItemType Directory -Path (Join-Path $data 'save') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $NetplaySaveDir $SaveUser) -Destination (Join-Path $data 'save') -Recurse
+    New-Item -ItemType Directory -Force -Path (Join-Path $data "save\$SaveUser\save_data\stage") | Out-Null   # (a folder a ZIP may have lost)
+    return $data
 }
 
 function Start-Game([string]$Tree, [hashtable]$Vars = @{}) {
     <# $Vars: variables for the game on top (the VS netplay's: docs\NETPLAY.md). #>
-    $cmd = Get-GameCommand $Tree
+    $cmd = Get-GameCommand $Tree -Local:($Vars.ContainsKey('SSBU_NETPLAY'))
     $line = "start `"SSBU log`" /min cmd /c `"$cmd`""
     if ($DryRun) { Write-Host "would start, in $Root`: $line$(foreach ($k in $Vars.Keys) { " $k=$($Vars[$k])" })"; return }
     foreach ($v in $ClearedVars) { Remove-Item -LiteralPath "Env:$v" -ErrorAction SilentlyContinue }

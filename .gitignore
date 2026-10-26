@@ -20,6 +20,9 @@
 /controllers.ini
 /display.ini
 /launcher.ini
+# the VS netplay's choice and the save its games start from (docs/NETPLAY.md): each PC's own
+/vs_netplay.txt
+/netplay_save/
 /online_direct.txt
 # Crash, freeze and stop reports with their minidumps (docs/PLAYING.md)
 /reports/

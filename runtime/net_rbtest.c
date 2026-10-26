@@ -3,8 +3,8 @@
  *
  * Off unless SSBU_RB_TEST=1 or a file rollback_test.on exists beside the game. On, from
  * SSBU_RB_TEST_AT seconds after start (default 200: in a battle, on a slow PC with the scripted
- * battle of tools/dev/autobattle.sh), it runs six rounds, ten seconds apart, of N = 1, 1, 5, 10, 30
- * and 60 frames:
+ * battle of tools/dev/autobattle.sh), it runs five rounds, ten seconds apart, of N = 1, 1, 1, 5 and 10
+ * frames:
  *
  *   1. Find the pages: for 120 frames, the alias pages the game writes (the alias area holds the
  *      game's own memory: MapPhysicalMemory) - the "hot set", asked through the renderer's write
@@ -24,6 +24,9 @@
  *      what a rollback needs - and replay 1 with the game's own state; where the replays differ, the
  *      first words that do. Then give the game back the
  *      state it had (step 5), so it carries on as if the test had not been.
+ *
+ * From the second round on, the pages the last round's replays disagreed on are made read-only while
+ * replaying, to see which threads write them (a write by another thread is one a rewind cannot undo).
  *
  * It saves the game's fibers too (phase 3b): while the test is on, hle_fiber.c runs them on fibers of
  * the runtime's own (net_rbfiber.c) instead of Windows', so each one's slot, guest context and host
@@ -69,7 +72,7 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define MAX_TICKS 1024             /* tick reads kept per frame */
 #define ROUND_GAP_NS 10000000000ull
 
-static const u32 round_frames[] = {1, 1, 5, 10, 30, 60};
+static const u32 round_frames[] = {1, 1, 1, 5, 10};
 #define ROUNDS (sizeof round_frames / sizeof *round_frames)
 
 typedef struct RecFrame {
@@ -358,6 +361,117 @@ static void show_words(const u64 *a, const u64 *b) {
     }
 }
 
+/* ---- who writes the pages the replays disagree on ------------------------------------------
+ * The pages that differed between the replays in the last round (the simulation's, up to MAX_SUSPECT)
+ * are made read-only while this round replays: each write to one stops at the exception handler,
+ * which notes the thread and the code, lets that one instruction run with the page writable
+ * (single-step), and makes it read-only again. A write by a thread other than the replaying one is
+ * a write the rewind cannot undo. (Windows only.) */
+#define MAX_SUSPECT 16
+#define MAX_WRITERS 8      /* threads noted a page */
+typedef struct Writer { DWORD tid; u64 rip; u32 writes, offset; } Writer;
+static u64 suspect[MAX_SUSPECT];
+static u32 nsuspect;
+static DWORD guest_tid[64];
+static u64 guest_id[64];
+static u32 nguest;
+
+static void note_guest(void *user, u64 id, int priority, int core, int state) {
+    (void)user; (void)priority; (void)core; (void)state;
+    HANDLE h = kernel_thread_host(id);
+    if (h && nguest < 64) { guest_tid[nguest] = GetThreadId(h); guest_id[nguest] = id; nguest++; }
+}
+
+static long long guest_of(DWORD tid) {
+    for (u32 i = 0; i < nguest; i++) if (guest_tid[i] == tid) return (long long)guest_id[i];
+    return -1;
+}
+
+#ifdef _WIN32
+static Writer writers[MAX_SUSPECT][MAX_WRITERS];
+static volatile LONG tracing;
+static int replay_no;
+static __declspec(thread) int pending = -1;   /* the suspect page this thread is writing (single-stepping) */
+
+static void protect_suspects(DWORD prot) {
+    for (u32 i = 0; i < nsuspect; i++) {
+        DWORD old;
+        if (committed(suspect[i])) VirtualProtect(P(void, suspect[i]), PAGE, prot, &old);
+    }
+}
+
+static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
+    DWORD code = e->ExceptionRecord->ExceptionCode;
+    if (code == STATUS_SINGLE_STEP && pending >= 0) {
+        DWORD old;
+        if (tracing) VirtualProtect(P(void, suspect[pending]), PAGE, PAGE_READONLY, &old);
+        pending = -1;
+        return EXCEPTION_CONTINUE_EXECUTION;   /* (the trap flag clears itself) */
+    }
+    if (code != EXCEPTION_ACCESS_VIOLATION || e->ExceptionRecord->NumberParameters < 2 || e->ExceptionRecord->ExceptionInformation[0] != 1)
+        return EXCEPTION_CONTINUE_SEARCH;
+    u64 host = e->ExceptionRecord->ExceptionInformation[1];
+    if (host < (u64)(uintptr_t)P(u8, ALIAS_BASE) || host >= (u64)(uintptr_t)P(u8, ALIAS_BASE) + ALIAS_SIZE) return EXCEPTION_CONTINUE_SEARCH;
+    u64 guest = ALIAS_BASE + (host - (u64)(uintptr_t)P(u8, ALIAS_BASE));
+    int k = -1;
+    for (u32 i = 0; i < nsuspect; i++) if (guest >> 12 == suspect[i] >> 12) { k = (int)i; break; }
+    if (k < 0) return EXCEPTION_CONTINUE_SEARCH;
+    DWORD tid = GetCurrentThreadId(), old;
+    Writer *w = writers[k];
+    for (int i = 0; i < MAX_WRITERS; i++) {
+        if (w[i].tid == tid) { w[i].writes++; break; }
+        if (!w[i].tid) {
+            w[i].tid = tid; w[i].rip = e->ContextRecord->Rip; w[i].offset = (u32)(guest & 0xFFF); w[i].writes = 1;
+            fprintf(stderr, "[rbtest] replay %d: page %#llx +%#x first written by thread %lu (guest thread %lld%s), host pc ssbu.exe+%#llx\n",
+                    replay_no, (unsigned long long)suspect[k], w[i].offset, (unsigned long)tid, guest_of(tid), on_sim_thread() ? ", the replaying one" : "",
+                    (unsigned long long)(w[i].rip - (u64)(uintptr_t)GetModuleHandleW(NULL)));
+            rt_backtrace();
+            break;
+        }
+    }
+    VirtualProtect(P(void, suspect[k]), PAGE, PAGE_READWRITE, &old);
+    pending = k;
+    e->ContextRecord->EFlags |= 0x100;   /* one instruction, then back to read-only */
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static void trace_begin(int which) {
+    static void *handler;
+    if (!nsuspect) return;
+    if (!handler) handler = AddVectoredExceptionHandler(1, on_write);
+    replay_no = which;
+    memset(writers, 0, sizeof writers);
+    tracing = 1;
+    protect_suspects(PAGE_READONLY);
+}
+
+static void trace_end(void) {
+    if (!nsuspect || !tracing) return;
+    tracing = 0;
+    protect_suspects(PAGE_READWRITE);
+    for (u32 k = 0; k < nsuspect; k++) {
+        char line[512];
+        int n = snprintf(line, sizeof line, "[rbtest] replay %d: page %#llx written by", replay_no, (unsigned long long)suspect[k]);
+        int any = 0;
+        for (int i = 0; i < MAX_WRITERS && writers[k][i].tid; i++, any = 1)
+            n += snprintf(line + n, sizeof line - n, " thread %lu (guest %lld%s) %u times or more;", (unsigned long)writers[k][i].tid, guest_of(writers[k][i].tid),
+                          writers[k][i].tid == sim_thread ? ", the replaying one" : "", writers[k][i].writes);
+        if (!any) snprintf(line + n, sizeof line - n, " nobody");
+        fprintf(stderr, "%s\n", line);
+    }
+}
+#else
+static void trace_begin(int which) { (void)which; }
+static void trace_end(void) {}
+#endif
+
+/* The pages to watch next round: the simulation's that the replays disagreed on. */
+static void pick_suspects(const u64 *a, const u64 *b) {
+    nsuspect = 0;
+    for (u32 i = 0; i < nhot && nsuspect < MAX_SUSPECT; i++)
+        if (a[i] && b[i] && a[i] != b[i] && is_sim(hot[i])) suspect[nsuspect++] = hot[i];
+}
+
 static void check_and_replay(Cpu *c) {
     hook = HOOK_OFF;
     read_regions();
@@ -385,7 +499,11 @@ static void check_and_replay(Cpu *c) {
     fflush(stderr);
     u64 replay_seen = 0;
     watch_now(&replay_seen, NULL);
+    nguest = 0;
+    kernel_thread_each(note_guest, NULL);
+    trace_begin(1);
     double ms1 = replay(c);
+    trace_end();
     u64 escaped_before = escaped;
     escaped = 0;
     if (watch_now(&replay_seen, count_escaped) < 0) escaped = ~0ull;
@@ -399,7 +517,9 @@ static void check_and_replay(Cpu *c) {
     /* replay 2, from the save again */
     put_back(snap);
     fibers_restore(0, &skipped, &dropped);
+    trace_begin(2);
     double ms2 = replay(c);
+    trace_end();
     hash_pages(sum_two);
 
     /* the game's state back as it was */
@@ -416,6 +536,7 @@ static void check_and_replay(Cpu *c) {
     compare("replay 1 vs the game (which also drew its frames)", sum_one, sum_real, line, sizeof line);
     fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
     show_words(sum_one, sum_two);
+    pick_suspects(sum_one, sum_two);
     fprintf(stderr, "[rbtest] round %u: the game's state given back (fibers %d)\n", round_i + 1, fib_back);
 
     phase = IDLE;

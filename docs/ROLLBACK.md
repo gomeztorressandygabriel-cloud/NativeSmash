@@ -497,6 +497,31 @@ ronda vio escritas fuera se guardan en la siguiente, y el descubrimiento dura 12
 repeticiones difieran, la prueba escribe las primeras palabras distintas (repetición 1 / repetición 2), para ver si son punteros,
 contadores o números de la física.
 
+### Resultado del pedido 007: cuatro rondas seguidas, y una pista clara
+
+- **Rondas 1 a 4 (1, 1, 5 y 10 cuadros) completas**, con el combate siguiendo normal después de cada una. El conjunto guardado creció de
+  6 744 a 8 382 páginas (26 → 33 MB), y las páginas que se escapan bajaron a 2–28 por ronda. **Repetir 10 cuadros: 30 ms, 3 ms por
+  cuadro.** La ronda 5 (30 cuadros) se cerró al empezar a repetir (escritura en `0xffffffffffffffa0` en la lectura de mandos,
+  `main+0x3667300`): con 30 cuadros se escaparon 78 páginas y empezaron 8 fibras.
+- **Las repeticiones siguen discrepando en ~90 páginas, y siempre en las mismas** (`0x604035e000`, `…35f000`, `…360000`, `…3c8000`,
+  `…692000`, `…758000`), fuera cual fuera la ronda o el número de cuadros. Las palabras distintas:
+  - `0x6040758000+0x280` y `0x6040692000+0xd38/+0xd40` son **contadores** que crecen ronda a ronda (`0xe89`, `0x130a`, `0x1797`…), y la
+    repetición 2 lleva unos pocos más que la 1: **6–9** cuando las dos tardaron lo mismo, **34** en la ronda 3, donde la repetición 2
+    tardó 43 ms frente a 17. **Cuentan tiempo real, no cuadros.**
+  - `0x60403c8000+0xcd0…` es el estado de un **generador de números aleatorios** (de tipo xorshift: las cuatro palabras de 32 bits se
+    corren una posición en cada número sacado). Las dos repeticiones lo dejan en puntos distintos.
+  - `0x604035e000…0x6040360000` son números de coma flotante completamente distintos (posiciones o velocidades de algo).
+- **Lectura:** algo que **no es la simulación que se repite** sigue tocando esas páginas mientras se repite: otro hilo del juego que va
+  a su ritmo (efectos, sonido, la cámara…) y que además saca números del mismo generador aleatorio. Al repetir, ese hilo no vuelve atrás,
+  y la cantidad de veces que actúa depende de cuánto tarda la repetición. Eso explica las diferencias, y también que no desaparezcan
+  guardando más páginas.
+
+**Cambio para el pedido 008 (la prueba, versión 4):** desde la segunda ronda, las páginas en las que las repeticiones discreparon se
+ponen **de solo lectura** mientras se repite. Cada escritura salta a un manejador que apunta **qué hilo escribe y desde qué código**
+(con la traza del juego), deja pasar esa única instrucción (paso a paso) y vuelve a proteger la página. Así sabremos qué hilo es y si
+se puede pausar o repetir con él. Rondas: 1, 1, 1, 5 y 10 cuadros (las de 30 y 60 se quitan hasta resolver esto). Probado en Wine: con
+un solo hilo cuenta todas las escrituras; con dos hilos a la vez se le escapan algunas, pero nombra a los dos.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

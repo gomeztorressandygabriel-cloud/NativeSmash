@@ -26,7 +26,9 @@
  *      state it had (step 5), so it carries on as if the test had not been.
  *
  * From the second round on, the pages the last round's replays disagreed on are made read-only while
- * replaying, to see which threads write them (a write by another thread is one a rewind cannot undo).
+ * replaying (from the put-back to the hashing) and in the game's next frame, to see which threads write
+ * them: a page another thread writes is one a rewind cannot undo, and is left out of the rewinds and
+ * the comparisons from then on (counted, with how many of them the replaying thread writes too).
  *
  * It saves the game's fibers too (phase 3b): while the test is on, hle_fiber.c runs them on fibers of
  * the runtime's own (net_rbfiber.c) instead of Windows', so each one's slot, guest context and host
@@ -104,6 +106,8 @@ static u8 *sim_bits;                   /* one bit an alias page: written while t
 static u64 sim_seen;
 static u64 late[MAX_LATE];             /* (pages a round's save missed: the next round's hot set has them) */
 static u32 nlate;
+static u8 *foreign;                    /* one bit an alias page: another thread was seen writing it - left out of the rewinds and the comparisons */
+static u32 nforeign, nshared;          /* (shared: the replaying thread writes them too - the simulation's data there is not rewound either) */
 static u8 *snap_one;                   /* replay 1's pages, to show how they differ from replay 2's */
 static u64 region_base[MAX_REGIONS], region_size[MAX_REGIONS], alias_base[MAX_REGIONS], alias_size[MAX_REGIONS];
 static u32 nregions, nalias;
@@ -174,6 +178,18 @@ static void mark_sim(u64 page, void *user) {
     sim_bits[i >> 3] |= (u8)(1u << (i & 7));
 }
 
+static int is_foreign(u64 page) {
+    u64 i = (page - ALIAS_BASE) / PAGE;
+    return page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE && foreign[i >> 3] >> (i & 7) & 1;
+}
+
+static void mark_foreign(u64 page) {
+    if (page < ALIAS_BASE || page >= ALIAS_BASE + ALIAS_SIZE || is_foreign(page)) return;
+    u64 i = (page - ALIAS_BASE) / PAGE;
+    foreign[i >> 3] |= (u8)(1u << (i & 7));
+    nforeign++;
+}
+
 static void count_escaped(u64 page, void *user) {
     (void)user;
     if (is_hot(page)) return;
@@ -239,8 +255,9 @@ static void begin_round(void) {
     if (!snap) snap = malloc(MAX_HOT * PAGE);
     if (!snap_now) snap_now = malloc(MAX_HOT * PAGE);
     if (!snap_one) snap_one = malloc(MAX_HOT * PAGE);
+    if (!foreign) foreign = calloc(ALIAS_SIZE / PAGE / 8, 1);
     if (!sim_bits) sim_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
-    if (!hot_bits || !snap || !snap_now || !snap_one || !sim_bits) { fprintf(stderr, "[rbtest] out of memory: off\n"); phase = DONE; return; }
+    if (!hot_bits || !snap || !snap_now || !snap_one || !sim_bits || !foreign) { fprintf(stderr, "[rbtest] out of memory: off\n"); phase = DONE; return; }
     /* the hot set grows from round to round: what the last rounds found, and what their saves missed */
     for (u32 i = 0; i < nlate; i++) mark_hot(late[i], NULL);
     nlate = 0;
@@ -282,7 +299,7 @@ static void save(Cpu *c) {
 /* Copy saved pages back: the save at the start of the window (snap) or the game's state at its end (snap_now). */
 static void put_back(const u8 *from) {
     for (u32 i = 0; i < nhot; i++)
-        if (snap_ok[i] && committed(hot[i])) memcpy(P(void, hot[i]), from + (u64)i * PAGE, PAGE);
+        if (snap_ok[i] && committed(hot[i]) && !is_foreign(hot[i])) memcpy(P(void, hot[i]), from + (u64)i * PAGE, PAGE);
 }
 
 /* The recorded frames again, from the start of the window: the simulation of frame 0, then each next
@@ -321,7 +338,7 @@ static int compare(const char *what, const u64 *a, const u64 *b, char *line, siz
     u32 sim = 0, other = 0, compared = 0, nfirst = 0;
     u64 first[6];
     for (u32 i = 0; i < nhot; i++) {
-        if (!a[i] || !b[i]) continue;
+        if (!a[i] || !b[i] || is_foreign(hot[i])) continue;
         compared++;
         if (a[i] == b[i]) continue;
         if (is_sim(hot[i])) { sim++; if (nfirst < 6) first[nfirst++] = hot[i]; }
@@ -343,7 +360,7 @@ static int compare(const char *what, const u64 *a, const u64 *b, char *line, siz
 static void show_words(const u64 *a, const u64 *b) {
     u32 shown = 0;
     for (u32 i = 0; i < nhot && shown < 6; i++) {
-        if (!a[i] || !b[i] || a[i] == b[i] || !is_sim(hot[i])) continue;
+        if (!a[i] || !b[i] || a[i] == b[i] || !is_sim(hot[i]) || is_foreign(hot[i])) continue;
         const u8 *one = snap_one + (u64)i * PAGE, *two = P(u8, hot[i]);
         char line[512];
         u32 words = 0, nw = 0;
@@ -367,7 +384,7 @@ static void show_words(const u64 *a, const u64 *b) {
  * which notes the thread and the code, lets that one instruction run with the page writable
  * (single-step), and makes it read-only again. A write by a thread other than the replaying one is
  * a write the rewind cannot undo. (Windows only.) */
-#define MAX_SUSPECT 16
+#define MAX_SUSPECT 32
 #define MAX_WRITERS 8      /* threads noted a page */
 typedef struct Writer { DWORD tid; u64 rip; u32 writes, offset; } Writer;
 static u64 suspect[MAX_SUSPECT];
@@ -392,6 +409,8 @@ static Writer writers[MAX_SUSPECT][MAX_WRITERS];
 static volatile LONG tracing;
 static int replay_no;
 static __declspec(thread) int pending = -1;   /* the suspect page this thread is writing (single-stepping) */
+
+static const char *trace_name(int which) { return which == 3 ? "the game's next frame" : which == 2 ? "replay 2" : "replay 1"; }
 
 static void protect_suspects(DWORD prot) {
     for (u32 i = 0; i < nsuspect; i++) {
@@ -422,8 +441,8 @@ static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
         if (w[i].tid == tid) { w[i].writes++; break; }
         if (!w[i].tid) {
             w[i].tid = tid; w[i].rip = e->ContextRecord->Rip; w[i].offset = (u32)(guest & 0xFFF); w[i].writes = 1;
-            fprintf(stderr, "[rbtest] replay %d: page %#llx +%#x first written by thread %lu (guest thread %lld%s), host pc ssbu.exe+%#llx\n",
-                    replay_no, (unsigned long long)suspect[k], w[i].offset, (unsigned long)tid, guest_of(tid), on_sim_thread() ? ", the replaying one" : "",
+            fprintf(stderr, "[rbtest] %s: page %#llx +%#x first written by thread %lu (guest thread %lld%s), host pc ssbu.exe+%#llx\n",
+                    trace_name(replay_no), (unsigned long long)suspect[k], w[i].offset, (unsigned long)tid, guest_of(tid), on_sim_thread() ? ", the replaying one" : "",
                     (unsigned long long)(w[i].rip - (u64)(uintptr_t)GetModuleHandleW(NULL)));
             rt_backtrace();
             break;
@@ -445,31 +464,76 @@ static void trace_begin(int which) {
     protect_suspects(PAGE_READONLY);
 }
 
+static int trace_active(void) { return tracing; }
+
 static void trace_end(void) {
     if (!nsuspect || !tracing) return;
     tracing = 0;
     protect_suspects(PAGE_READWRITE);
     for (u32 k = 0; k < nsuspect; k++) {
         char line[512];
-        int n = snprintf(line, sizeof line, "[rbtest] replay %d: page %#llx written by", replay_no, (unsigned long long)suspect[k]);
+        int n = snprintf(line, sizeof line, "[rbtest] %s: page %#llx written by", trace_name(replay_no), (unsigned long long)suspect[k]);
         int any = 0;
         for (int i = 0; i < MAX_WRITERS && writers[k][i].tid; i++, any = 1)
             n += snprintf(line + n, sizeof line - n, " thread %lu (guest %lld%s) %u times or more;", (unsigned long)writers[k][i].tid, guest_of(writers[k][i].tid),
                           writers[k][i].tid == sim_thread ? ", the replaying one" : "", writers[k][i].writes);
         if (!any) snprintf(line + n, sizeof line - n, " nobody");
         fprintf(stderr, "%s\n", line);
+        int other = 0, own = 0;
+        for (int i = 0; i < MAX_WRITERS && writers[k][i].tid; i++) {
+            if (writers[k][i].tid != sim_thread) other = 1;
+            else own = 1;
+        }
+        if (other && !is_foreign(suspect[k])) { mark_foreign(suspect[k]); nshared += own; }
     }
 }
 #else
 static void trace_begin(int which) { (void)which; }
 static void trace_end(void) {}
+static int trace_active(void) { return 0; }
 #endif
 
 /* The pages to watch next round: the simulation's that the replays disagreed on. */
 static void pick_suspects(const u64 *a, const u64 *b) {
     nsuspect = 0;
     for (u32 i = 0; i < nhot && nsuspect < MAX_SUSPECT; i++)
-        if (a[i] && b[i] && a[i] != b[i] && is_sim(hot[i])) suspect[nsuspect++] = hot[i];
+        if (a[i] && b[i] && a[i] != b[i] && is_sim(hot[i]) && !is_foreign(hot[i])) suspect[nsuspect++] = hot[i];
+}
+
+/* The suspect pages' hashes at a moment of a replay: how many changed since the last moment (stages). */
+static u64 stage_sum[MAX_SUSPECT];
+static u32 stage(int first) {
+    u32 changed = 0;
+    for (u32 k = 0; k < nsuspect; k++) {
+        u64 h = committed(suspect[k]) ? page_hash(P(u8, suspect[k])) : 0;
+        if (!first && h != stage_sum[k]) changed++;
+        stage_sum[k] = h;
+    }
+    return changed;
+}
+
+/* A replay from the save, watched: the pages put back, then (if there are suspects) who writes them and
+ * when - in the moment before the replay, during it, and after it until they are hashed. */
+static double watched_replay(Cpu *c, int which, u64 *sums, u64 *replay_seen) {
+    put_back(snap);
+    u32 at_save = 0;
+    for (u32 k = 0; k < nsuspect; k++)
+        for (u32 i = 0; i < nhot; i++)
+            if (hot[i] == suspect[k]) { at_save += snap_ok[i] && committed(hot[i]) && page_hash(P(u8, hot[i])) != page_hash(snap + (u64)i * PAGE); break; }
+    stage(1);
+    trace_begin(which);
+    u32 skipped, dropped;
+    int fib_restored = fibers_restore(0, &skipped, &dropped);
+    if (replay_seen) { *replay_seen = 0; watch_now(replay_seen, NULL); }
+    u32 before = stage(0);
+    double ms = replay(c);
+    u32 during = stage(0);
+    hash_pages(sums);
+    u32 after = stage(0);
+    trace_end();
+    fprintf(stderr, "[rbtest] round %u, replay %d: fibers restored %d (running, skipped: %u; started since, dropped: %u); of %u suspect pages, not as saved after the put-back: %u; changed before the replay: %u, during it: %u, after it: %u; pages left out (other threads write them): %u, %u of them written by the replaying thread too\n",
+            round_i + 1, which, fib_restored, skipped, dropped, nsuspect, at_save, before, during, after, nforeign, nshared);
+    return ms;
 }
 
 static void check_and_replay(Cpu *c) {
@@ -493,34 +557,21 @@ static void check_and_replay(Cpu *c) {
     fflush(stderr);
 
     /* replay 1, from the save */
-    put_back(snap);
-    int fib_restored = fibers_restore(0, &skipped, &dropped);
-    fprintf(stderr, "[rbtest] round %u: fibers restored %d (running, skipped: %u; started since, dropped: %u)\n", round_i + 1, fib_restored, skipped, dropped);
-    fflush(stderr);
-    u64 replay_seen = 0;
-    watch_now(&replay_seen, NULL);
     nguest = 0;
     kernel_thread_each(note_guest, NULL);
-    trace_begin(1);
-    double ms1 = replay(c);
-    trace_end();
+    u64 replay_seen = 0;
+    double ms1 = watched_replay(c, 1, sum_one, &replay_seen);
     u64 escaped_before = escaped;
     escaped = 0;
     if (watch_now(&replay_seen, count_escaped) < 0) escaped = ~0ull;
     u64 escaped_replay = escaped;
     escaped = escaped_before;
-    hash_pages(sum_one);
     for (u32 i = 0; i < nhot; i++)
         if (sum_one[i]) memcpy(snap_one + (u64)i * PAGE, P(void, hot[i]), PAGE);
     u64 pads1 = pad_replayed, pads_missing1 = pad_missing, ticks1 = tick_replayed, ticks_missing1 = tick_missing;
 
     /* replay 2, from the save again */
-    put_back(snap);
-    fibers_restore(0, &skipped, &dropped);
-    trace_begin(2);
-    double ms2 = replay(c);
-    trace_end();
-    hash_pages(sum_two);
+    double ms2 = watched_replay(c, 2, sum_two, NULL);
 
     /* the game's state back as it was */
     put_back(snap_now);
@@ -536,8 +587,10 @@ static void check_and_replay(Cpu *c) {
     compare("replay 1 vs the game (which also drew its frames)", sum_one, sum_real, line, sizeof line);
     fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
     show_words(sum_one, sum_two);
-    pick_suspects(sum_one, sum_two);
     fprintf(stderr, "[rbtest] round %u: the game's state given back (fibers %d)\n", round_i + 1, fib_back);
+    /* and who writes the suspect pages in the game's own next frame (ended at its simulation's start) */
+    pick_suspects(sum_one, sum_two);
+    if (round_i + 1 < ROUNDS) trace_begin(3);
 
     phase = IDLE;
     next_round_ns = rt_now_ns() + ROUND_GAP_NS;
@@ -548,6 +601,7 @@ static void check_and_replay(Cpu *c) {
 static void frame(Cpu *c) {
     if (!sim_thread) sim_thread = GetCurrentThreadId();
     if (!on_sim_thread()) return;
+    if (trace_active()) trace_end();   /* (the game's frame after a round: watched until here) */
     switch (phase) {
     case IDLE:
         if (rt_now_ns() >= next_round_ns) begin_round();

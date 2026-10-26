@@ -522,6 +522,36 @@ ponen **de solo lectura** mientras se repite. Cada escritura salta a un manejado
 se puede pausar o repetir con él. Rondas: 1, 1, 1, 5 y 10 cuadros (las de 30 y 60 se quitan hasta resolver esto). Probado en Wine: con
 un solo hilo cuenta todas las escrituras; con dos hilos a la vez se le escapan algunas, pero nombra a los dos.
 
+### Resultado del pedido 008: hay hilos de fuera de la simulación escribiendo ahí
+
+- Tres rondas de 1 cuadro completas, con el juego normal después de cada una. Repetir: 3,6–8,8 ms por cuadro.
+- **Quién escribe las páginas en las que las repeticiones discrepan, mientras se repite:**
+  - **Hilo 19** (prioridad 29, el más ocupado después del principal: ~30 s de CPU en el pedido 005; código en `main+0x3962c30`,
+    `main+0x39874b0`…): `0x6040760000`, `0x6040815000`, `0x6040816000`, `0x6053e88000`, `0x6060e80000`, `0x6060e81000` (hasta ~300
+    escrituras en una repetición).
+  - **Hilo 11** (prioridad 29, `main+0x3810660`): `0x6040692000` (los contadores del 007). **Hilo 47** (prioridad 29): `0x6060fab000`.
+  - **Hilo 1** (el principal, el que repite): `0x60403ca000`, más de 60 veces (es el generador aleatorio que se vio en el 007). Esa sí
+    es la simulación: si ahí sale distinto es porque **lee** algo que otro hilo cambió.
+  - **Nadie** escribe durante la repetición `0x604035e000`–`0x6040360000` (los números de coma flotante del 007) ni otras ~10. Pero
+    salen distintas: alguien las cambia **fuera** del momento vigilado (entre devolver las páginas y empezar a repetir, o entre
+    terminar y medir), o por un camino que no pasa por esa dirección.
+- **Después de la ronda 3 el juego se paró en el hilo 19**: "llamada indirecta a `0x3e0ab1c300000003`" (`main+0x39760d0` ←
+  `main+0x3962c30` ← `main+0x39874b0`). La prueba le cambió la memoria por debajo al devolver las páginas guardadas: sus datos
+  volvieron atrás mientras él seguía adelante, y acabó saltando a una dirección basura.
+- **Lectura:** los hilos 11, 19 y 47 no son la simulación. Van a su ritmo (probablemente sonido, efectos o similar) y escriben en
+  páginas que la prueba rebobinaba. Rebobinar esas páginas **no tiene sentido** (no son estado del combate) y además **es peligroso**
+  (lo que tumbó al hilo 19). Las páginas que solo escribe un hilo así hay que dejarlas fuera, igual que el dibujo.
+
+**Cambio para el pedido 009 (la prueba, versión 5):**
+1. Una página en la que se ve escribir a otro hilo **queda fuera** de los rebobinados y de las comparaciones a partir de ese momento
+   (se cuenta, y también cuántas de esas escribe además el hilo que repite, porque en esas los datos de la simulación tampoco se
+   rebobinarían).
+2. La vigilancia cubre todo el tiempo desde que se devuelven las páginas hasta que se miden, no solo la repetición. Además se vigila
+   **el siguiente cuadro normal del juego**, para ver quién escribe ahí sin repetición de por medio.
+3. Para las páginas sospechosas, la prueba dice **en qué momento** cambian: al devolverlas, antes de la repetición, durante o después.
+Probado en Wine con un juego de mentira que tiene un "hilo de sonido" escribiendo sin parar: la ronda 1 lo detecta, lo deja fuera, y
+de la ronda 2 en adelante las repeticiones salen **IDENTICAL**.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

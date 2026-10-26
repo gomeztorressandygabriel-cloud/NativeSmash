@@ -552,6 +552,13 @@ un solo hilo cuenta todas las escrituras; con dos hilos a la vez se le escapan a
 Probado en Wine con un juego de mentira que tiene un "hilo de sonido" escribiendo sin parar: la ronda 1 lo detecta, lo deja fuera, y
 de la ronda 2 en adelante las repeticiones salen **IDENTICAL**.
 
+**Pedido 009:** el juego se cerró a los ~203 s, **antes de que la prueba guardara nada** (solo salió la línea de inicio): lectura de
+`0x6095a9e000` (zona de memoria del juego sin memoria detrás) en el propio bucle principal (`main+0x3746e90` ← `main+0x2c5620`). En
+ese momento la prueba solo estaba mirando qué páginas se escriben, lo mismo que en los pedidos 007 y 008, que pasaron de ahí sin
+problema; lo nuevo de la versión 5 no se ejecuta todavía en ese punto. Puede ser un cierre del juego que no tiene que ver con la prueba,
+o algo de la prueba en ese momento. Se repite igual (pedido 010), con dos líneas más en el registro (`finding the pages` y `saving`)
+para saber en qué paso exacto ocurre si vuelve a pasar.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

@@ -267,9 +267,13 @@ static void begin_round(void) {
     n_frames = round_frames[round_i];
     frames_in_phase = 0;
     phase = DISCOVER;
+    fprintf(stderr, "[rbtest] round %u: finding the pages the game writes (%u frames)\n", round_i + 1, DISCOVER_FRAMES);
+    fflush(stderr);
 }
 
 static void save(Cpu *c) {
+    fprintf(stderr, "[rbtest] round %u: saving\n", round_i + 1);
+    fflush(stderr);
     u64 t0 = rt_now_ns();
     read_regions();
     u32 saved = 0;

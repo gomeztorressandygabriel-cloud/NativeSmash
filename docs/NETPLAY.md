@@ -21,9 +21,8 @@ uno verá el combate de forma distinta: los personajes en sitios distintos.
 ## Cómo probarlo con un amigo
 
 **Los dos necesitan:**
-1. La **misma versión** del juego y NativeSmash **compilado desde la misma rama** (`cloud/rollback-probe`),
-   con `launchers\Build NativeSmash.bat`. No uses `Install NativeSmash.bat`: se actualiza solo y deshace
-   estos cambios.
+1. La **misma versión** del juego y **NativeSmash al día**: en el launcher, página **Juego** → **Buscar
+   actualizaciones** → **Actualizar ahora**.
 2. **Los mismos luchadores desbloqueados**. Lo más fácil es que los dos usen `Unlock All Fighters.bat`
    antes. Si las pantallas de selección no son iguales, los juegos se separan desde el menú.
 3. Estar en la misma red: una **VPN** como ZeroTier, Tailscale o Radmin VPN (lo más fácil), o que el host
@@ -33,7 +32,7 @@ uno verá el combate de forma distinta: los personajes en sitios distintos.
 1. El **host** va a la página **En línea**, baja hasta **VS en red con un amigo (prueba)** y elige **Soy el host
    (jugador 1)**. Ahí mismo sale su dirección de Radmin VPN (la que empieza por 26.): se la pasa a su amigo.
 2. El amigo, en la misma página, elige **Me uno (jugador 2)** y escribe esa dirección.
-3. Los dos eligen el mismo retraso (2 para empezar) y pulsan **JUGAR**. El launcher recuerda la elección para la
+3. El host elige el retraso (2 para empezar; manda el del host) y los dos pulsan **JUGAR**. El launcher recuerda la elección para la
    próxima vez (en `vs_netplay.txt`). Para jugar normal otra vez, elegid **Apagado**.
 
 También se puede sin el launcher: `launchers\Host VS Netplay (test).bat` y `launchers\Join VS Netplay (test).bat`.

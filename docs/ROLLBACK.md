@@ -446,6 +446,10 @@ usada de su pila. `net_rbtest.c` las llama junto con la memoria e informa `fiber
 `fibers restored N (running, skipped: M; started since, dropped: K)`. Una fibra que esté corriendo en el momento de guardar no se
 puede guardar (queda contada). Falta medirlo en el PC: pedido 004 del laboratorio.
 
+**Pedido 004:** no compiló en el PC. El `clang-cl` del proyecto (LLVM 23.1.3) leyó el ensamblador de `net_rbfiber.c` como sintaxis
+Intel (`error: unknown token in expression` en cada `%registro`); el clang 18 de la nube lo leía como AT&T. Se arregló diciendo la
+sintaxis al principio del bloque (`.att_syntax prefix`), y la prueba en Wine sigue saliendo igual. Se repite como pedido 005.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

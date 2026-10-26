@@ -38,7 +38,9 @@ static __declspec(thread) RbFiber *current;
 
 void rbf_switch_asm(void **save_sp, void *load_sp);
 void rbf_trampoline(void);
+/* (AT&T syntax said outright: clang-cl may parse file-level assembly as Intel by default) */
 __asm__(
+    ".att_syntax prefix\n"
     ".text\n"
     ".globl rbf_switch_asm\n"
     "rbf_switch_asm:\n"

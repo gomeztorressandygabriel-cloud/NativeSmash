@@ -437,6 +437,15 @@ cada fibra, su `Cpu` y la tabla de fibras de `hle_fiber.c` junto con la memoria,
 hay que mantener además los límites de pila del hilo (`StackBase`/`StackLimit` del TEB) en cada cambio, como hacen bibliotecas como
 Boost.Context. Solo se activaría en el modo rollback; el juego normal seguiría con las fibras de Windows.
 
+**Hecho (fase 3b, en la nube):** `runtime/net_rbfiber.c` son esas fibras propias para Windows x64 (cambio en ensamblador que guarda
+rbx, rbp, rdi, rsi, r12–r15, xmm6–xmm15, MXCSR y la palabra de control x87; pila reservada como la de `CreateFiberEx`, con página de
+guarda; límites del TEB cambiados en cada salto). Se probaron en Wine: 3 fibras, recursión de 6 MB, excepciones de C++, migración de
+una fibra a otro hilo, y guardar → seguir → restaurar → repetir dio el mismo resultado. `hle_fiber.c` las usa **solo** con la prueba
+encendida (`SSBU_RB_TEST=1`), y `fibers_save`/`fibers_restore` guardan y devuelven la tabla de fibras, el `Cpu` de cada una y la parte
+usada de su pila. `net_rbtest.c` las llama junto con la memoria e informa `fibers saved N (running, not saved: M)` y
+`fibers restored N (running, skipped: M; started since, dropped: K)`. Una fibra que esté corriendo en el momento de guardar no se
+puede guardar (queda contada). Falta medirlo en el PC: pedido 004 del laboratorio.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

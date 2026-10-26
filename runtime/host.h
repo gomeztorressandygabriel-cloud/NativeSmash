@@ -71,6 +71,8 @@ u32 kernel_new_session(void *session);                 /* a handle for a native 
 void *kernel_session_of(u32 handle);
 u32 kernel_create_event(void);                         /* a kernel event handle, for native code */
 void fiber_counts(u32 *slots, u32 *finalized, u64 *made);   /* (hle_fiber.c) host fibers in use, spare; guest fibers started */
+int fibers_save(u32 *running);                         /* (hle_fiber.c, the rollback rewind test) every fiber saved; -1: not possible here */
+int fibers_restore(u32 *skipped, u32 *dropped);        /* ... and put back: how many; -1: not possible here */
 enum { KT_RUNNING, KT_WAITING, KT_SLEEPING, KT_REQUESTING };
 int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, int state), void *user);   /* every guest thread alive and what it does (0: the kernel's lock is busy) */
 u32 kernel_memory_regions(u64 *base, u64 *size, u32 max);   /* the guest's heap and stack regions (0: the kernel's lock is busy) */

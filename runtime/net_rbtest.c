@@ -19,8 +19,13 @@
  *   6. Compare: the hash of every hot page again. Equal everywhere: the simulation came back to the
  *      same state. Otherwise, how many pages differ and where.
  *
- * What it does not save: host state - each fiber's host stack and context (hle_fiber.c), the
- * kernel's objects, the renderer's caches - nor what other threads (the game's workers) do. Those
+ * It saves the game's fibers too (phase 3b): while the test is on, hle_fiber.c runs them on fibers of
+ * the runtime's own (net_rbfiber.c) instead of Windows', so each one's slot, guest context and host
+ * stack can be saved with the pages and put back with them (fibers_save, fibers_restore). A fiber
+ * running at the save (the one the frame's simulation runs on, if any) cannot be, and is counted.
+ *
+ * What it does not save: the kernel's objects, the renderer's caches - nor what other threads (the
+ * game's workers) do. Those
  * are exactly what the test finds out about: a difference, or a crash while replaying, says the
  * save was not enough. The game carries on with the replayed state, which may look odd for a
  * moment. Every line it writes to the log starts with [rbtest].
@@ -223,6 +228,8 @@ static void save(Cpu *c) {
     watch_now(&window_seen, NULL);   /* (the window's writes are counted from here) */
     u32 slots, finalized;
     fiber_counts(&slots, &finalized, &fibers_at_save);
+    u32 fib_running = 0;
+    int fib_saved = fibers_save(&fib_running);
     memset(rec, 0, sizeof rec);
     escaped = pad_replayed = pad_missing = tick_replayed = tick_missing = 0;
     rec[0].sim_cpu = *c;
@@ -230,8 +237,9 @@ static void save(Cpu *c) {
     start_frame(0);
     hook = HOOK_RECORD;
     phase = RECORD;
-    fprintf(stderr, "[rbtest] round %u (%u frames): %u pages found written in %u frames (%.1f MB%s), %u saved in %.1f ms\n", round_i + 1, n_frames,
-            nhot, DISCOVER_FRAMES, nhot * (double)PAGE / 1048576.0, hot_overflow ? ", more than the most kept" : "", saved, (rt_now_ns() - t0) / 1e6);
+    fprintf(stderr, "[rbtest] round %u (%u frames): %u pages found written in %u frames (%.1f MB%s), %u saved; fibers saved %d (running, not saved: %u); in %.1f ms\n",
+            round_i + 1, n_frames, nhot, DISCOVER_FRAMES, nhot * (double)PAGE / 1048576.0, hot_overflow ? ", more than the most kept" : "", saved,
+            fib_saved, fib_running, (rt_now_ns() - t0) / 1e6);
 }
 
 static void check_and_replay(Cpu *c) {
@@ -250,6 +258,10 @@ static void check_and_replay(Cpu *c) {
     u64 t0 = rt_now_ns();
     for (u32 i = 0; i < nhot; i++)
         if (snap_ok[i] && committed(hot[i])) memcpy(P(void, hot[i]), snap + (u64)i * PAGE, PAGE);
+    u32 fib_skipped = 0, fib_dropped = 0;
+    int fib_restored = fibers_restore(&fib_skipped, &fib_dropped);
+    fprintf(stderr, "[rbtest] round %u: fibers restored %d (running, skipped: %u; started since, dropped: %u)\n", round_i + 1, fib_restored, fib_skipped, fib_dropped);
+    fflush(stderr);
     /* replay: the simulation of frame 0, then each next frame's input step and simulation, then
      * frame N's input step - back to where the game was when it called this frame's simulation */
     Cpu now = *c;

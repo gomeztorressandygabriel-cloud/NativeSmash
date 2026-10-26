@@ -12,6 +12,7 @@
 #include "pad.h"
 #include "latency.h"
 #include "net_rbprobe.h"
+#include "net_rbtest.h"
 #ifdef __ANDROID__
 #include "android/touch.h"
 #endif
@@ -165,6 +166,7 @@ static void npad_state(u64 out, u32 id, u32 style) {
         st32(out + 40, (u32)lt); st32(out + 44, (u32)rt);
         st32(out + 48, 0);
     }
+    if (rbt_on()) rbt_pad(out, style == STYLE_GC ? 0x34 : 0x28);   /* (the rewind test: recorded, or the recorded state put back) */
 }
 
 HLE(_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj) { npad_state(c->x[0], ld32(c->x[1]), STYLE_FULLKEY); }

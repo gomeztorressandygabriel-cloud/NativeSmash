@@ -20,6 +20,7 @@
 #include "gpu.h"   /* (gpu_memory_unmapping) */
 #include "cpu_sched.h"
 #include "net_rbprobe.h"
+#include "net_rbtest.h"
 
 #ifdef __APPLE__
 void rt_upnp_remove(void);   /* (linux/upnp.c: the netplay relay's port mapping, if it made one) */
@@ -73,7 +74,10 @@ static u64 heap_size, tlr_next = KERNEL_BASE, next_thread_id = 1, wait_order;
 /* ---- time ------------------------------------------------------------------------ */
 static u64 now_ns(void) { return rt_clock_ns(); }
 
-u64 rt_ticks(void) { return rt_clock_ns() * 12 / 625; }   /* (19.2 MHz) */
+u64 rt_ticks(void) {   /* (19.2 MHz) */
+    u64 t = rt_clock_ns() * 12 / 625;
+    return rbt_on() ? rbt_ticks(t) : t;   /* (the rewind test: recorded, or the recorded value replayed) */
+}
 
 static u64 deadline_of(i64 timeout_ns) { return timeout_ns < 0 ? ~0ull : now_ns() + (u64)timeout_ns; }
 

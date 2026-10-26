@@ -417,6 +417,27 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
 
+### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
+
+Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`
+(firmas sacadas en el pedido 002 del laboratorio, cada una con una sola coincidencia): `7103667300` (lee los mandos) y `71037246a0`
+(simula; se llama a sí misma, así que solo cuenta la llamada exterior). A partir de `SSBU_RB_TEST_AT` segundos (200 por defecto) hace
+4 rondas, de 1, 10, 30 y 60 cuadros:
+
+1. Durante 60 cuadros apunta qué páginas de ALIAS escribe el juego (el "conjunto caliente", hasta 64 MB).
+2. Al empezar la simulación de un cuadro, copia esas páginas.
+3. Graba N cuadros: lo que devuelve cada lectura del mando y cada lectura del reloj (`rt_ticks`) en el hilo principal, y con qué
+   argumentos se llamó al paso de mandos y a la simulación.
+4. Al llegar al cuadro N: huella de cada página guardada, y cuántas páginas fuera del conjunto se escribieron (las que el guardado no cubre).
+5. Rebobina (vuelve a copiar las páginas guardadas) y repite los N cuadros (simulación y paso de mandos, sin dibujar), con los mandos y el
+   reloj grabados.
+6. Compara las huellas: **IDÉNTICO** o **DIFERENTE** en cuántas páginas y cuáles.
+
+No guarda el estado del host (pilas de las fibras, objetos del kernel) ni lo que hacen los hilos trabajadores, ni repite el paso 3 del
+bucle (`f_71038fe2b0`): justo eso es lo que la prueba descubre. Si sale diferente, o el juego se cae al repetir, el guardado no basta.
+Probada en la nube con un juego de mentira (idéntico si es determinista; diferente si tiene estado escondido); con el juego real, en el
+pedido 003 del laboratorio.
+
 ### El laboratorio automático (rama `cloud/rollback-lab`)
 
 Desde el pedido 001, las pruebas en el PC del usuario las hace un agente local (Antigravity) sin que el usuario juegue: lee el pedido en

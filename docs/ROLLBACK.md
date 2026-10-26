@@ -559,6 +559,26 @@ problema; lo nuevo de la versión 5 no se ejecuta todavía en ese punto. Puede s
 o algo de la prueba en ese momento. Se repite igual (pedido 010), con dos líneas más en el registro (`finding the pages` y `saving`)
 para saber en qué paso exacto ocurre si vuelve a pasar.
 
+### Resultado del pedido 010: casi idéntico en la ronda 1, y otra vez un hilo de fuera
+
+- Esta vez la ronda 1 sí llegó: 5 775 páginas y 13 fibras guardadas en 21,5 ms, y las dos repeticiones **solo discreparon en 4
+  páginas escritas durante la simulación** (`0x6040476000`, `0x6062601000`, `0x6062602000`, `0x6075a01000`) y 37 del resto del cuadro.
+  (Repetir tardó 0,1–0,4 ms: en ese cuadro la simulación hizo poco, quizá un momento tranquilo del combate.)
+- En el cuadro normal siguiente, `0x6075a01000` la escriben **los hilos 28 y 29** desde código de `subsdk0` (una biblioteca del sistema,
+  no la simulación). Las otras tres no las escribió nadie en ese cuadro.
+- **Justo después el juego se cerró en el hilo 37** (prioridad 44, código de `subsdk0`, `main+0x36f3f20`): lectura de la dirección
+  `0x4`, en la misma función de copia (`sdk+0xfeb0`) con la que el hilo 28 escribe esa página. Es el mismo mecanismo que tumbó al hilo
+  19 en el 008: al devolver el estado, la prueba le puso a una biblioteca que va a su ritmo datos de unos milisegundos antes (punteros
+  de `0x6075a01000` distintos entre repeticiones), y uno quedó vacío.
+- El cierre del 009, en el bucle principal, puede ser el mismo problema por otro lado.
+
+**Cambio para el pedido 011 (la prueba, versión 6): un censo antes del primer guardado.** Durante 10 cuadros todas las páginas
+guardadas se ponen de solo lectura, una vez durante la simulación y otra fuera de ella en cada cuadro. La primera escritura de cada
+página en cada tramo apunta qué hilo fue y la deja escribir. Un hilo que no sea el principal y que escriba **fuera** de la simulación va
+a su ritmo (sonido, efectos, bibliotecas del sistema): todas las páginas que toca quedan fuera de los rebobinados **desde la ronda 1**.
+Los hilos que solo escriben mientras corre la simulación (los ayudantes del sistema de trabajos) se mantienen. Probado en Wine con un
+juego de mentira con un ayudante y un "hilo de sonido": el censo separa bien los dos, y **la ronda 1 ya sale IDENTICAL**.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

@@ -25,6 +25,10 @@
  *      first words that do. Then give the game back the
  *      state it had (step 5), so it carries on as if the test had not been.
  *
+ * Before the first save, a census (Windows): for 10 frames, which threads write each hot page, inside
+ * and outside the simulation's span. A thread other than the main one that writes outside it goes at
+ * its own pace (sound, effects...), and every page it writes is left out of the rewinds from the start.
+ *
  * From the second round on, the pages the last round's replays disagreed on are made read-only while
  * replaying (from the put-back to the hashing) and in the game's next frame, to see which threads write
  * them: a page another thread writes is one a rewind cannot undo, and is left out of the rewinds and
@@ -67,6 +71,7 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define MAX_HOT 16384              /* pages saved at most: 64 MB */
 #define MAX_REGIONS 4096
 #define DISCOVER_FRAMES 120
+#define CENSUS_FRAMES 10           /* (Windows) frames the census of who writes the pages lasts */
 #define MAX_LATE 8192              /* pages found written outside the hot set, added to it for the next round */
 #define MAX_N 60
 #define MAX_PADS 16                /* pad reads kept per frame */
@@ -86,7 +91,7 @@ typedef struct RecFrame {
     u32 nticks;
 } RecFrame;
 
-enum { IDLE, DISCOVER, RECORD, DONE };
+enum { IDLE, DISCOVER, CENSUS, RECORD, DONE };
 enum { HOOK_OFF, HOOK_RECORD, HOOK_PLAY };
 
 static int phase = IDLE, hook = HOOK_OFF;
@@ -423,8 +428,118 @@ static void protect_suspects(DWORD prot) {
     }
 }
 
+/* The census, once before the first round's save: for CENSUS_FRAMES frames every hot page is read-only
+ * from each frame's simulation start to its end and from its end to the next start; the first write to
+ * a page in each of those spans notes the thread (one bit a thread) and makes the page writable again.
+ * A thread other than the main one that writes outside the simulation's span goes at its own pace
+ * (sound, effects...): every page it writes is left out of the rewinds from the start. */
+#define MAX_SLOTS 64
+static u64 census_page[MAX_HOT], census_in[MAX_HOT], census_out[MAX_HOT];   /* (sorted pages; who wrote each: in / out of the simulation) */
+static u32 ncensus;
+static volatile LONG census_on, census_in_sim, nslots;
+static volatile DWORD slot_tid[MAX_SLOTS];
+
+static int page_cmp(const void *a, const void *b) {
+    u64 x = *(const u64 *)a, y = *(const u64 *)b;
+    return x < y ? -1 : x > y;
+}
+
+static int census_find(u64 page) {
+    u32 lo = 0, hi = ncensus;
+    while (lo < hi) {
+        u32 mid = (lo + hi) / 2;
+        if (census_page[mid] < page) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo < ncensus && census_page[lo] == page ? (int)lo : -1;
+}
+
+static int slot_of(DWORD tid) {
+    for (;;) {
+        LONG n = nslots;
+        for (LONG i = 0; i < n; i++) if (slot_tid[i] == tid) return (int)i;
+        if (n == MAX_SLOTS) return MAX_SLOTS - 1;
+        if (InterlockedCompareExchange(&nslots, n + 1, n) == n) { slot_tid[n] = tid; return (int)n; }
+    }
+}
+
+static void census_protect(DWORD prot) {   /* (runs of neighbouring pages in one call) */
+    for (u32 i = 0; i < ncensus;) {
+        u32 j = i + 1;
+        while (j < ncensus && census_page[j] == census_page[j - 1] + PAGE && committed(census_page[j])) j++;
+        DWORD old;
+        if (committed(census_page[i])) VirtualProtect(P(void, census_page[i]), (j - i) * PAGE, prot, &old);
+        i = j;
+    }
+}
+
+static LONG WINAPI on_write(EXCEPTION_POINTERS *e);
+static void *write_handler;
+static void census_begin(void) {
+    if (!write_handler) write_handler = AddVectoredExceptionHandler(1, on_write);
+    read_regions();
+    ncensus = 0;
+    for (u32 i = 0; i < nhot; i++) if (committed(hot[i])) census_page[ncensus++] = hot[i];
+    qsort(census_page, ncensus, sizeof *census_page, page_cmp);
+    memset(census_in, 0, sizeof census_in);
+    memset(census_out, 0, sizeof census_out);
+    nslots = 0;
+    slot_of(sim_thread);   /* (slot 0: the main thread) */
+    census_in_sim = 1;
+    census_on = 1;
+    census_protect(PAGE_READONLY);
+}
+
+static void census_span(int in_sim) {   /* a span begins: every page read-only again */
+    census_in_sim = in_sim;
+    census_protect(PAGE_READONLY);
+}
+
+static void census_end(void) {
+    census_on = 0;
+    census_protect(PAGE_READWRITE);
+    nguest = 0;
+    kernel_thread_each(note_guest, NULL);
+    u64 foreign_threads = 0;
+    for (LONG k = 1; k < nslots; k++) {
+        u32 in = 0, out = 0;
+        for (u32 i = 0; i < ncensus; i++) { in += census_in[i] >> k & 1; out += census_out[i] >> k & 1; }
+        if (out) foreign_threads |= 1ull << k;
+        fprintf(stderr, "[rbtest] census: thread %lu (guest %lld) wrote %u pages while the simulation ran, %u outside it%s\n", (unsigned long)slot_tid[k],
+                guest_of(slot_tid[k]), in, out, out ? ": its own pace, its pages left out" : "");
+    }
+    u32 main_in = 0, main_out = 0, mixed = 0, before = nforeign;
+    for (u32 i = 0; i < ncensus; i++) {
+        main_in += census_in[i] & 1;
+        main_out += census_out[i] & 1;
+        u64 all = census_in[i] | census_out[i];
+        if (all & foreign_threads) {
+            mark_foreign(census_page[i]);
+            if (all & ~foreign_threads) mixed++;
+        }
+    }
+    nshared += mixed;
+    fprintf(stderr, "[rbtest] census (%u frames, %u pages): the main thread wrote %u pages while the simulation ran, %u outside it; pages left out: %u, %u of them written by the main thread or a helper too\n",
+            CENSUS_FRAMES, ncensus, main_in, main_out, nforeign - before, mixed);
+}
+
 static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
     DWORD code = e->ExceptionRecord->ExceptionCode;
+    if (census_on && code == EXCEPTION_ACCESS_VIOLATION && e->ExceptionRecord->NumberParameters >= 2 && e->ExceptionRecord->ExceptionInformation[0] == 1) {
+        u64 host = e->ExceptionRecord->ExceptionInformation[1], base = (u64)(uintptr_t)P(u8, ALIAS_BASE);
+        if (host >= base && host < base + ALIAS_SIZE) {
+            u64 page = ALIAS_BASE + ((host - base) & ~(PAGE - 1));
+            int i = census_find(page);
+            if (i >= 0) {
+                u64 bit = 1ull << slot_of(GetCurrentThreadId());
+                if (census_in_sim) census_in[i] |= bit;
+                else census_out[i] |= bit;
+                DWORD old;
+                VirtualProtect(P(void, page), PAGE, PAGE_READWRITE, &old);
+                return EXCEPTION_CONTINUE_EXECUTION;
+            }
+        }
+    }
     if (code == STATUS_SINGLE_STEP && pending >= 0) {
         DWORD old;
         if (tracing) VirtualProtect(P(void, suspect[pending]), PAGE, PAGE_READONLY, &old);
@@ -459,9 +574,8 @@ static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
 }
 
 static void trace_begin(int which) {
-    static void *handler;
     if (!nsuspect) return;
-    if (!handler) handler = AddVectoredExceptionHandler(1, on_write);
+    if (!write_handler) write_handler = AddVectoredExceptionHandler(1, on_write);
     replay_no = which;
     memset(writers, 0, sizeof writers);
     tracing = 1;
@@ -491,7 +605,12 @@ static void trace_end(void) {
         if (other && !is_foreign(suspect[k])) { mark_foreign(suspect[k]); nshared += own; }
     }
 }
+static int census_possible(void) { return 1; }
 #else
+static int census_possible(void) { return 0; }
+static void census_begin(void) {}
+static void census_span(int in_sim) { (void)in_sim; }
+static void census_end(void) {}
 static void trace_begin(int which) { (void)which; }
 static void trace_end(void) {}
 static int trace_active(void) { return 0; }
@@ -617,7 +736,23 @@ static void frame(Cpu *c) {
             phase = DONE;
             break;
         }
-        if (++frames_in_phase >= DISCOVER_FRAMES) save(c);
+        if (++frames_in_phase >= DISCOVER_FRAMES) {
+            static int census_done;
+            if (census_done++ || !census_possible()) save(c);
+            else {
+                fprintf(stderr, "[rbtest] round %u: census of who writes the pages (%u frames)\n", round_i + 1, CENSUS_FRAMES);
+                fflush(stderr);
+                census_begin();
+                frames_in_phase = 0;
+                phase = CENSUS;
+            }
+        }
+        break;
+    case CENSUS:
+        if (++frames_in_phase >= CENSUS_FRAMES) {
+            census_end();
+            save(c);
+        } else census_span(1);
         break;
     case RECORD:
         if (rec_next == n_frames) check_and_replay(c);   /* (frame N: its input step is recorded, its simulation not run yet) */
@@ -647,6 +782,7 @@ HLE_WRAP(71037246a0) {
     if (recording) watch_now(&sim_seen, NULL);       /* (what the simulation writes: from here...) */
     f_71037246a0_orig(c);
     if (recording) watch_now(&sim_seen, mark_sim);   /* (... to here) */
+    if (phase == CENSUS && on_sim_thread()) census_span(0);
     if (phase == RECORD && on_sim_thread()) rec_next = cur + 1;
     depth--;
 }

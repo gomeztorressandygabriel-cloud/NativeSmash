@@ -67,6 +67,15 @@ es la pista para arreglarlo.
   el mensaje de desconexión del propio juego.
 - Solo 1 contra 1.
 
+## Para después de las pruebas reales (pedido por el usuario)
+
+- **Si uno va más lento, el otro también.** Ya ocurre por cómo funciona: cada juego espera los botones del otro
+  antes de avanzar. Falta que se note menos, con un ritmo común suave en vez de tirones.
+- **Aviso en pantalla si se desincronizan** (ahora solo queda en `build\play.log`), y a ser posible arreglarlo solo:
+  el host manda su estado y el otro se pone al día.
+- **Mensaje de desconexión** como el del propio juego, en vez de que el jugador 2 se quede quieto.
+- Botones Host/Join dentro del juego y código de sala, y más de 2 jugadores.
+
 ## La prueba en un solo PC (para el laboratorio)
 
 Juega dos veces seguidas lo mismo, con los mismos botones cuadro a cuadro, y compara. Si las dos partidas

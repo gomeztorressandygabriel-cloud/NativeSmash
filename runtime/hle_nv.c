@@ -80,6 +80,18 @@ void gpu_memory_unmapping(u64 addr, u64 size) {
     gfx_guest_unmapped(addr, size);
 }
 
+/* (net_rbprobe.c) The guest memory of the nvmap allocations - what the game handed the GPU - up to
+ * `max` of them; how many (0 before the first). */
+u32 gpu_memory_list(u64 *addr, u64 *size, u32 max) {
+    if (!__atomic_load_n(&lock_made, __ATOMIC_ACQUIRE)) return 0;
+    EnterCriticalSection(&lock);
+    u32 n = next_handle < NVMAP_MAX ? next_handle : NVMAP_MAX, k = 0;
+    for (u32 h = 1; h < n && k < max; h++)
+        if (gpu_maps[h].addr && gpu_maps[h].size) { addr[k] = gpu_maps[h].addr; size[k] = gpu_maps[h].size; k++; }
+    LeaveCriticalSection(&lock);
+    return k;
+}
+
 u64 gpu_va_to_guest(u64 va) {   /* 0 when unmapped */
     u64 page = va >> PAGE_BITS;
     if (page >> LEAF_BITS >= TOP_COUNT) return 0;

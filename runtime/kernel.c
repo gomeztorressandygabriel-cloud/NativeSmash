@@ -19,6 +19,9 @@
 #include "host.h"
 #include "gpu.h"   /* (gpu_memory_unmapping) */
 #include "cpu_sched.h"
+#include "net_rbprobe.h"
+#include "net_rbtest.h"
+#include "net_lockstep.h"
 
 #ifdef __APPLE__
 void rt_upnp_remove(void);   /* (linux/upnp.c: the netplay relay's port mapping, if it made one) */
@@ -52,6 +55,7 @@ typedef struct KThread {
     CONDITION_VARIABLE woken;   /* what this thread sleeps on (kwait): wakes go to the threads concerned */
     u64 wait_handles;   /* while in WaitSynchronization: its handle array (guest) and count */
     u32 wait_count;
+    volatile int sleeping, requesting;   /* in SleepThread; in a service request (for the rollback probe's view of who is busy) */
 } KThread;
 
 typedef struct KObject { int type, signaled; KThread *thread; void *session; } KObject;
@@ -71,7 +75,11 @@ static u64 heap_size, tlr_next = KERNEL_BASE, next_thread_id = 1, wait_order;
 /* ---- time ------------------------------------------------------------------------ */
 static u64 now_ns(void) { return rt_clock_ns(); }
 
-u64 rt_ticks(void) { return rt_clock_ns() * 12 / 625; }   /* (19.2 MHz) */
+u64 rt_ticks(void) {   /* (19.2 MHz) */
+    u64 t = rt_clock_ns() * 12 / 625;
+    if (rbt_on()) return rbt_ticks(t);   /* (the rewind test: recorded, or the recorded value replayed) */
+    return lks_on() ? lks_ticks(t) : t;   /* (netplay: the main thread's clock is a clock of frames) */
+}
 
 static u64 deadline_of(i64 timeout_ns) { return timeout_ns < 0 ? ~0ull : now_ns() + (u64)timeout_ns; }
 
@@ -428,7 +436,9 @@ void rt_svc(Cpu *c, u32 n) {
     /* calls that never touch shared kernel state */
     switch (n) {
     case 0x0B:   /* SleepThread(ns): non-positive values are yield requests */
+        if (me) me->sleeping = 1;
         if ((i64)x[0] > 0) Sleep((DWORD)((x[0] + 999999) / 1000000)); else SwitchToThread();
+        if (me) me->sleeping = 0;
         return;
     case 0x10: x[0] = 0; return;                         /* GetCurrentProcessorNumber */
     case 0x1E: x[0] = rt_ticks(); return;                /* GetSystemTick */
@@ -456,7 +466,9 @@ void rt_svc(Cpu *c, u32 n) {
         u32 h = (u32)(n == 0x21 ? x[0] : x[2]);
         void *s = kernel_session_of(h);
         if (!s) { x[0] = R_INVALID_HANDLE; return; }
+        if (me) me->requesting = 1;
         x[0] = ipc_request(c, s, n == 0x21 ? c->tpidrro : x[0], n == 0x21 ? 0x100 : x[1]);
+        if (me) me->requesting = 0;
         return;
     }
     }
@@ -638,6 +650,46 @@ void kernel_thread_states(void (*line)(const char *text)) {
     LeaveCriticalSection(&klock);
 }
 
+/* (net_rbprobe.c) Every guest thread alive, with what it is doing: KT_RUNNING (or in a system call
+ * not listed here), KT_WAITING (a mutex, a condition, an address, WaitSynchronization),
+ * KT_SLEEPING (SleepThread) or KT_REQUESTING (a service request). 0 when the kernel's lock is
+ * busy (not waited for). */
+int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, int state), void *user) {
+    if (!TryEnterCriticalSection(&klock)) return 0;
+    for (u32 i = 1; i < 4096; i++) {
+        KThread *t = objects[i].type == OBJ_THREAD ? objects[i].thread : NULL;
+        if (!t || !t->started || t->exited) continue;
+        int state = t->mutex_addr || t->cv_key || t->arb_addr || t->wait_count ? KT_WAITING
+                    : t->sleeping ? KT_SLEEPING : t->requesting ? KT_REQUESTING : KT_RUNNING;
+        each(user, t->id, t->priority, t->core, state);
+    }
+    LeaveCriticalSection(&klock);
+    return 1;
+}
+
+/* (net_rbprobe.c) The host thread running guest thread `id` (NULL if none, or the kernel's lock busy). */
+HANDLE kernel_thread_host(u64 id) {
+    if (!TryEnterCriticalSection(&klock)) return NULL;
+    HANDLE h = NULL;
+    for (u32 i = 1; i < 4096 && !h; i++) {
+        KThread *t = objects[i].type == OBJ_THREAD ? objects[i].thread : NULL;
+        if (t && t->id == id && t->started && !t->exited) h = t->host;
+    }
+    LeaveCriticalSection(&klock);
+    return h;
+}
+
+/* (net_rbprobe.c) The guest's memory: the regions of heap and stack memory, up to `max`; how many
+ * there are (0 when the kernel's lock is busy, not waited for). */
+u32 kernel_memory_regions(u64 *base, u64 *size, u32 max) {
+    if (!TryEnterCriticalSection(&klock)) return 0;
+    u32 n = 0;
+    for (u32 i = 0; i < region_count && n < max; i++)
+        if (regions[i].state == GM_HEAP || regions[i].state == GM_STACK) { base[n] = regions[i].base; size[n] = regions[i].size; n++; }
+    LeaveCriticalSection(&klock);
+    return n;
+}
+
 void kernel_dump_threads(void) {
     EnterCriticalSection(&klock);
     for (u32 i = 1; i < 4096; i++) {
@@ -691,12 +743,14 @@ void kernel_init(void) {
     rt_clock_ns();   /* (the clock set up - and its line logged - before the game asks it) */
     /* Reserve the areas the guest maps into; pages are committed as they are used. The alias
      * area, where the game keeps its GPU memory, has its writes watched so that the renderer
-     * learns which textures the CPU changed (GetWriteWatch). */
-    static const struct { u64 base, size; const char *what; DWORD flags; } areas[] = {
-        {HEAP_BASE, HEAP_LIMIT, "heap", 0}, {ALIAS_BASE, ALIAS_SIZE, "alias", MEM_WRITE_WATCH}, {STACK_BASE, STACK_SIZE, "stack", 0},
-        {KERNEL_BASE, 0x1000000, "thread-local", 0},
+     * learns which textures the CPU changed (GetWriteWatch). With the rollback probe on
+     * (net_rbprobe.c), the heap's and the stack's are watched too, so it can count them. */
+    static const struct { u64 base, size; const char *what; DWORD flags; int probe; } areas[] = {
+        {HEAP_BASE, HEAP_LIMIT, "heap", 0, 1}, {ALIAS_BASE, ALIAS_SIZE, "alias", MEM_WRITE_WATCH, 0}, {STACK_BASE, STACK_SIZE, "stack", 0, 1},
+        {KERNEL_BASE, 0x1000000, "thread-local", 0, 0},
     };
     for (u32 i = 0; i < sizeof areas / sizeof *areas; i++)
-        if (VirtualAlloc(G2H(areas[i].base), areas[i].size, MEM_RESERVE | areas[i].flags, PAGE_READWRITE) != G2H(areas[i].base))
+        if (VirtualAlloc(G2H(areas[i].base), areas[i].size, MEM_RESERVE | areas[i].flags | (areas[i].probe && rbp_on() ? MEM_WRITE_WATCH : 0),
+                         PAGE_READWRITE) != G2H(areas[i].base))
             rt_fatal("kernel: cannot reserve the %s area at %#llx", areas[i].what, areas[i].base);
 }

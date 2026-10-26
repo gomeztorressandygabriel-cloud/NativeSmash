@@ -1,32 +1,25 @@
-# Pedido 001: combate automático con la sonda
+# Pedido 002: las "firmas" de las funciones del bucle principal
 
-**Para qué:** comprobar que el laboratorio funciona sin que el usuario juegue (un combate que empieza solo), y repetir la medición de la
-sonda versión 4 de forma automática. Si esto funciona, las próximas pruebas (la de "rebobinar") se harán igual.
+**Para qué:** el siguiente paso grande (la prueba de "rebobinar") necesita enganchar funciones del juego con `HLE_WRAP(...)`. Cada
+enganche lleva una **firma**: las primeras instrucciones de la función con las direcciones tapadas, que el compilador del proyecto
+comprueba para no enganchar la función equivocada. Las firmas solo se pueden sacar con el juego, así que las pido aquí. Este pedido
+**no compila ni ejecuta el juego**: es corto.
 
-**Código a usar:** la rama `cloud/rollback-probe` (en `C:\WindowSmash` es la rama local `rollback-probe`).
+**Resultado del pedido 001:** funcionó (combate automático en el intento 2, con los tiempos del guion +125 s). Gracias.
 
 ## Pasos
 
-1. En `C:\WindowSmash`: `git status` (sin cambios locales en archivos con seguimiento; si los hay, para), luego
-   `git pull mine cloud/rollback-probe` (debe ser fast-forward). Apunta el commit (`git rev-parse --short HEAD`).
-2. Compila con `launchers\Build NativeSmash.bat`. Si falla, escribe el error completo en el resultado y para.
-3. Mira cómo arranca `Play SSBU.bat` el juego (el ejecutable y sus argumentos) y compáralo con `tools/dev/autobattle.sh`, que arranca
-   `./build/ssbu.exe dump/modules --status 30` con botones guionizados (`SSBU_INPUT`) que van del título a un combate 1 contra 1.
-   Ejecútalo con Git Bash (o tradúcelo a PowerShell), con estas variables además de las del script:
-   - `SSBU_DATA_ROOT` apuntando a una **copia** de la partida guardada, como hace `tools/dev/menurun.sh`
-     (`build/testdata` con una copia de `save/`). **Nunca** la partida real.
-   - `SSBU_RB_PROBE=1` (la sonda) y `SSBU_LATENCY=1`.
-   - Duración: 150 segundos (el PC es lento; los tiempos del guion están pensados para uno más rápido).
-4. **Comprueba que llegó al combate**: el script guarda capturas en la carpeta de salida (`SSBU_CAPTURE`). Conviértelas con
-   `tools/dev/shot.py` si hace falta y mira las últimas: ¿se ve un combate (dos luchadores en un escenario)?
-   - Si no llegó, mira en qué pantalla se quedó y ajusta los tiempos de `SSBU_INPUT` (por ejemplo, retrasando todo unos segundos o
-     repitiendo pulsaciones de A). Como mucho **3 intentos**.
-   - Las capturas **no** se suben a GitHub: solo describe lo que se ve.
-5. Escribe `lab/resultados/001-autobattle.md` con:
-   - el commit usado y si compiló;
-   - el comando y el `SSBU_INPUT` que funcionaron (o los 3 intentos y dónde se quedó cada uno);
-   - en qué segundo empezó el combate y cuánto duró;
-   - de `<salida>.log`, **solo**: todas las líneas que empiezan por `[rbprobe]` y, tras cada `[rbprobe] stack at ...` y cada
-     `[rbprobe] thread ... is in`, las líneas siguientes hasta la próxima que empiece por `[`; las líneas `[latency]` que contengan
-     `vsync event -> game queues its frame`; las líneas `[status]`; y cualquier línea con `host exception`, `stopped during` o `fatal`.
-6. Sube el resultado (procedimiento de `lab/README.md`) y avisa al usuario.
+1. En `C:\WindowSmash`, mira cómo se usa `tools/recomp.py wrap-sig <nso> <dirección>` (su ayuda: `python tools/recomp.py`, y
+   `docs/TECHNICAL.md`, apartado de los `HLE_WRAP`). El `<nso>` es el módulo principal del juego (`main`) tal como lo usa la compilación
+   (por ejemplo `dump/exefs/main` o el que use `tools/build_game.py`; búscalo, no lo copies a ningún sitio).
+2. Ejecuta `wrap-sig` para estas direcciones del módulo `main`:
+   - `7103746e90` (el bucle principal)
+   - `7103667300` (lee los mandos)
+   - `71037246a0` (la simulación, candidata)
+   - `71038fe2b0` (paso sin identificar)
+   - `710386f850` (el dibujo)
+3. Escribe `lab/resultados/002-firmas.md` con, para cada dirección, exactamente lo que imprime `wrap-sig`: la línea
+   `/* signature: ... */` y la línea `(N match(es) in the module's code)`. Si alguna dice que no es el comienzo de una función, o da un
+   error, cópialo tal cual.
+4. Añade también: la ruta del `<nso>` que usaste y la versión del juego que dice la compilación (13.0.5 esperado).
+5. No subas nada más (ni el módulo, ni desensamblados). Sube el resultado (procedimiento de `lab/README.md`) y avisa al usuario.

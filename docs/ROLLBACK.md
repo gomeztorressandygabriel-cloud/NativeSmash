@@ -472,6 +472,31 @@ sintaxis al principio del bloque (`.att_syntax prefix`), y la prueba en Wine sig
 Comprobado en el juego de mentira: sale IDENTICAL entre repeticiones, separa bien lo del dibujo, detecta estado escondido fuera de la
 memoria, y el juego acaba exactamente igual que sin la prueba.
 
+### Resultado del pedido 006: la prueba v2, ronda 1 completa
+
+- **Ronda 1 (1 cuadro), completa:** 5 792 páginas y 23 fibras guardadas en 30 ms; las dos repeticiones tardaron **3,1 y 2,3 ms**
+  (más barato que en el 005: entonces la primera vez se pagaba la caché fría). **El juego siguió con total normalidad después**: la
+  devolución del estado funciona, y el congelamiento del 005 desapareció.
+- **Repetición 1 contra repetición 2: distintas en 94 de 5 792 páginas** (81 escritas por la simulación). Muy cerca, pero no
+  idénticas: algo de lo que la simulación usa no se guarda todavía.
+- **Repetición contra el juego: 1 212 páginas distintas, 1 017 solo del dibujo.** Confirma que casi toda la diferencia del 005 era el
+  dibujo que la repetición se salta, no la simulación.
+- **Ronda 2 (10 cuadros): el juego se cerró en la primera repetición**, leyendo `0x688a3a2838` (dentro de la zona de memoria del
+  juego, pero sin memoria detrás) desde el código de los personajes (`lua2cpp_krool`, ejecutado como tarea del sistema de trabajos
+  del juego, `main+0x353d1b0`). En esos 10 cuadros se escribieron **116 páginas fuera de las guardadas**, y empezaron 4 fibras.
+
+**Lectura:** Smash ya es determinista de por sí: su propio online manda solo los botones y cada consola simula lo mismo. Así que las
+diferencias entre repeticiones no son azar del juego, sino **estado que la prueba no devuelve**. Las causas más probables, en orden:
+(1) **las páginas que se escribieron fuera del conjunto guardado** (16 en un cuadro, 116 en diez: con un puntero viejo ahí, el código
+lee memoria que ya no existe, como en el cierre); (2) las 6 fibras que estaban corriendo en los hilos de trabajo y no se pueden
+guardar; (3) objetos del núcleo (eventos, esperas) fuera de la memoria del juego.
+
+**Cambio para el pedido 007 (la prueba, versión 3):** el conjunto de páginas guardadas **crece de ronda en ronda**: las que una
+ronda vio escritas fuera se guardan en la siguiente, y el descubrimiento dura 120 cuadros en vez de 60. Hay 6 rondas (1, 1, 5, 10,
+30 y 60 cuadros). Si las páginas que se escapan bajan a 0 y las repeticiones salen idénticas, la causa era la (1). Además, donde las
+repeticiones difieran, la prueba escribe las primeras palabras distintas (repetición 1 / repetición 2), para ver si son punteros,
+contadores o números de la física.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

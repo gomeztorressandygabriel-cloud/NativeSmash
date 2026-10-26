@@ -3,12 +3,13 @@
  *
  * Off unless SSBU_RB_TEST=1 or a file rollback_test.on exists beside the game. On, from
  * SSBU_RB_TEST_AT seconds after start (default 200: in a battle, on a slow PC with the scripted
- * battle of tools/dev/autobattle.sh), it runs four rounds, ten seconds apart, of N = 1, 10, 30 and
- * 60 frames:
+ * battle of tools/dev/autobattle.sh), it runs six rounds, ten seconds apart, of N = 1, 1, 5, 10, 30
+ * and 60 frames:
  *
- *   1. Find the pages: for 60 frames, the alias pages the game writes (the alias area holds the
+ *   1. Find the pages: for 120 frames, the alias pages the game writes (the alias area holds the
  *      game's own memory: MapPhysicalMemory) - the "hot set", asked through the renderer's write
- *      watch stamps (gfx_watch_pages, as the rollback probe does).
+ *      watch stamps (gfx_watch_pages, as the rollback probe does). It grows from round to round:
+ *      the pages earlier rounds found, and those their saves missed, stay in it.
  *   2. Save: at the start of a frame's simulation, a copy of every hot page.
  *   3. Record N frames: the game's pad reads and system ticks on its main thread, and the guest
  *      context each frame's input step and simulation are called with.
@@ -20,7 +21,8 @@
  *      frames again - the simulation, then the next input step, ... - with the recorded pads and
  *      ticks, without drawing; and again from the same save.
  *   6. Compare: replay 1 with replay 2 - equal, the simulation is repeatable from a save, which is
- *      what a rollback needs - and replay 1 with the game's own state. Then give the game back the
+ *      what a rollback needs - and replay 1 with the game's own state; where the replays differ, the
+ *      first words that do. Then give the game back the
  *      state it had (step 5), so it carries on as if the test had not been.
  *
  * It saves the game's fibers too (phase 3b): while the test is on, hle_fiber.c runs them on fibers of
@@ -59,14 +61,15 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define PAGE 0x1000ull
 #define MAX_HOT 16384              /* pages saved at most: 64 MB */
 #define MAX_REGIONS 4096
-#define DISCOVER_FRAMES 60
+#define DISCOVER_FRAMES 120
+#define MAX_LATE 8192              /* pages found written outside the hot set, added to it for the next round */
 #define MAX_N 60
 #define MAX_PADS 16                /* pad reads kept per frame */
 #define PAD_BYTES 0x34
 #define MAX_TICKS 1024             /* tick reads kept per frame */
 #define ROUND_GAP_NS 10000000000ull
 
-static const u32 round_frames[] = {1, 10, 30, 60};
+static const u32 round_frames[] = {1, 1, 5, 10, 30, 60};
 #define ROUNDS (sizeof round_frames / sizeof *round_frames)
 
 typedef struct RecFrame {
@@ -96,6 +99,9 @@ static u8 *snap_now;                   /* the game's state at the end of the win
 static u64 sum_real[MAX_HOT], sum_one[MAX_HOT], sum_two[MAX_HOT];
 static u8 *sim_bits;                   /* one bit an alias page: written while the simulation ran, in the window */
 static u64 sim_seen;
+static u64 late[MAX_LATE];             /* (pages a round's save missed: the next round's hot set has them) */
+static u32 nlate;
+static u8 *snap_one;                   /* replay 1's pages, to show how they differ from replay 2's */
 static u64 region_base[MAX_REGIONS], region_size[MAX_REGIONS], alias_base[MAX_REGIONS], alias_size[MAX_REGIONS];
 static u32 nregions, nalias;
 static u64 escaped, pad_replayed, pad_missing, tick_replayed, tick_missing, fibers_at_save;
@@ -111,8 +117,11 @@ int rbt_probe(void) {
         }
         const char *at = getenv("SSBU_RB_TEST_AT");
         next_round_ns = (u64)((at && *at ? atof(at) : 200.0) * 1e9);
-        if (on) fprintf(stderr, "[rbtest] on: rewind test rounds of %u, %u, %u and %u frames, the first %.0f s after start\n",
-                        round_frames[0], round_frames[1], round_frames[2], round_frames[3], next_round_ns / 1e9);
+        if (on) {
+            fprintf(stderr, "[rbtest] on: rewind test rounds of");
+            for (u32 i = 0; i < ROUNDS; i++) fprintf(stderr, " %u", round_frames[i]);
+            fprintf(stderr, " frames, the first %.0f s after start\n", next_round_ns / 1e9);
+        }
         __atomic_store_n(&rbt_state, on, __ATOMIC_RELEASE);
     }
     return __atomic_load_n(&rbt_state, __ATOMIC_ACQUIRE) > 0;
@@ -164,7 +173,9 @@ static void mark_sim(u64 page, void *user) {
 
 static void count_escaped(u64 page, void *user) {
     (void)user;
-    if (!is_hot(page)) escaped++;
+    if (is_hot(page)) return;
+    escaped++;
+    if (nlate < MAX_LATE) late[nlate++] = page;
 }
 
 static u64 page_hash(const u8 *p) {
@@ -224,10 +235,12 @@ static void begin_round(void) {
     if (!hot_bits) hot_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
     if (!snap) snap = malloc(MAX_HOT * PAGE);
     if (!snap_now) snap_now = malloc(MAX_HOT * PAGE);
+    if (!snap_one) snap_one = malloc(MAX_HOT * PAGE);
     if (!sim_bits) sim_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
-    if (!hot_bits || !snap || !snap_now || !sim_bits) { fprintf(stderr, "[rbtest] out of memory: off\n"); phase = DONE; return; }
-    memset(hot_bits, 0, ALIAS_SIZE / PAGE / 8);
-    nhot = hot_overflow = 0;
+    if (!hot_bits || !snap || !snap_now || !snap_one || !sim_bits) { fprintf(stderr, "[rbtest] out of memory: off\n"); phase = DONE; return; }
+    /* the hot set grows from round to round: what the last rounds found, and what their saves missed */
+    for (u32 i = 0; i < nlate; i++) mark_hot(late[i], NULL);
+    nlate = 0;
     read_regions();
     discover_seen = 0;
     if (watch_now(&discover_seen, NULL) < 0) return;   /* (only to bring the clock to now; tried again next frame) */
@@ -321,6 +334,30 @@ static int compare(const char *what, const u64 *a, const u64 *b, char *line, siz
     return n;
 }
 
+/* Where replay 1 and replay 2 differ, in the first pages the simulation wrote: the first words that
+ * differ, as offset: replay 1's value / replay 2's (pointers, counters, floats tell different stories).
+ * Replay 2's pages are the memory now; replay 1's, the copy in snap_one. */
+static void show_words(const u64 *a, const u64 *b) {
+    u32 shown = 0;
+    for (u32 i = 0; i < nhot && shown < 6; i++) {
+        if (!a[i] || !b[i] || a[i] == b[i] || !is_sim(hot[i])) continue;
+        const u8 *one = snap_one + (u64)i * PAGE, *two = P(u8, hot[i]);
+        char line[512];
+        u32 words = 0, nw = 0;
+        int n = snprintf(line, sizeof line, "[rbtest] round %u: page %#llx differs in", round_i + 1, (unsigned long long)hot[i]);
+        for (u32 o = 0; o < PAGE; o += 8) {
+            u64 x, y;
+            memcpy(&x, one + o, 8);
+            memcpy(&y, two + o, 8);
+            if (x == y) continue;
+            words++;
+            if (nw < 4) { n += snprintf(line + n, sizeof line - n, " +%#x: %#llx / %#llx", o, (unsigned long long)x, (unsigned long long)y); nw++; }
+        }
+        fprintf(stderr, "%s (%u words of 512)\n", line, words);
+        shown++;
+    }
+}
+
 static void check_and_replay(Cpu *c) {
     hook = HOOK_OFF;
     read_regions();
@@ -355,6 +392,8 @@ static void check_and_replay(Cpu *c) {
     u64 escaped_replay = escaped;
     escaped = escaped_before;
     hash_pages(sum_one);
+    for (u32 i = 0; i < nhot; i++)
+        if (sum_one[i]) memcpy(snap_one + (u64)i * PAGE, P(void, hot[i]), PAGE);
     u64 pads1 = pad_replayed, pads_missing1 = pad_missing, ticks1 = tick_replayed, ticks_missing1 = tick_missing;
 
     /* replay 2, from the save again */
@@ -376,6 +415,7 @@ static void check_and_replay(Cpu *c) {
     fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
     compare("replay 1 vs the game (which also drew its frames)", sum_one, sum_real, line, sizeof line);
     fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
+    show_words(sum_one, sum_two);
     fprintf(stderr, "[rbtest] round %u: the game's state given back (fibers %d)\n", round_i + 1, fib_back);
 
     phase = IDLE;

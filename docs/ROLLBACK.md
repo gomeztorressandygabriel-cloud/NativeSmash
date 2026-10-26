@@ -417,6 +417,26 @@ se corta cuando el juego entrega su imagen, no en el límite exacto de la simula
 | Coste de la sonda | 6–13 ms por cuadro (picos de 20 ms), el juego bajó de 60 cuadros/s | Preguntaba por 10 GB de reserva cada cuadro. Corregido en la versión 2 |
 | Momento quieto | Ningún cuadro con todos los hilos esperando (6–7 de 27 activos) | No hay pausa global: confirma el diseño "solo simulación". La versión 2 dice qué hilos son y si duermen |
 
+### Resultado de la prueba de rebobinar (pedido 003): el juego se cae en las fibras
+
+- Compiló (~12,5 min) y el combate automático llegó a la prueba. Ronda 1 (1 cuadro): **4 697 páginas (18,3 MB) guardadas en 14 ms**;
+  en ese cuadro se escribieron **49 páginas fuera de las guardadas** y **empezó 1 fibra**.
+- **Al repetir el primer cuadro, el juego se cerró**: lectura de la dirección `0xffffffffffffffff` en el hilo principal, con esta pila:
+  bucle principal → simulación (`main+0x37246a0`, tres niveles) → … → `main+0x353c670` → **`sdk+0x32f170`** (el cambio de fibra de
+  `nn::os`, junto a `FinalizeFiber` en `sdk+0x32f130`) → `DispatchFiberContext` (la función nativa de `hle_fiber.c`).
+- **Lectura:** es el obstáculo previsto en [§1](#1-resumen-y-veredicto). La memoria del juego volvió al cuadro guardado, pero las fibras
+  (cada una con su pila del host y su `Cpu`, fuera de esa memoria) no: el juego intentó continuar una fibra cuyo estado ya no
+  correspondía a la memoria restaurada. **Rebobinar solo la memoria no basta; hay que guardar y restaurar también las fibras.**
+- Lo que sí funcionó: encontrar y guardar el estado (18 MB en 14 ms), grabar los mandos y el reloj, y enganchar las funciones del bucle.
+- Nota aparte: la compilación movió otro enganche ya existente (`HLE_WRAP(71036149d0)`, de `hle_movie.c`) a `71036f5a70` "por su firma":
+  el `main` de este PC no es exactamente el de 13.0.5. Las direcciones del rollback (sacadas de este mismo `main`) son las suyas.
+
+**Lo que haría falta (fase 3b, "guardar las fibras"):** que en Windows las fibras del juego usen la conmutación propia del runtime (como
+ya hacen Linux, Android y macOS con `rt_fiber_switch`) en lugar de las fibras de Windows, para poder copiar la parte usada de la pila de
+cada fibra, su `Cpu` y la tabla de fibras de `hle_fiber.c` junto con la memoria, y devolverlas a su sitio al rebobinar. En Windows x64
+hay que mantener además los límites de pila del hilo (`StackBase`/`StackLimit` del TEB) en cada cambio, como hacen bibliotecas como
+Boost.Context. Solo se activaría en el modo rollback; el juego normal seguiría con las fibras de Windows.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

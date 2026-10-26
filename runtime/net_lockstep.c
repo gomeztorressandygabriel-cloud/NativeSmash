@@ -25,7 +25,8 @@
  * frames of delay, the host's counts (2 by default). The host's router must let UDP to that port in,
  * or both PCs be on one network (a LAN, or a VPN such as ZeroTier or Tailscale). Both start the game
  * at the same time: each waits at its first frame for the other (SSBU_NETPLAY_WAIT seconds, 300). If
- * the other stops answering for 15 s, netplay ends: player 2 stands still.
+ * the other stops answering for 15 s, netplay ends: player 2 stands still. (Each game also says it is alive from a thread of its own
+ * every 250 ms, so a game stopped a while on its side - the shader loading screen at the start, a long compile - is waited for.)
  *
  * Through the online lobby instead (no VPN, no port to open): SSBU_NETPLAY_ROOM=<code>, with SSBU_NET_RELAY=<the lobby> and
  * SSBU_NET_ROOM=<a private lobby code> (the launcher sets the three). The host makes a room of the runtime's own in the lobby
@@ -78,7 +79,7 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define VERSION 1
 
 enum { M_OFF, M_RECORD, M_REPLAY, M_HOST, M_JOIN };
-enum { P_HELLO = 1, P_WELCOME, P_INPUT, P_HASH, P_BYE };
+enum { P_HELLO = 1, P_WELCOME, P_INPUT, P_HASH, P_BYE, P_ALIVE };
 
 static int mode, started, stopped, delay = 2;
 static DWORD main_thread;
@@ -294,7 +295,7 @@ static void send_inputs(void) {   /* this PC's pads, the last REDUNDANCY frames 
 
 static void send_hashes(u32 f, const PageHash *list, u32 count) {   /* in pieces of 100 */
     for (u32 off = 0; off < count || off == 0; off += 100) {
-        u8 p[16 + 100 * 12];
+        u8 p[32 + 100 * 12];   /* (a header of 19 bytes, then up to 100 entries of 12: 16 + 1200 was 3 bytes short, and a full piece overran the stack) */
         int n = header(p, P_HASH);
         u32 k = count - off < 100 ? count - off : 100;
         put32(p + n, f); n += 4;
@@ -561,6 +562,18 @@ static void stop(const char *why) {
     if ((mode == M_HOST || mode == M_JOIN) && peer_known) { u8 p[8]; send_packet(p, header(p, P_BYE)); }
 }
 
+/* (its own thread, from the start of netplay) "alive" every 250 ms, whatever this game's main thread is doing */
+static DWORD WINAPI alive_main(void *unused) {
+    (void)unused;
+    SetThreadDescription(GetCurrentThread(), L"netplay alive");
+    while (!stopped) {
+        u8 p[8];
+        send_packet(p, header(p, P_ALIVE));
+        Sleep(250);
+    }
+    return 0;
+}
+
 /* The game's input step begins: frame + 1, and its pads. */
 void lks_input_step(void) {
     if (stopped) return;
@@ -569,6 +582,7 @@ void lks_input_step(void) {
         read_regions();
         if (mode == M_RECORD) { t0 = rt_clock_ns() * 12 / 625; fwrite(&t0, 8, 1, file); }
         if ((mode == M_HOST || mode == M_JOIN) && !connect_peer()) { stopped = 1; return; }
+        if (mode == M_HOST || mode == M_JOIN) CloseHandle(CreateThread(NULL, 0, alive_main, NULL, 0, NULL));
         started = 1;
         frame = 0;
         memset(in_of, 0, sizeof in_of);
@@ -612,7 +626,8 @@ void lks_input_step(void) {
             if (stopped) { stop("[netplay] netplay off"); return; }
             u64 now = rt_now_ns();
             if (now >= next_send) { send_inputs(); next_send = now + 10000000ull; }
-            if (now - waited_from > 15000000000ull) { stop("[netplay] the other player is not answering: netplay off (player 2 stands still)"); return; }
+            u64 heard = last_heard_ns > waited_from ? last_heard_ns : waited_from;   /* (its game may be busy - loading shaders - but alive: wait) */
+            if (now - heard > 15000000000ull) { stop("[netplay] the other player is not answering: netplay off (player 2 stands still)"); return; }
         }
         poll_net(0);
         break;

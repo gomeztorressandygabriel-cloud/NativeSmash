@@ -47,3 +47,18 @@ HLE_WRAP(71036149d0) {
     c->x[30] = lr;
     f_71036149d0_orig(c);
 }
+
+/* The same race seen from the other side, in the VS netplay: the event thread's output step met free PCM buffers
+ * and no `pending` anyway ("reading address 0x28" on the movie's thread a few seconds in, as the title movie begins;
+ * the netplay's main thread stops at each frame for the other PC, which widens every window between the player's
+ * calls). The output step (main+0x36f4d90 in 13.0.3, the renderer at x0: its lock at RENDERER_LOCK, `pending` at
+ * RENDERER_PENDING, read when the byte at RENDERER_PLAYING is set) is skipped while `pending` is gone: there is
+ * nothing to copy from, and the next step, once Open has made a new `pending`, does the work. */
+#define RENDERER_PLAYING 0x50
+#define RENDERER_PENDING 0xA0
+/* signature: d101c3ff f9000bfb a90267fa a9035ff8 a90457f6 a9054ff4 a9067bfd 910183fd 9102e013 aa0003f4 aa1303e0 9....... a945a299 cb190108 d343fd08 52955569 */
+HLE_WRAP(71036f4d90) {
+    u64 renderer = c->x[0];
+    if (ld8(renderer + RENDERER_PLAYING) && !ld64(renderer + RENDERER_PENDING)) return;
+    f_71036f4d90_orig(c);
+}

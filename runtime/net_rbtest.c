@@ -331,6 +331,7 @@ static int on_sim_thread(void) { return sim_thread && GetCurrentThreadId() == si
  * replay 1 did: a rewind after a wrong guess puts the game where the right pads take it. */
 static volatile int pad_alter;
 static int ring_natural;   /* (saving every frame, below) */
+static volatile int natural_replaying;
 static u64 plan_at;
 static u64 pads_altered;
 void rbt_pad(u64 out, u32 size) {
@@ -358,7 +359,9 @@ static volatile u64 tick_last, helper_ticks;   /* (the last tick the replaying t
 u64 rbt_ticks(u64 now) {
     if (hook == HOOK_OFF) return now;
     if (!on_sim_thread()) {   /* (freeze mode, replaying: the helpers see the replayed clock, not the real one) */
-        if (hook == HOOK_PLAY && freeze_on() && tick_last) { helper_ticks++; return tick_last; }
+        if (hook == HOOK_PLAY && freeze_on() && tick_last && !natural_replaying) { helper_ticks++; return tick_last; }   /* (not while the main loop
+                                                                                                                  * replays: the game runs for real, and a
+                                                                                                                  * thread waiting for time to pass would wait for ever) */
         return now;
     }
     RecFrame *f = &rec[cur];
@@ -1069,7 +1072,8 @@ static u64 plan_from, plan_at;
  * takes, the drawing too) with the recorded buttons, then on from there */
 static int ring_natural;
 static u64 natural_until, natural_t0;
-static int natural_started;        /* (the next rollback: back to frame plan_from's save at frame plan_at; 0: none planned) */
+static int natural_started;
+static u64 natural_from_no, natural_off_path;        /* (the next rollback: back to frame plan_from's save at frame plan_at; 0: none planned) */
 static u64 plan_expect[MAX_HOT];      /* (that save's pages' hashes when it was taken) */
 static u32 plan_n, plan_fib_n;
 static u64 plan_fib[3 * 16384];          /* the game's, replay 1's, 2's and 3's */
@@ -1444,7 +1448,8 @@ static void ring_compare(u32 round, const char *what, const u64 *a, const u64 *b
 }
 
 /* A rollback stuck for 5 s: where the main thread is, and every guest thread's state (once) */
-static volatile u64 ring_busy_since;
+static volatile u64 ring_busy_since, ring_last_sim_ns;
+static volatile int ring_rollbacks_done;
 void kernel_thread_states(void (*line)(const char *text));   /* (kernel.c) */
 static void watchdog_line(const char *text) { fputs(text, stderr); }
 static DWORD WINAPI ring_watchdog(void *unused) {
@@ -1453,6 +1458,7 @@ static DWORD WINAPI ring_watchdog(void *unused) {
     for (int told = 0;;) {
         Sleep(500);
         u64 since = ring_busy_since;
+        if (!since && ring_last_sim_ns && ring_rollbacks_done) since = ring_last_sim_ns;   /* (also: no frame for 5 s after a rollback) */
         if (!since || told || rt_now_ns() - since < 5000000000ull) continue;
         told = 1;
         fprintf(stderr, "[rbtest] rollback stuck for 5 s: the main thread is at\n");
@@ -1497,7 +1503,8 @@ static void ring_rollback(Cpu *c) {
     int s_now = (int)(now % (u64)ring_n), s_from = (int)(from % (u64)ring_n);
     if (d > (u32)ring_n - 1 || ring_frame_of[s_from] != from + 1) { plan_at = 0; return; }   /* (gone from the ring, or not all held then: planned again) */
     if (ring_frame_of[s_now] != now + 1) return;   /* (not all held now: the next frame) */
-    for (u64 k = from; k < now; k++) if (!rec[k % (u64)ring_n].have_input) return;   /* (a frame without its input step: the next one) */
+    if (!ring_natural)   /* (the main loop's own replay reads the pads where it reads them) */
+        for (u64 k = from; k < now; k++) if (!rec[k % (u64)ring_n].have_input) return;   /* (a frame without its input step: the next one) */
     {   /* every other thread at the same place as at that save (wait, fiber, registers) - else not safe: the next frame */
         static u32 tries;
         u64 busy = 0;
@@ -1585,6 +1592,8 @@ static void ring_rollback(Cpu *c) {
         ipc_note = 0;
         *c = *then;
         natural_until = now;
+        natural_replaying = 1;
+        natural_from_no = from;
         natural_t0 = rt_now_ns();
         natural_started = 1;
         ring_frame_no = from;
@@ -1592,7 +1601,7 @@ static void ring_rollback(Cpu *c) {
         hook = HOOK_PLAY;
         start_frame((u32)s_from);
         plan_at = 0;
-        ring_busy_since = 0;
+        ring_busy_since = rt_now_ns();   /* (the watchdog says where it is if the replay gets stuck) */
         return;
     }
     fprintf(stderr, "[rbtest] rollback %u: going back %u frames, from frame %llu\n", round_i + 1, d, (unsigned long long)now);
@@ -1696,6 +1705,7 @@ static void ring_rollback(Cpu *c) {
 }
 
 static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the main thread) */
+    ring_last_sim_ns = rt_now_ns();
     if (phase == IDLE) {
         if (rt_now_ns() < next_round_ns) return;
         if (!ring_begin()) { fprintf(stderr, "[rbtest] saving every frame: out of memory: off\n"); phase = DONE; return; }
@@ -1705,12 +1715,24 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
     if (phase != RING) return;
     if (natural_until) {   /* the main loop playing a rollback's frames again */
         ring_frame_no++;
+        if (ring_frame_no < natural_until && !natural_same(&rec[ring_frame_no % (u64)ring_n].sim_cpu, c)) {
+            /* (the main loop went another way than when it played this frame - its clock, x20, cannot be rewound, and it decides how
+             * many simulations a pass makes: the records no longer fit, so live from here - the game's own state, never a mix) */
+            fprintf(stderr, "[rbtest] rollback %u: while replaying, the main loop took another way at frame %llu (%llu of %llu frames replayed): live from here\n",
+                    round_i + 1, (unsigned long long)ring_frame_no, (unsigned long long)(ring_frame_no - natural_from_no),
+                    (unsigned long long)(natural_until - natural_from_no));
+            natural_off_path++;
+            natural_until = ring_frame_no;
+        }
         if (ring_frame_no < natural_until) { ring_save(c, 1); return; }
         fprintf(stderr, "[rbtest] rollback %u: back at frame %llu, live again; the frames played again in %.1f ms; pads replayed %llu (missing %llu), ticks %llu (missing %llu), random bytes %llu (missing %llu)\n",
                 round_i + 1, (unsigned long long)ring_frame_no, (rt_now_ns() - natural_t0) / 1e6, (unsigned long long)pad_replayed, (unsigned long long)pad_missing,
                 (unsigned long long)tick_replayed, (unsigned long long)tick_missing, (unsigned long long)rnd_replayed, (unsigned long long)rnd_missing);
         fflush(stderr);
         natural_until = 0;
+        natural_replaying = 0;
+        ring_busy_since = 0;
+        ring_rollbacks_done = 1;
         ring_round_done();
     }
     if (!plan_at && rt_now_ns() >= next_round_ns) {   /* the next rollback: back to this frame's save, d frames from now */

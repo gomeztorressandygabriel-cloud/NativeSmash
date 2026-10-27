@@ -85,6 +85,8 @@ u32 kernel_hold(const u64 *allow, u32 nallow);   /* (the rewind test, frozen) th
 void kernel_release(void);
 void kernel_hold_undo(void);   /* (frozen, the memory put back to when they were held) the held threads' waits as they were then */
 u32 kernel_keys(u64 *keys, u32 max);
+void vi_queue_save(int *out);              /* (ipc_vi.c, the rewind test) the display queue's 64 slots' states */
+void vi_queue_restore(const int *in);
 int kernel_regs(u64 id, u64 *out);   /* (the rewind test, frozen) a guest thread's x0-x30 and sp now */   /* (frozen) every other guest thread's place, as kernel_freeze's keys */
 u32 kernel_held_woken(u64 *last_id);
 void kernel_activity(u32 out[4]);   /* (the rewind test) service requests, handles made and closed, memory unmapped since the last call */

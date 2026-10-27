@@ -93,9 +93,17 @@ _RE_TAIL = re.compile(r"TAIL\((f_[0-9a-f]+)\)")
 _RE_TRAP = re.compile(r"(rt_trap\(c, [^;]*;)")
 
 
+# Calls after which the caller reads every register back from the context, the callee-saved ones too: the frame's simulation
+# (71037246a0), where the rollback rewind test puts the main loop's own registers back with the game's state (runtime/
+# net_rbtest.c: a rollback's frames played again by the main loop).
+RELOAD_ALL_AFTER = {"f_71037246a0"}
+
+
 def mark_syncs(s):
     """The places regcache.apply brings the context up to date, marked in a statement."""
     s = _RE_CALL.sub(r"\1@S@ \2 @R@", s)
+    for f in RELOAD_ALL_AFTER:
+        s = s.replace(f"@S@ {f}(c); @R@", f"@F@ {f}(c); @A@")
     s = s.replace("rt_lookup(t_)(c);", "@S@ rt_lookup(t_)(c); @R@")
     s = _RE_SVC.sub(r"@S@ \1 @R@", s)
     s = s.replace("if (!RT_SETJMP(*rt_setjmp(c))) X(0) = 0;", "@F@ if (!RT_SETJMP(*rt_setjmp(c))) X(0) = 0; else { @A@ }")

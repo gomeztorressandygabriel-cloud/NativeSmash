@@ -601,6 +601,31 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, noche (5): **el rollback natural funciona** (15 de 15)
+
+Tres cambios más y el rollback "como uno de verdad" aguanta:
+
+1. **Los registros del bucle principal se rebobinan.** El traductor hace que el bucle relea **todos** sus registros
+   (también x19–x29, donde guarda su acumulador `x20`) después de llamar a la simulación (`tools/lift.py`, `RELOAD_ALL_AFTER`).
+   Al rebobinar se le devuelven los del guardado, y ya solo hace falta que esté en la misma llamada (misma dirección de vuelta y pila).
+2. **La cola de imágenes se rebobina:** el estado de los 64 huecos (`vi_queue_save` / `vi_queue_restore` en `ipc_vi.c`) se guarda
+   con cada guardado. El lado del juego vive en su memoria y se rebobinaba; el del runtime no, y el juego acababa esperando un
+   búfer libre para siempre.
+3. **Reloj por cuadros** para el hilo principal mientras dura la prueba (`frame_clock`, como `lks_ticks`).
+
+Además:
+- La repetición ya no se corta por que el bucle cambie de camino. Los cuadros en vivo se jugaron con otros botones, así que el juego
+  es distinto de verdad; si cambia el sitio de la llamada, se sigue en vivo desde ahí.
+- Al terminar la prueba no se guarda más (volvía a proteger páginas después de desprotegerlas todas). Hay una red de seguridad que
+  desprotege cualquier página que quede protegida.
+
+**Resultado** (`every82`–`every84`): **5 de 5 vueltas atrás naturales en las tres corridas** (de 2 a 7 cuadros, rejugados por el
+propio bucle en 10–90 ms), el guardado devuelto idéntico, sin caídas, y el juego siguió en vivo. Queda un cuelgue raro **después** de
+terminar la prueba (`every83`: la cola de imágenes en un estado que no cuadra con lo que el juego cree); 1 de 3.
+
+**Siguiente:** el transporte de botones entre dos PCs (paso 4 del plan) y la repetición silenciosa (paso 2), que bajaría los
+10–90 ms de rejugar.
+
 ### Plan (2026-10-27): de "rebobinar es exacto" a jugar con rollback en 2 PCs
 
 Lo que falta no es la memoria del juego (ya vuelve exacta), sino lo que el juego hace **fuera** de ella cada cuadro: el reloj del bucle

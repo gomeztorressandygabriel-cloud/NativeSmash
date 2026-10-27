@@ -189,6 +189,24 @@ static DWORD WINAPI vsync_thread(LPVOID unused) {
     }
 }
 
+/* (the rollback rewind test) the slots' states, saved with each frame's save and put back with it: the game's own side of the
+ * queue lives in its memory and is rewound, and a queue here that went on would hold buffers the game no longer knows of (it
+ * then waits for a free one for ever). The slot being shown keeps showing; one the game held then is the game's again. */
+void vi_queue_save(int *out) {
+    queue_lock();
+    for (int i = 0; i < SLOTS; i++) out[i] = queue.slots[i].state;
+    queue_unlock();
+}
+void vi_queue_restore(const int *in) {
+    queue_lock();
+    for (int i = 0; i < SLOTS; i++) {
+        if (queue.slots[i].state == ACQUIRED && in[i] != DEQUEUED) continue;   /* (the vsync thread frees it after showing it) */
+        queue.slots[i].state = in[i] == ACQUIRED ? FREE : in[i];
+    }
+    queue_unlock();
+    if (queue.started) { kernel_signal_event(queue.buffer_event); WakeAllConditionVariable(&queue.freed); }
+}
+
 static void start(void) {
     if (queue.started) return;
     queue.started = 1;

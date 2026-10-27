@@ -331,6 +331,12 @@ static int on_sim_thread(void) { return sim_thread && GetCurrentThreadId() == si
  * replay 1 did: a rewind after a wrong guess puts the game where the right pads take it. */
 static volatile int pad_alter;
 static int ring_natural;   /* (saving every frame, below) */
+static u64 ring_frame_no;
+/* (natural rollback) the main thread's clock is a clock of frames, as netplay's (lks_ticks): a frame's simulation always sees the
+ * same time, so the main loop decides the same each time it plays the frame (one simulation a pass, its accumulator x20 the same),
+ * and a rollback takes the clock back with the rest. A little more at every read, for the waits for time to pass. */
+static volatile int frame_clock_on;
+static u64 frame_clock_t0, frame_clock_reads;
 static volatile int natural_replaying;
 static u64 plan_at;
 static u64 pads_altered;
@@ -357,6 +363,7 @@ void rbt_pad(u64 out, u32 size) {
 
 static volatile u64 tick_last, helper_ticks;   /* (the last tick the replaying thread was given; how often the others asked meanwhile) */
 u64 rbt_ticks(u64 now) {
+    if (frame_clock_on && on_sim_thread()) return frame_clock_t0 + ring_frame_no * 320000ull + 16 * ++frame_clock_reads;
     if (hook == HOOK_OFF) return now;
     if (!on_sim_thread()) {   /* (freeze mode, replaying: the helpers see the replayed clock, not the real one) */
         if (hook == HOOK_PLAY && freeze_on() && tick_last && !natural_replaying) { helper_ticks++; return tick_last; }   /* (not while the main loop
@@ -706,6 +713,7 @@ static void *write_handler;
 #define MAX_COW 16384
 #define MAX_COW_RUNS 65536
 static volatile LONG cow_on, ncow;
+static volatile int cow_used;   /* (copy on write has run: a guest page left read-only by it is made writable on the first write) */
 static LONG ncow_at_now;
 static u8 *cow_bits;                           /* one bit an alias page: read-only, not copied yet */
 static u64 cow_page[MAX_COW];
@@ -818,7 +826,15 @@ static void cow_put_back(int to_now) {   /* (a page first written while replayin
 }
 static void cow_end(void) {
     AcquireSRWLockExclusive(&cow_lock);
-    for (u32 r = 0; r < ncow_runs; r++) { DWORD old; VirtualProtect(P(void, cow_run_base[r]), cow_run_size[r], PAGE_READWRITE, &old); }
+    u64 failed = 0;
+    for (u32 r = 0; r < ncow_runs; r++) {
+        DWORD old;
+        if (VirtualProtect(P(void, cow_run_base[r]), cow_run_size[r], PAGE_READWRITE, &old)) continue;
+        for (u64 q = cow_run_base[r]; q < cow_run_base[r] + cow_run_size[r]; q += PAGE)   /* (a part of it no longer one reservation: a page at a time) */
+            if (!VirtualProtect(P(void, q), PAGE, PAGE_READWRITE, &old)) failed++;
+    }
+    if (failed) fprintf(stderr, "[rbtest] copy on write: %llu pages could not be made writable again\n", (unsigned long long)failed);
+    cow_used = 1;
     cow_on = 0;   /* (only now: a write meanwhile still finds its page's bit) */
     if (cow_bits) memset(cow_bits, 0, ALIAS_SIZE / PAGE / 8);
     for (u32 r = 0; r < ndata; r++) if (data_bits[r]) memset(data_bits[r], 0, (data_size[r] / PAGE + 7) / 8);
@@ -952,6 +968,16 @@ static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
                     q ? (unsigned long long)((u8 *)mi.AllocationBase - (u8 *)P(u8, 0)) : 0ull);
         }
     }
+    if (cow_used && !cow_on) {   /* (after the test: a guest page it left read-only - writable again, the write goes through) */
+        u64 h = e->ExceptionRecord->ExceptionInformation[1], g0 = (u64)(uintptr_t)P(u8, 0);
+        MEMORY_BASIC_INFORMATION mi;
+        if (h >= g0 && VirtualQuery((void *)(uintptr_t)(h & ~(PAGE - 1)), &mi, sizeof mi) && mi.State == MEM_COMMIT && mi.Protect == PAGE_READONLY) {
+            DWORD old;
+            static volatile LONG told;
+            if (InterlockedIncrement(&told) <= 5) fprintf(stderr, "[rbtest] copy on write: a page left read-only after the test, %#llx: writable again\n", (unsigned long long)(h - g0));
+            if (VirtualProtect((void *)(uintptr_t)(h & ~(PAGE - 1)), PAGE, PAGE_READWRITE, &old)) return EXCEPTION_CONTINUE_EXECUTION;
+        }
+    }
     u64 host = e->ExceptionRecord->ExceptionInformation[1];
     if (host < (u64)(uintptr_t)P(u8, ALIAS_BASE) || host >= (u64)(uintptr_t)P(u8, ALIAS_BASE) + ALIAS_SIZE) return EXCEPTION_CONTINUE_SEARCH;
     u64 guest = ALIAS_BASE + (host - (u64)(uintptr_t)P(u8, ALIAS_BASE));
@@ -1048,6 +1074,7 @@ static u64 ring_frame_of[RING_MAX];       /* the frame saved there, plus one (0:
 static u8 *ring_tlr[RING_MAX];
 static u64 ring_tlr_size[RING_MAX];
 static u8 ring_events[RING_MAX][4096];
+static int ring_vi[RING_MAX][64];   /* (the display queue's slots then) */
 static const u64 ring_reg_ids[4] = {3, 4, 12, 13};   /* (the helpers whose registers each save keeps, to say what differs) */
 static u64 ring_regs[RING_MAX][4][32];
 static u64 ring_waits[RING_MAX][64 * 6];
@@ -1240,6 +1267,7 @@ static int ring_begin(void) {
     const char *idle = getenv("SSBU_RB_IDLE");
     if (idle && *idle) { ring_idle = (u32)atoi(idle); if (ring_idle < 2) ring_idle = 2; }
     ring_on = 1;
+    if (ring_natural) { frame_clock_t0 = rt_clock_ns() * 12 / 625; frame_clock_reads = 0; frame_clock_on = 1; }
     cow_begin();   /* (nothing saved yet: everything read-only) */
     if (frozen) kernel_thaw();
     ring_region_sig = 0;
@@ -1283,6 +1311,7 @@ static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main 
     ring_nkeys[s] = nfreeze_keys;
     if (frozen) {
         kernel_events(ring_events[s], 1);
+        vi_queue_save(ring_vi[s]);
         ring_nwaits[s] = kernel_waits(ring_waits[s], 64);
         for (int h = 0; h < 4; h++) if (!kernel_regs(ring_reg_ids[h], ring_regs[s][h])) memset(ring_regs[s][h], 0, sizeof ring_regs[s][h]);
         if (ring_saves % 60 == 0) {   /* (threads the game made since: theirs too) */
@@ -1397,6 +1426,7 @@ static void ring_put_back(int s) {
     fibers_restore(2 + s, &skipped, &dropped);
     ring_skipped = skipped;
     if (frozen) kernel_events(ring_events[s], 0);
+    if (ring_natural) vi_queue_restore(ring_vi[s]);
     if (hold_wanted && !holding) hold_others();
     if (frozen) kernel_thaw();
 }
@@ -1463,6 +1493,15 @@ static DWORD WINAPI ring_watchdog(void *unused) {
         told = 1;
         fprintf(stderr, "[rbtest] rollback stuck for 5 s: the main thread is at\n");
         if (main) rt_backtrace_thread(main, 20);
+        {   /* the display queue's slots: 0 free, 1 the game's, 2 waiting to be shown, 3 being shown */
+            int st[64];
+            vi_queue_save(st);
+            fprintf(stderr, "[rbtest] the display queue's slots (free 0, the game's 1, waiting 2, shown 3):");
+            for (int i = 0; i < 8; i++) fprintf(stderr, " %d", st[i]);
+            fprintf(stderr, "; at the last save:");
+            for (int i = 0; i < 8; i++) fprintf(stderr, " %d", ring_vi[(ring_frame_no + (u64)ring_n - 1) % (u64)ring_n][i]);
+            fputc(10, stderr);
+        }
         fprintf(stderr, "[rbtest] and the guest threads (if the kernel's lock is free):\n");
         kernel_thread_states(watchdog_line);
         fflush(stderr);
@@ -1474,6 +1513,7 @@ static void ring_round_done(void) {
     next_round_ns = rt_now_ns() + ring_gap_ns;
     if (++round_i == ROUNDS) {
         ring_on = 0;
+        frame_clock_on = 0;
         cow_end();
         hook = HOOK_OFF;
         phase = DONE;
@@ -1481,19 +1521,22 @@ static void ring_round_done(void) {
     }
 }
 
-static int natural_same(const Cpu *then, const Cpu *c) {   /* the main loop at the same place (x20, its clock, let through) */
+/* The main loop at the same place: the same call of the simulation (its return address) on the same stack. Its own registers
+ * (x19-x29) are put back with the game's state - the call reads them all back from the context (tools/lift.py
+ * RELOAD_ALL_AFTER) - so they need not match to go back; strict (while replaying), they must: the loop takes the same way. */
+static int natural_same(const Cpu *then, const Cpu *c, int strict) {
     if (then->sp != c->sp || then->x[30] != c->x[30]) return 0;
-    for (int r = 19; r < 30; r++) if (r != 20 && then->x[r] != c->x[r]) return 0;
+    if (strict) for (int r = 19; r < 30; r++) if (then->x[r] != c->x[r]) return 0;
     return 1;
 }
 
 static void ring_rollback(Cpu *c) {
-    if (ring_natural && !natural_same(&rec[plan_from % (u64)ring_n].sim_cpu, c)) {
+    if (ring_natural && !natural_same(&rec[plan_from % (u64)ring_n].sim_cpu, c, 0)) {
         /* (the main loop calls the simulation from more than one place - twice in a pass to catch up: back to the nearest save it
          * took from the same place as now instead) */
         u64 best = ~0ull;
         for (u64 k = ring_frame_no > (u64)ring_n - 1 ? ring_frame_no - (u64)ring_n + 1 : 0; k < ring_frame_no; k++)
-            if (ring_frame_of[k % (u64)ring_n] == k + 1 && natural_same(&rec[k % (u64)ring_n].sim_cpu, c) &&
+            if (ring_frame_of[k % (u64)ring_n] == k + 1 && natural_same(&rec[k % (u64)ring_n].sim_cpu, c, 0) &&
                 (best == ~0ull || (k > plan_from ? k - plan_from : plan_from - k) < (best > plan_from ? best - plan_from : plan_from - best)))
                 best = k;
         if (best != ~0ull && best != plan_from) { plan_from = best; plan_n = 0; plan_fib_n = 0; }
@@ -1560,9 +1603,7 @@ static void ring_rollback(Cpu *c) {
     if (ring_natural) {
         /* the main loop at the same place as at that save (the registers it keeps across the call, and its stack) - else not safe */
         const Cpu *then = &rec[s_from].sim_cpu;
-        int same = then->sp == c->sp && then->x[30] == c->x[30];
-        for (int r = 19; r < 30 && same; r++) same = r == 20 || then->x[r] == c->x[r];   /* (x20: the main loop's clock, kept in the PC's
-                                                                                           * own variables - it cannot go back; let through) */
+        int same = natural_same(then, c, 0);
         if (!same) {
             static int told;
             if (told++ < 5) {
@@ -1706,6 +1747,7 @@ static void ring_rollback(Cpu *c) {
 
 static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the main thread) */
     ring_last_sim_ns = rt_now_ns();
+    frame_clock_reads = 0;
     if (phase == IDLE) {
         if (rt_now_ns() < next_round_ns) return;
         if (!ring_begin()) { fprintf(stderr, "[rbtest] saving every frame: out of memory: off\n"); phase = DONE; return; }
@@ -1715,7 +1757,7 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
     if (phase != RING) return;
     if (natural_until) {   /* the main loop playing a rollback's frames again */
         ring_frame_no++;
-        if (ring_frame_no < natural_until && !natural_same(&rec[ring_frame_no % (u64)ring_n].sim_cpu, c)) {
+        if (ring_frame_no < natural_until && !natural_same(&rec[ring_frame_no % (u64)ring_n].sim_cpu, c, 0)) {
             /* (the main loop went another way than when it played this frame - its clock, x20, cannot be rewound, and it decides how
              * many simulations a pass makes: the records no longer fit, so live from here - the game's own state, never a mix) */
             fprintf(stderr, "[rbtest] rollback %u: while replaying, the main loop took another way at frame %llu (%llu of %llu frames replayed): live from here\n",
@@ -1734,6 +1776,7 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
         ring_busy_since = 0;
         ring_rollbacks_done = 1;
         ring_round_done();
+        if (phase != RING) return;   /* (the last round: copy on write is over, no save more) */
     }
     if (!plan_at && rt_now_ns() >= next_round_ns) {   /* the next rollback: back to this frame's save, d frames from now */
         u32 d = round_frames[round_i];

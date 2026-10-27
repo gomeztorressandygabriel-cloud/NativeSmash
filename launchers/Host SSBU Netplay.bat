@@ -25,7 +25,7 @@ set "SSBU_NET_HOST=1"
 if exist netplay_address.txt del netplay_address.txt
 rem the log of the last game is kept (build\logs) before this one writes its own
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SSBU_TREE%\tools\keep_logs.ps1" "%SSBU_TREE%\build"
-start "SSBU netplay host log" /min cmd /c "%SSBU_TREE%\build\ssbu.exe %SSBU_TREE%\dump\modules --status 30 > %SSBU_TREE%\build\play.log 2>&1"
+start "SSBU netplay host log" /min cmd /c "%SSBU_TREE%\build\ssbu.exe %SSBU_TREE%\dump\modules --status 30 > %SSBU_TREE%\build\play.log 2>&1 & powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File tools\send_report.ps1 %SSBU_TREE%"
 echo.
 echo Starting the game as host of room "%SSBU_NET_ROOM%"...
 echo In the game: Local Wireless ^> Create a Room. The others pick your room from the list.

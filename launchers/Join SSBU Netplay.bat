@@ -27,7 +27,7 @@ set "SSBU_NET_ROOM=smash"
 set /p "SSBU_NET_ROOM=Room name - the same as the host's [smash]: "
 rem the log of the last game is kept (build\logs) before this one writes its own
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SSBU_TREE%\tools\keep_logs.ps1" "%SSBU_TREE%\build"
-start "SSBU netplay log" /min cmd /c "%SSBU_TREE%\build\ssbu.exe %SSBU_TREE%\dump\modules --status 30 > %SSBU_TREE%\build\play.log 2>&1"
+start "SSBU netplay log" /min cmd /c "%SSBU_TREE%\build\ssbu.exe %SSBU_TREE%\dump\modules --status 30 > %SSBU_TREE%\build\play.log 2>&1 & powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File tools\send_report.ps1 %SSBU_TREE%"
 echo.
 echo Starting the game, joining room "%SSBU_NET_ROOM%" at %SSBU_NET_RELAY%...
 echo In the game: Local Wireless, then pick the host's room from the Rooms List.

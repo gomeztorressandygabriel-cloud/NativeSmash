@@ -1,0 +1,9 @@
+# The NativeSmash error report receiver: a site of its own on Netlify (nativesmash-reports), apart from the web page.
+# tools/send_report.ps1 posts to /api/report; netlify/functions/report.mjs files each report in the private GitHub
+# repository NativeSmash-reports with the site's GITHUB_TOKEN setting. Deploy: from this folder,
+#   npx netlify-cli deploy --prod --dir public --functions netlify/functions
+[build]
+  publish = "public"
+
+[functions]
+  directory = "netlify/functions"

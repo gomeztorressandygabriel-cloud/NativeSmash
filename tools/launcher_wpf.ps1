@@ -64,6 +64,8 @@ $Words = @{
     lobPublic = @('Pública', 'Public'); lobPrivate = @('Privada (código)', 'Private (code)'); lobCustom = @('Tu servidor', 'Your server'); lobOff = @('Sin conexión', 'Offline')
     code = @('Código de la sala', 'Lobby code'); server = @('Servidor (host:puerto)', 'Server (host:port)')
     directConn = @('Conexiones directas', 'Direct connections')
+    report = @('Enviar informes de errores automáticamente', 'Send error reports automatically')
+    reportHelp = @('Si el juego se cierra por un error o falla el online, al cerrarse se envía un informe al proyecto para arreglarlo. Sin datos personales: se quitan tu nombre de usuario, el de tu PC, tu nombre online, tu código de sala y tus direcciones de internet. Va a un repositorio privado del proyecto.', 'If the game stops on an error or the online fails, a report goes to the project when it closes, so it can be fixed. No personal data: your user name, your PC''s name, your online name, your room code and your internet addresses are taken out. It goes to a private repository of the project.')
     netcodeLabel = @('Modo de red (Local Wireless)', 'Netcode (Local Wireless)')
     netcodeNormal = @('Normal', 'Normal')
     netcodeRollback = @('Rollback (en pruebas)', 'Rollback (testing)')
@@ -167,6 +169,7 @@ $launcherIni = Join-Path $Root 'launcher.ini'
 $serverFile = Join-Path $Root 'online_server.txt'
 $nameFile = Join-Path $Root 'online_name.txt'
 $directFile = Join-Path $Root 'online_direct.txt'
+$reportFile = Join-Path $Root 'send_reports.txt'   # (tools\send_report.ps1: "off" stops the error reports)
 $netcodeFile = Join-Path $Root 'online_netcode.txt'
 $delayFile = Join-Path $Root 'online_delay.txt'
 $vsFile = Join-Path $Root 'vs_netplay.txt'   # the VS netplay (docs\NETPLAY.md): off | host <delay> | join <address> <delay>
@@ -402,6 +405,8 @@ $xaml = @'
               <Button x:Name="InstallBtn" Style="{StaticResource Soft}" Margin="18,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
             <CheckBox x:Name="DirectBox" Style="{StaticResource Switch}" Margin="0,34,0,0"/>
+            <CheckBox x:Name="ReportBox" Style="{StaticResource Switch}" Margin="0,18,0,0"/>
+            <TextBlock x:Name="ReportHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
           </StackPanel>
 
           <ScrollViewer x:Name="PageOnline" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" Padding="0,0,14,0">
@@ -573,7 +578,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('NetcodeLabel', 'netcodeLabel'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -647,6 +652,7 @@ New-Chips (Find 'SharpChips') @(
 (Find 'CodeBox').Text = $lobbyCode
 (Find 'ServerBox').Text = if ($netMode -eq 'custom') { $lobbyHost } else { '' }
 (Find 'DirectConn').IsChecked = -not ((Get-LineValue $directFile) -match '^(?i)off')
+(Find 'ReportBox').IsChecked = -not ((Get-LineValue $reportFile) -match '^(?i)off')
 $delayNow = '3'; $delayText = ([string](Get-LineValue $delayFile)).Trim().ToLower()
 if ($delayText -match '^auto') { $delayNow = 'auto' } elseif ($delayText -match '^\d+$') {
     $digits = $delayText.TrimStart('0')   # ([int] of a very long number throws; the game clamps such a number to 25 as well)
@@ -860,6 +866,7 @@ function Get-WindowValues {
         "$serverFile|" = $server
         "$nameFile|" = (Find 'NameBox').Text.Trim()
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
+        "$reportFile|" = if ((Find 'ReportBox').IsChecked) { 'on' } else { 'off' }
         "$delayFile|" = Get-Chip (Find 'DelayChips')
         "$netcodeFile|" = Get-Chip (Find 'NetcodeChips')
         "$vsFile|" = switch (Get-Chip (Find 'VsChips')) {

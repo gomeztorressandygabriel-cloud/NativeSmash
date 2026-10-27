@@ -609,9 +609,11 @@ equivocada del mando del otro; la 3 vuelve a los botones grabados. Rondas de 1, 
 - Con otros botones el combate se va por otro camino: 0, 11, 164, 297 y 225 páginas de la simulación distintas.
 - **La repetición 3 sale idéntica a la 1 en todas las rondas** (0 páginas de la simulación distintas), aun después de 60 cuadros de
   predicción equivocada. Es exactamente lo que hace un rollback: rebobinar y volver a simular con el botón correcto.
-- **Pendiente:** después de la última ronda (al devolver el estado real tras 5 rondas), el juego se cayó en una tarea de un luchador
-  (`lua2cpp_gamewatch`, leyendo `0xffffffffffffffff`). Algo del estado del runtime (fuera de la memoria del juego: objetos del kernel,
-  sonido, el renderizador) no vuelve atrás y se acumula. Las rondas sí terminan bien.
+- Después de la última ronda de esa prueba el juego se cayó en una tarea de un luchador (`lua2cpp_gamewatch`, leyendo
+  `0xffffffffffffffff`). Sospecha: un ayudante que, tras repetir, queda esperando en el mismo sitio pero **en otra fibra**. Desde
+  entonces la comparación de "en qué espera cada hilo" incluye la fibra en la que está (`kernel_set_fiber`, desde `hle_fiber.c`).
+  Con eso, dos corridas más (una en pleno combate: 10, 134, 304 y 204 páginas distintas con otros botones, **0 al corregir** en todas
+  las rondas) terminaron sin caídas y el juego siguió jugando. No se volvió a ver, pero tampoco está demostrado que fuera eso.
 
 ### 2026-10-27, de madrugada: **la simulación se rebobina y se repite idéntica**, hasta 60 cuadros
 

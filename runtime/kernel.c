@@ -58,6 +58,7 @@ typedef struct KThread {
     volatile int sleeping, requesting;   /* in SleepThread; in a service request (for the rollback probe's view of who is busy) */
     volatile int held;   /* (the rewind test) kept in its wait, even when woken, until kernel_release */
     volatile int parked;   /* (the rewind test) held at the gate after SleepThread or a service request: as good as waiting */
+    volatile u64 fiber;    /* (the rewind test) the guest fiber it runs now (hle_fiber.c), 0: its own */
 } KThread;
 
 typedef struct KObject { int type, signaled; KThread *thread; void *session; } KObject;
@@ -714,7 +715,8 @@ int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id) {
         if (!t->started || t->exited || !t->host || GetThreadId(t->host) == self) continue;
         int waiting = t->mutex_addr || t->cv_key || t->arb_addr || t->wait_count;
         if (!waiting && !t->sleeping && !t->requesting && !t->parked) { ok = 0; if (busy_id) *busy_id = t->id; break; }   /* (in a service request: held when it ends) */
-        u64 key = t->id << 48 ^ (t->mutex_addr | t->cv_key | t->arb_addr | (t->wait_count ? t->wait_handles : 0) | (u64)(t->sleeping | t->parked) | (u64)t->requesting << 1);
+        u64 key = t->id << 48 ^ (t->mutex_addr | t->cv_key | t->arb_addr | (t->wait_count ? t->wait_handles : 0) | (u64)(t->sleeping | t->parked) | (u64)t->requesting << 1)
+                  ^ t->fiber * 0x9E3779B97F4A7C15ull;   /* (and the fiber it is on: the same wait on another fiber is not the same place) */
         if (match) { if (k >= *n || keys[k] != key) { ok = 0; if (busy_id) *busy_id = t->id; } }
         else if (k < max) keys[k] = key;
         k++;
@@ -725,6 +727,7 @@ int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id) {
     return 1;
 }
 u64 kernel_tlr_end(void) { return tlr_next; }   /* (net_rbtest.c) the thread-local regions in use: KERNEL_BASE up to here */
+void kernel_set_fiber(void *thread, u64 fiber) { if (thread) ((KThread *)thread)->fiber = fiber; }
 void kernel_thaw(void) { InterlockedExchange(&kfrozen, 0); LeaveCriticalSection(&klock); }
 
 /* (net_rbtest.c, with kernel_freeze's lock held) Every guest thread but this one and those in `allow` (guest ids) kept

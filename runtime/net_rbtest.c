@@ -441,6 +441,8 @@ static void begin_round(void) {
     fflush(stderr);
 }
 
+static void cow_begin(void), cow_keep_now(void), cow_put_back(int to_now), cow_end(void);   /* (copy on write: below) */
+
 static void save(Cpu *c) {
     fprintf(stderr, "[rbtest] round %u: saving\n", round_i + 1);
     fflush(stderr);
@@ -456,7 +458,7 @@ static void save(Cpu *c) {
         snap_ok[i] = (u8)committed(hot[i]);
         if (snap_ok[i]) { memcpy(snap + (u64)i * PAGE, P(void, hot[i]), PAGE); saved++; }
     }
-    if (freeze_on()) { if (!tlr_snap) tlr_snap = malloc(TLR_MAX); if (!tlr_now) tlr_now = malloc(TLR_MAX); if (tlr_snap) tlr_copy(tlr_snap, 1); }
+    if (freeze_on()) { if (!tlr_snap) tlr_snap = malloc(TLR_MAX); if (!tlr_now) tlr_now = malloc(TLR_MAX); if (tlr_snap) tlr_copy(tlr_snap, 1); cow_begin(); }
     if (frozen) {
         kernel_thaw();
         fprintf(stderr, "[rbtest] round %u: saved with the other %u threads held (held after %.1f ms, %llu tries)\n", round_i + 1, nfreeze_keys,
@@ -496,6 +498,7 @@ static void put_back(const u8 *from) {
     for (u32 i = 0; i < nhot; i++)
         if (snap_ok[i] && committed(hot[i]) && !is_foreign(hot[i])) memcpy(P(void, hot[i]), from + (u64)i * PAGE, PAGE);
     if (freeze_on() && tlr_snap && tlr_now) tlr_copy(from == snap ? tlr_snap : tlr_now, 0);
+    if (freeze_on()) cow_put_back(from == snap_now);
     if (frozen && hold_wanted && !holding) hold_others();
     if (frozen) kernel_thaw();
 }
@@ -666,6 +669,80 @@ static void census_protect(DWORD prot) {   /* (runs of neighbouring pages in one
 
 static LONG WINAPI on_write(EXCEPTION_POINTERS *e);
 static void *write_handler;
+
+/* ---- copy on write (freeze mode): the pages the save did not take, copied the first time anything writes them ----
+ * The saved set is what the game wrote in the 120 frames before; a window with new effects writes pages it had not touched
+ * (146 in 10 frames), and those were not rewound. From the save on, every other page of the guest's memory is read-only; the
+ * first write to one (any thread, the host's too) copies it as it was and lets the write through. Put back with the others. */
+#define MAX_COW 16384
+#define MAX_COW_RUNS 65536
+static volatile LONG cow_on, ncow;
+static LONG ncow_at_now;
+static u8 *cow_bits;                           /* one bit an alias page: read-only, not copied yet */
+static u64 cow_page[MAX_COW];
+static u8 *cow_orig, *cow_now;
+static u64 cow_run_base[MAX_COW_RUNS], cow_run_size[MAX_COW_RUNS];
+static u32 ncow_runs;
+static u64 cow_overflow;
+static SRWLOCK cow_lock = SRWLOCK_INIT;
+static int cow_take(u64 page) {   /* (the write handler) 1: it was a page waiting for its copy - copied, writable now */
+    u64 i = (page - ALIAS_BASE) / PAGE;
+    if (!cow_on || !cow_bits || !(cow_bits[i >> 3] >> (i & 7) & 1)) return 0;
+    AcquireSRWLockExclusive(&cow_lock);
+    if (cow_bits[i >> 3] >> (i & 7) & 1) {
+        LONG k = ncow;
+        if (k < MAX_COW) { cow_page[k] = page; memcpy(cow_orig + (u64)k * PAGE, P(void, page), PAGE); ncow = k + 1; }
+        else cow_overflow++;
+        cow_bits[i >> 3] &= (u8)~(1u << (i & 7));
+        DWORD old;
+        VirtualProtect(P(void, page), PAGE, PAGE_READWRITE, &old);
+    }
+    ReleaseSRWLockExclusive(&cow_lock);
+    return 1;
+}
+static void cow_begin(void) {   /* (frozen, right after the save) */
+    if (!cow_bits) cow_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
+    if (!cow_orig) cow_orig = malloc(MAX_COW * PAGE);
+    if (!cow_now) cow_now = malloc(MAX_COW * PAGE);
+    if (!cow_bits || !cow_orig || !cow_now) return;
+    if (!write_handler) write_handler = AddVectoredExceptionHandler(1, on_write);
+    memset(cow_bits, 0, ALIAS_SIZE / PAGE / 8);
+    ncow = 0; ncow_runs = 0; cow_overflow = 0;
+    read_regions();
+    u64 pages = 0;
+    for (u32 r = 0; r < nalias; r++) {
+        u64 p = alias_base[r], end = alias_base[r] + alias_size[r];
+        while (p < end) {
+            while (p < end && is_hot(p)) p += PAGE;
+            u64 start = p;
+            while (p < end && !is_hot(p)) { u64 i = (p - ALIAS_BASE) / PAGE; cow_bits[i >> 3] |= (u8)(1u << (i & 7)); p += PAGE; }
+            if (p > start && ncow_runs < MAX_COW_RUNS) {
+                DWORD old;
+                if (VirtualProtect(P(void, start), p - start, PAGE_READONLY, &old)) {
+                    cow_run_base[ncow_runs] = start; cow_run_size[ncow_runs] = p - start; ncow_runs++; pages += (p - start) / PAGE;
+                } else for (u64 q = start; q < p; q += PAGE) { u64 i = (q - ALIAS_BASE) / PAGE; cow_bits[i >> 3] &= (u8)~(1u << (i & 7)); }
+            }
+        }
+    }
+    cow_on = 1;
+    fprintf(stderr, "[rbtest] copy on write: %llu pages read-only in %u runs\n", (unsigned long long)pages, ncow_runs);
+}
+static void cow_keep_now(void) {   /* the game's own state at the end of the window, for the pages copied so far */
+    ncow_at_now = ncow;
+    for (LONG k = 0; k < ncow_at_now; k++) memcpy(cow_now + (u64)k * PAGE, P(void, cow_page[k]), PAGE);
+}
+static void cow_put_back(int to_now) {   /* (a page first written while replaying was as at the save at the window's end too) */
+    for (LONG k = 0; k < ncow; k++) memcpy(P(void, cow_page[k]), (to_now && k < ncow_at_now ? cow_now : cow_orig) + (u64)k * PAGE, PAGE);
+}
+static void cow_end(void) {
+    cow_on = 0;
+    AcquireSRWLockExclusive(&cow_lock);
+    for (u32 r = 0; r < ncow_runs; r++) { DWORD old; VirtualProtect(P(void, cow_run_base[r]), cow_run_size[r], PAGE_READWRITE, &old); }
+    if (cow_bits) memset(cow_bits, 0, ALIAS_SIZE / PAGE / 8);
+    ReleaseSRWLockExclusive(&cow_lock);
+    fprintf(stderr, "[rbtest] copy on write: %ld pages copied (first written after the save)%s\n", (long)ncow, cow_overflow ? ", more than the most kept" : "");
+}
+
 static void census_begin(void) {
     if (!write_handler) write_handler = AddVectoredExceptionHandler(1, on_write);
     read_regions();
@@ -777,6 +854,10 @@ static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
     }
     if (code != EXCEPTION_ACCESS_VIOLATION || e->ExceptionRecord->NumberParameters < 2 || e->ExceptionRecord->ExceptionInformation[0] != 1)
         return EXCEPTION_CONTINUE_SEARCH;
+    if (cow_on) {
+        u64 h = e->ExceptionRecord->ExceptionInformation[1], b = (u64)(uintptr_t)P(u8, ALIAS_BASE);
+        if (h >= b && h < b + ALIAS_SIZE && cow_take(ALIAS_BASE + ((h - b) & ~(PAGE - 1)))) return EXCEPTION_CONTINUE_EXECUTION;
+    }
     u64 host = e->ExceptionRecord->ExceptionInformation[1];
     if (host < (u64)(uintptr_t)P(u8, ALIAS_BASE) || host >= (u64)(uintptr_t)P(u8, ALIAS_BASE) + ALIAS_SIZE) return EXCEPTION_CONTINUE_SEARCH;
     u64 guest = ALIAS_BASE + (host - (u64)(uintptr_t)P(u8, ALIAS_BASE));
@@ -837,6 +918,10 @@ static void trace_end(void) {
 static int census_possible(void) { return !freeze_on(); }   /* (rewinding everything: no census) */
 #else
 static int census_possible(void) { return 0; }
+static void cow_begin(void) {}
+static void cow_keep_now(void) {}
+static void cow_put_back(int to_now) { (void)to_now; }
+static void cow_end(void) {}
 static void census_begin(void) {}
 static void census_span(int in_sim) { (void)in_sim; }
 static void census_end(void) {}
@@ -915,6 +1000,7 @@ static void check_and_replay(Cpu *c) {
     for (u32 i = 0; i < nhot; i++)
         if (snap_ok[i] && committed(hot[i])) memcpy(snap_now + (u64)i * PAGE, P(void, hot[i]), PAGE);
     if (freeze_on() && tlr_now) tlr_copy(tlr_now, 1);
+    if (freeze_on()) cow_keep_now();
     u32 running = 0, skipped, dropped;
     int fib_now = fibers_save(1, &running);
     fprintf(stderr, "[rbtest] round %u: the state now kept (fibers %d, running %u); rewinding and replaying twice\n", round_i + 1, fib_now, running);
@@ -942,6 +1028,7 @@ static void check_and_replay(Cpu *c) {
 
     /* the game's state back as it was */
     put_back(snap_now);
+    if (freeze_on()) cow_end();
     if (holding) {
         InterlockedExchange(&holding, 0);
         kernel_release();

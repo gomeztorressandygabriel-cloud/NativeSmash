@@ -127,7 +127,8 @@ HLE(_ZN2nn2os6detail20DispatchFiberContextEPPNS1_22FiberContextForHorizonES4_) {
     Fib *next = by_token(target);
     if (!next) {   /* a fresh fiber: the frame InitializeFiber prepared at `target` - in a finalized one's slot if there is one */
         AcquireSRWLockExclusive(&lock);
-        next = nspare ? spare[--nspare] : NULL;
+        next = nspare && !own_fibers() ? spare[--nspare] : NULL;   /* (the rewind test: never a finalized one's slot - a rewind would
+                                                                     * put back a slot a fiber of the window has since taken) */
         if (next == me) next = NULL;   /* (finalized while it runs: a guest mistake - never deleted under itself) */
         if (next) {
             next->token = TOKEN_TAG | ((next->token + (1ull << 32)) & TOKEN_USE) | (next->token & 0xFFFFFFFF);

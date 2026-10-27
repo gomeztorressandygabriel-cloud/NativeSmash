@@ -645,6 +645,21 @@ algo que no está en la memoria del juego cambia durante la primera. Sospechosos
 - **Lo siguiente:** guardar también las fibras que corren en otros hilos (están quietas mientras los hilos esperan) y no reutilizar
   huecos de fibras mientras dura una ventana; después, repetir 30 y 60 cuadros para ver si las diferencias crecen.
 
+#### Copia al escribir, y ventanas de 10 y 30 cuadros
+
+- **Los huecos de fibras ya no se reutilizan** mientras corre la prueba (`hle_fiber.c`): una fibra nacida dentro de la ventana tomaba
+  el hueco de una terminada, y al rebobinar la tabla de fibras no cuadraba con la memoria del juego.
+- **Copia al escribir** (`cow_begin` en `net_rbtest.c`): al guardar, toda la memoria del juego que no está en la lista de guardado
+  (~480 000 páginas, en ~4 000 tramos) queda de solo lectura; la primera escritura de cualquier hilo copia la página tal como estaba y
+  la deja escribir. Se devuelve con las demás. En ventanas con efectos nuevos el juego escribe páginas que no había tocado en los 120
+  cuadros anteriores (32 en 10 cuadros, 100 en 30), y sin esto la segunda repetición leía basura y se caía.
+- **Resultado:** rondas de 1, 10 y 30 cuadros completas, con 17 y 47 fibras nuevas dentro de la ventana. Repetir cuesta ~3 ms por
+  cuadro. Las repeticiones difieren en 2, 4–6 y 8–10 páginas: crecen poco con la longitud de la ventana.
+- **El siguiente obstáculo:** después de devolver el estado real tras la ronda de 30 cuadros, el hilo principal se quedó esperando un
+  candado (`nn::os::Mutex`) para siempre, dentro del código de un luchador (`lua2cpp_dolly`, en una tarea del sistema de trabajos
+  `main+0x353d1b0`). Un candado tomado dentro de la ventana queda marcado en la memoria devuelta sin que nadie lo vaya a soltar, o al
+  revés: la memoria del juego y las colas de espera del kernel (en el runtime) se desacompasan.
+
 ### 2026-10-26: ¿vive el combate en zonas de memoria propias? No
 
 Prueba: un combate automático contra la CPU (ventana de 256x144, `SSBU_RB_TEST=1`), con dos sondas nuevas en `net_rbtest.c`:

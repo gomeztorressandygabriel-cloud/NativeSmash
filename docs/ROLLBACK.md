@@ -601,6 +601,34 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, de madrugada: **la simulación se rebobina y se repite idéntica**, hasta 60 cuadros
+
+La pieza que faltaba: **las variables globales de los módulos** (`.data` y `.bss` de `main`, `sdk`, `subsdk0` y los `lua2cpp_*`, las
+regiones `GM_CODE_DATA` del kernel, ~20 000 páginas en 12 regiones) no estaban en el rebobinado: la prueba solo miraba el montón y las
+pilas. Ahí viven contadores, objetos únicos y estados aleatorios del juego; el bucle que colgaba el juego después de una ronda de 30
+cuadros (`main+0x356cb80`) empieza sumando 1 a uno de ellos (`0x7105334a08`). Entran con la misma **copia al escribir** que el resto.
+
+Resultado (combate automático contra la CPU, `SSBU_RB_FREEZE=1 SSBU_RB_ROUNDS=1,10,30,30,60`):
+
+| Ronda | Cuadros | Repetir | Páginas de la simulación distintas (1 vs 2, 2 vs 3, 1 vs 3) |
+|---|---|---|---|
+| 1 | 1 | 1,6 ms | 1, 0, 1 (una página que cambió entre medirla y copiarla: 0 palabras distintas) |
+| 2 | 10 | 28–33 ms | **0, 0, 0** |
+| 3 | 30 | 29 ms | **0, 0, 0** |
+| 4 | 30 | 16–18 ms | **0, 0, 0** |
+| 5 | 60 | 23–25 ms | **0, 0, 0** |
+
+Sin caídas, sin cuelgues, y el juego siguió normal después. Quedan 2 páginas que el resto del cuadro (no la simulación) deja distintas
+en todas las rondas, siempre las mismas.
+
+**Lo que esto demuestra:** el combate de Smash Ultimate recompilado se puede guardar, rebobinar y volver a simular de forma
+determinista en el mismo PC, a menos de 1 ms por cuadro. Es la base de un rollback.
+
+**Lo que falta para un rollback de verdad:** guardar en cada cuadro (hoy la prueba guarda cada 10 s, con 120 cuadros para descubrir
+qué páginas se escriben; con copia al escribir ese descubrimiento sobra), sin congelar más de lo necesario; repetir cuadros con
+**entradas distintas** (la prueba repite con las mismas); y, sobre todo, conectarlo al juego en red (Local Wireless o el VS propio) y
+comprobar que dos PCs distintos simulan igual.
+
 ### 2026-10-27: congelar todos los hilos y rebobinar todo junto (`SSBU_RB_FREEZE=1`)
 
 Como hace un emulador con la consola entera: en vez de separar páginas por hilo, se rebobina **todo** lo que el juego escribe, con los

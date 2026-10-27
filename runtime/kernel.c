@@ -669,6 +669,13 @@ void kernel_thread_states(void (*line)(const char *text)) {
         const char *state = t->mutex_addr ? "waiting for a mutex" : t->cv_key ? "waiting on a condition" :
                             t->arb_addr ? "waiting on an address" : "running or in a system call";
         snprintf(text, sizeof text, "  guest thread %llu (host thread %lu, priority %d): %s\n", t->id, (unsigned long)GetThreadId(t->host), t->priority, state);
+        if (t->mutex_addr) {   /* (which mutex, and who the word says holds it) */
+            u32 w = ld32(t->mutex_addr), h = w & ~WAITERS;
+            KThread *o = h && h < 4096 && objects[h].type == OBJ_THREAD ? objects[h].thread : NULL;
+            size_t l = strlen(text) - 1;
+            snprintf(text + l, sizeof text - l, " (mutex %#llx, word %#x: held by guest thread %lld%s)\n", (unsigned long long)t->mutex_addr, w,
+                     o ? (long long)o->id : -1ll, o && o->mutex_addr ? ", itself waiting for a mutex" : "");
+        }
         line(text);
     }
     LeaveCriticalSection(&klock);
@@ -759,6 +766,16 @@ u32 kernel_memory_regions(u64 *base, u64 *size, u32 max) {
     u32 n = 0;
     for (u32 i = 0; i < region_count && n < max; i++)
         if (regions[i].state == GM_HEAP || regions[i].state == GM_STACK) { base[n] = regions[i].base; size[n] = regions[i].size; n++; }
+    LeaveCriticalSection(&klock);
+    return n;
+}
+
+/* (net_rbtest.c) The modules' writable data (their .data and .bss: the game's global variables), up to max; how many. */
+u32 kernel_data_regions(u64 *base, u64 *size, u32 max) {
+    EnterCriticalSection(&klock);
+    u32 n = 0;
+    for (u32 i = 0; i < region_count && n < max; i++)
+        if (regions[i].state == GM_CODE_DATA) { base[n] = regions[i].base; size[n] = regions[i].size; n++; }
     LeaveCriticalSection(&klock);
     return n;
 }

@@ -685,15 +685,36 @@ static u64 cow_run_base[MAX_COW_RUNS], cow_run_size[MAX_COW_RUNS];
 static u32 ncow_runs;
 static u64 cow_overflow;
 static SRWLOCK cow_lock = SRWLOCK_INIT;
+/* The modules' global variables too (outside the alias area, never in the saved set: the game's own counters, singletons and
+ * random states there were not rewound at all) - each data region with a bitmap of its own. */
+#define MAX_DATA_REGIONS 256
+static u64 data_base[MAX_DATA_REGIONS], data_size[MAX_DATA_REGIONS];
+static u8 *data_bits[MAX_DATA_REGIONS];
+static u32 ndata;
+static u8 *cow_bit_of(u64 page, u8 *mask) {   /* the byte and bit that say page waits for its copy, or NULL */
+    if (page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) {
+        if (!cow_bits) return NULL;
+        u64 i = (page - ALIAS_BASE) / PAGE;
+        *mask = (u8)(1u << (i & 7));
+        return &cow_bits[i >> 3];
+    }
+    for (u32 r = 0; r < ndata; r++)
+        if (page >= data_base[r] && page < data_base[r] + data_size[r] && data_bits[r]) {
+            u64 i = (page - data_base[r]) / PAGE;
+            *mask = (u8)(1u << (i & 7));
+            return &data_bits[r][i >> 3];
+        }
+    return NULL;
+}
 static int cow_take(u64 page) {   /* (the write handler) 1: it was a page waiting for its copy - copied, writable now */
-    u64 i = (page - ALIAS_BASE) / PAGE;
-    if (!cow_on || !cow_bits || !(cow_bits[i >> 3] >> (i & 7) & 1)) return 0;
+    u8 mask, *bit = cow_on ? cow_bit_of(page, &mask) : NULL;
+    if (!bit || !(*bit & mask)) return 0;
     AcquireSRWLockExclusive(&cow_lock);
-    if (cow_bits[i >> 3] >> (i & 7) & 1) {
+    if (*bit & mask) {
         LONG k = ncow;
         if (k < MAX_COW) { cow_page[k] = page; memcpy(cow_orig + (u64)k * PAGE, P(void, page), PAGE); ncow = k + 1; }
         else cow_overflow++;
-        cow_bits[i >> 3] &= (u8)~(1u << (i & 7));
+        *bit &= (u8)~mask;
         DWORD old;
         VirtualProtect(P(void, page), PAGE, PAGE_READWRITE, &old);
     }
@@ -724,8 +745,23 @@ static void cow_begin(void) {   /* (frozen, right after the save) */
             }
         }
     }
+    u64 data_pages = 0;
+    ndata = kernel_data_regions(data_base, data_size, MAX_DATA_REGIONS);
+    for (u32 r = 0; r < ndata; r++) {
+        u64 n = data_size[r] / PAGE;
+        free(data_bits[r]);
+        data_bits[r] = malloc((n + 7) / 8);
+        if (!data_bits[r]) continue;
+        DWORD old;
+        if (ncow_runs < MAX_COW_RUNS && VirtualProtect(P(void, data_base[r]), data_size[r], PAGE_READONLY, &old)) {
+            memset(data_bits[r], 0xFF, (n + 7) / 8);
+            cow_run_base[ncow_runs] = data_base[r]; cow_run_size[ncow_runs] = data_size[r]; ncow_runs++;
+            data_pages += n;
+        } else memset(data_bits[r], 0, (n + 7) / 8);
+    }
     cow_on = 1;
-    fprintf(stderr, "[rbtest] copy on write: %llu pages read-only in %u runs\n", (unsigned long long)pages, ncow_runs);
+    fprintf(stderr, "[rbtest] copy on write: %llu pages read-only in %u runs, and %llu of the modules' global variables in %u regions\n",
+            (unsigned long long)pages, ncow_runs, (unsigned long long)data_pages, ndata);
 }
 static void cow_keep_now(void) {   /* the game's own state at the end of the window, for the pages copied so far */
     ncow_at_now = ncow;
@@ -739,6 +775,7 @@ static void cow_end(void) {
     AcquireSRWLockExclusive(&cow_lock);
     for (u32 r = 0; r < ncow_runs; r++) { DWORD old; VirtualProtect(P(void, cow_run_base[r]), cow_run_size[r], PAGE_READWRITE, &old); }
     if (cow_bits) memset(cow_bits, 0, ALIAS_SIZE / PAGE / 8);
+    for (u32 r = 0; r < ndata; r++) if (data_bits[r]) memset(data_bits[r], 0, (data_size[r] / PAGE + 7) / 8);
     ReleaseSRWLockExclusive(&cow_lock);
     fprintf(stderr, "[rbtest] copy on write: %ld pages copied (first written after the save)%s\n", (long)ncow, cow_overflow ? ", more than the most kept" : "");
 }
@@ -854,9 +891,9 @@ static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
     }
     if (code != EXCEPTION_ACCESS_VIOLATION || e->ExceptionRecord->NumberParameters < 2 || e->ExceptionRecord->ExceptionInformation[0] != 1)
         return EXCEPTION_CONTINUE_SEARCH;
-    if (cow_on) {
-        u64 h = e->ExceptionRecord->ExceptionInformation[1], b = (u64)(uintptr_t)P(u8, ALIAS_BASE);
-        if (h >= b && h < b + ALIAS_SIZE && cow_take(ALIAS_BASE + ((h - b) & ~(PAGE - 1)))) return EXCEPTION_CONTINUE_EXECUTION;
+    if (cow_on) {   /* (guest addresses map to host ones by a fixed offset: G2H) */
+        u64 h = e->ExceptionRecord->ExceptionInformation[1], g0 = (u64)(uintptr_t)P(u8, 0);
+        if (h >= g0 && cow_take((h - g0) & ~(PAGE - 1))) return EXCEPTION_CONTINUE_EXECUTION;
     }
     u64 host = e->ExceptionRecord->ExceptionInformation[1];
     if (host < (u64)(uintptr_t)P(u8, ALIAS_BASE) || host >= (u64)(uintptr_t)P(u8, ALIAS_BASE) + ALIAS_SIZE) return EXCEPTION_CONTINUE_SEARCH;

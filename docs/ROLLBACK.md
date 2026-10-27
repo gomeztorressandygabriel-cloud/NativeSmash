@@ -601,6 +601,29 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, noche (2): la caída era la repetición incompleta
+
+- **Volver a un guardado anterior**, comprobado. La vuelta atrás se planea con antelación: al guardar el cuadro al que se va a volver
+  se toman las huellas de sus páginas y de sus fibras, y después se comparan con lo que deja la vuelta atrás. Salían 1–3 páginas
+  distintas al ir 7 cuadros atrás. Eran páginas que al principio solo escribía el runtime (GPU) y después también el juego: mientras
+  eran "del runtime" no entraban en los guardados. Ahora, cuando pasan a ser del juego, su contenido va a todos los guardados.
+  También: si Windows no deja proteger un tramo entero (dos reservas distintas), se protege página a página.
+- **Las fibras** (pila del PC, contexto y campos de cada una) se comparan también, antes y después. Salen **idénticas** siempre, y la
+  caída seguía. No eran las fibras.
+- **La causa:** en cada cuadro, el bucle principal hace *simular → leer los mandos → tres pasos más* (`main+0x375e690`,
+  `main+0x35493e0`, `main+0x354c990`, y unas llamadas indirectas). La repetición solo hacía *simular → leer los mandos*. Dos de esos
+  pasos son del **sistema de trabajos**: lanzan o cierran los trabajos del cuadro. Sin ellos, la siguiente simulación encontraba
+  trabajos a medias y a veces llamaba a basura (`0x101000029aa`, siempre el mismo valor). Ahora se envuelven, se graba su contexto
+  en cada cuadro y la repetición los llama en el mismo orden (`SSBU_RB_TAIL`: 6 por defecto, los dos del sistema de trabajos; 7
+  incluye `main+0x375e690`).
+- **Resultado** (`every50`–`every52`, 15 vueltas atrás de 7 cuadros): **ninguna caída ni durante ni después**, el juego siguió.
+  Repetir cuesta ahora 3–5 ms por cuadro (antes 2–3): es el coste real de un cuadro sin dibujar. En `every52`, más de un minuto
+  después de terminar, la GPU se colgó (`DXGI_ERROR_DEVICE_HUNG`); no parece de la prueba, pero hay que vigilarlo.
+- **Queda:** `main+0x375e690` (45 llamadas indirectas; quizá parte de la actualización de la escena) sigue fuera de la repetición.
+  La repetición y el juego en vivo difieren en ~1 000–2 000 páginas (el dibujo y ese paso). Para un rollback de verdad eso importa:
+  después de rebobinar el juego debe seguir desde la repetición, no desde su propio guardado (`SSBU_RB_CONTINUE=1`). Es la prueba
+  siguiente.
+
 ### 2026-10-27, noche: el estado devuelto ya es idéntico
 
 Nueva comprobación: después de devolver el guardado del cuadro actual, se calcula la huella de cada página y se compara con la de

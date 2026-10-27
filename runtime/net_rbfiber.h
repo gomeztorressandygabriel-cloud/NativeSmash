@@ -18,5 +18,6 @@ int rbf_is_fiber(void);                                            /* IsThreadAF
 typedef struct RbfSaved { void *fiber, *sp, *tib_base, *tib_limit, *tib_dealloc; u8 *stack; size_t bytes; } RbfSaved;
 int rbf_save(void *fiber, RbfSaved *out);
 int rbf_restore(const RbfSaved *s);
+u64 rbf_hash(void *fiber);   /* (a check) where it stopped and its stack in use, as one number; 0 while it runs */
 int rbf_running(void *fiber);
 #endif

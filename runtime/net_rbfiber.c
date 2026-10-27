@@ -184,6 +184,14 @@ int rbf_save(void *fiber, RbfSaved *out) {
     return 1;
 }
 
+u64 rbf_hash(void *fiber) {   /* where it stopped and the part of its stack in use */
+    RbFiber *f = fiber;
+    if (!f->top || f->running) return 0;
+    u64 h = 0xCBF29CE484222325ull ^ (u64)(uintptr_t)f->sp;
+    for (const u8 *p = f->sp; p < f->top; p += 8) { u64 w; memcpy(&w, p, 8); h = (h ^ w) * 0x100000001B3ull; }
+    return h;
+}
+
 int rbf_restore(const RbfSaved *s) {
     RbFiber *f = s->fiber;
     if (!f || !s->stack || f->running) return 0;

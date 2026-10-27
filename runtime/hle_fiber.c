@@ -202,6 +202,36 @@ int fibers_save(int which, u32 *running) {
     return (int)v->n;
 }
 
+/* (the rewind test) every fiber's state as numbers: per fiber, a hash of its slot's fields, of its guest context and of its host
+ * stack in use (out[3 * i ...]); how many fibers. A fiber running now: its context and stack as 0 (they are the thread's). */
+u32 fibers_hash(u64 *out, u32 max) {
+    if (!own_fibers()) return 0;
+    AcquireSRWLockShared(&lock);
+    u32 n = fib_count < max ? fib_count : max;
+    for (u32 i = 0; i < n; i++) {
+        Fib *f = fibs[i];
+        u64 h = 0xCBF29CE484222325ull;
+        h = (h ^ (u64)(uintptr_t)f) * 0x100000001B3ull;
+        h = (h ^ f->token) * 0x100000001B3ull;
+        h = (h ^ f->guest) * 0x100000001B3ull;
+        h = (h ^ (u64)f->finalized) * 0x100000001B3ull;
+        h = (h ^ (u64)(uintptr_t)f->host) * 0x100000001B3ull;
+        out[3 * i] = h;
+        int running = f->host && rbf_running(f->host);
+        u64 c = 0, s = 0;
+        if (!running && f->cpu && !f->finalized) {
+            c = 0xCBF29CE484222325ull;
+            for (int r = 0; r < 31; r++) c = (c ^ f->cpu->x[r]) * 0x100000001B3ull;
+            c = (c ^ f->cpu->sp) * 0x100000001B3ull;
+        }
+        if (!running && f->host && !f->finalized) s = rbf_hash(f->host);
+        out[3 * i + 1] = c;
+        out[3 * i + 2] = s;
+    }
+    ReleaseSRWLockShared(&lock);
+    return n;
+}
+
 int fibers_restore(int which, u32 *skipped, u32 *dropped) {
     *skipped = *dropped = 0;
     if (!own_fibers() || which < 0 || which >= FIBER_SAVES || !saves[which].fib) return -1;
@@ -226,4 +256,5 @@ int fibers_restore(int which, u32 *skipped, u32 *dropped) {
 #else
 int fibers_save(int which, u32 *running) { (void)which; *running = 0; return -1; }
 int fibers_restore(int which, u32 *skipped, u32 *dropped) { (void)which; *skipped = *dropped = 0; return -1; }
+u32 fibers_hash(u64 *out, u32 max) { (void)out; (void)max; return 0; }
 #endif

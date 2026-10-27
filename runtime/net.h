@@ -57,6 +57,7 @@ void vsock_deliver(u32 src_ip, u16 src_port, u32 dst_ip, u16 dst_port, const voi
 /* (hle_net.c) Whether this player is in a local wireless network now, the player at ip one of its
  * nodes: only then do that player's direct packets reach the game. */
 int ldn_in_network(u32 ip);
+int ldn_active(void);                 /* in a Local Wireless room (made or joined) */
 
 /* (hle_net.c) The VS netplay's own room in the online lobby (net_lockstep.c): the host makes it (1 done); the other player looks for
  * it and joins it (the host's virtual address, 0 not yet); either leaves it. code: the room's code, as the launcher gives it. */

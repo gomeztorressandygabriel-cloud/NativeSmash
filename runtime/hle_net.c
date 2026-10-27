@@ -112,13 +112,13 @@ int net_input_delay(void) {
         int want = 3;
         if (settings_line_read("online_delay.txt", line, sizeof line)) {
             if (!_strnicmp(line, "auto", 4)) want = -1;
-            else if (line[0] >= '0' && line[0] <= '9') want = atoi(line) < 1 ? 1 : atoi(line) > 25 ? 25 : atoi(line);
+            else if (line[0] >= '0' && line[0] <= '9') want = atoi(line) > 25 ? 25 : atoi(line);   /* (0: the community sliders allow it too; the game may wait for the others' pads) */
         }
         input_delay_want = want;
     }
     return input_delay_want;
 }
-void net_input_delay_set(int frames) { input_delay_want = frames < 0 ? -1 : frames < 1 ? 1 : frames > 25 ? 25 : frames; }
+void net_input_delay_set(int frames) { input_delay_want = frames < 0 ? -1 : frames > 25 ? 25 : frames; }
 /* signature: fc1d0fe8 a9014ff4 a9027bfd 910083fd b9403008 4ea01c08 aa0003f3 7100091f 54.....1 .0.....8 f9....08 f9....08 f9....00 5284e261 9....... 1e220000 */
 HLE_WRAP(71016ccae0) {
     u64 self = c->x[0];
@@ -667,6 +667,7 @@ HLE(_ZN2nn3ldn10DisconnectEv) { LDN_TRACE;
 }
 
 static int has_network(void) { return L.state == LS_AP_CREATED || L.state == LS_CONNECTED; }
+int ldn_active(void) { return has_network(); }   /* (a read without the lock: for the renderer's queue, a frame late is fine) */
 int ldn_in_network(u32 ip) {
     AcquireSRWLockShared(&L.lock);
     int in = (has_network() && node_of(ip) >= 0) || lks_peer_ip(ip);

@@ -18,6 +18,7 @@
 #include "cpu_sched.h"
 #include "latency.h"
 #include "net_rbprobe.h"
+#include "net.h"
 
 #define DISPLAY_ID 1
 #define LAYER_ID 1
@@ -260,15 +261,21 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
         break;
     }
     case DEQUEUE_BUFFER: {   /* never blocks: "would block" sends the client back to the event */
+        /* The free buffer used longest ago: the game gets them in turn, as a console's queue gives them (with a limit below there
+         * can be two free, and the lowest one first broke the turn: the picture pulsed in brightness, the game's effects that
+         * read the frame before by its buffer reading another one). */
         int slot = -1;
-        for (int i = 0; i < SLOTS && slot < 0; i++)
-            if (queue.slots[i].has_buffer && queue.slots[i].state == FREE) slot = i;
+        for (int i = 0; i < SLOTS; i++)
+            if (queue.slots[i].has_buffer && queue.slots[i].state == FREE && (slot < 0 || queue.slots[i].queued_at < queue.slots[slot].queued_at)) slot = i;
         static int limit = -1;   /* display.ini queue_limit: the frames waiting for a refresh at most (0: no limit) */
         if (limit < 0) limit = display_queue_limit();
-        if (limit && slot >= 0) {
+        /* In a Local Wireless room, 1: measured in a match there, every frame waited behind another one (28 ms from queued to
+         * shown, 11 with 1), on top of the game's online input delay. Out of the room, display.ini's number. */
+        int use_limit = ldn_active() && (!limit || limit > 1) ? 1 : limit;
+        if (use_limit && slot >= 0) {
             int waiting = 0;
             for (int i = 0; i < SLOTS; i++) waiting += queue.slots[i].state == QUEUED;
-            if (waiting >= limit) slot = -1;   /* (the next refresh takes one, and signals the buffer event) */
+            if (waiting >= use_limit) slot = -1;   /* (the next refresh takes one, and signals the buffer event) */
         }
         if (slot < 0) {
             w32(out, 0xFFFFFFFF);

@@ -520,10 +520,10 @@ static void change(const Row *row, int dir) {
         net.direct = !net.direct;
         settings_line_write("online_direct.txt", net.direct ? "on" : "off");
         break;
-    case R_NET_DELAY: {   /* auto, 1, 2, ... 8 (a number typed in online_delay.txt above 8 is shown as it is) */
+    case R_NET_DELAY: {   /* auto, 0, 1, ... 8 (a number typed in online_delay.txt above 8 is shown as it is) */
         int now = net_input_delay();
-        int next = now < 0 ? (dir > 0 ? 1 : 8) : now + dir;
-        if (next < 1 || next > 8) next = -1;
+        int next = now < 0 ? (dir > 0 ? 0 : 8) : now + dir;
+        if (next < 0 || next > 8) next = -1;
         net_input_delay_set(next);
         char text[16];
         snprintf(text, sizeof text, next < 0 ? "auto" : "%d", next);

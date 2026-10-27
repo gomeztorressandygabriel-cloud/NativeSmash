@@ -32,7 +32,7 @@ En línea, el juego no aplica tu botón en el mismo cuadro en que lo pulsas: lo 
 - **Más retraso:** más fluido, pero los botones tardan más en notarse.
 - **Cada jugador elige el suyo.** El ajuste es local: no hace falta que los dos pongan el mismo número.
 
-Sin ningún ajuste, NativeSmash usa **3 cuadros**. `auto` deja el número que el propio juego calcula a partir de la latencia que mide en la sala.
+Sin ningún ajuste, NativeSmash usa **3 cuadros**. Además, dentro de una sala de Local Wireless el runtime deja **un solo cuadro esperando** a la pantalla (fuera de la sala, lo que diga `display.ini`): medido en una partida real, del cuadro hecho a la pantalla pasaban 28 ms, y así unos 11. `auto` deja el número que el propio juego calcula a partir de la latencia que mide en la sala.
 
 ### Cómo cambiarlo
 
@@ -40,11 +40,11 @@ Hay dos sitios. Los dos escriben el mismo archivo, **`online_delay.txt`**, junto
 
 | Dónde | Cómo |
 | :--- | :--- |
-| **El launcher** (Windows) | La ventana de `Play SSBU.bat`, página **En línea**: **Auto** o de **1 a 8**. |
+| **El launcher** (Windows) | La ventana de `Play SSBU.bat`, página **En línea**: **Auto** o de **0 a 8**. |
 | **Dentro del juego** | <kbd>Esc</kbd> → página **Online** → **Input delay (frames)**. Cambia al instante; el juego lo usa en la siguiente partida. (Esta fila existe en Windows y Linux; la versión de macOS no tiene el menú, así que ahí edita el archivo.) |
-| **A mano** | Un archivo de texto `online_delay.txt` con una sola línea: un número de **1 a 25**, o `auto`. Sin archivo, son 3. |
+| **A mano** | Un archivo de texto `online_delay.txt` con una sola línea: un número de **0 a 25**, o `auto`. Sin archivo, son 3. |
 
-Un número fuera de 1 a 25 se acerca al límite más próximo. El menú y el launcher solo ofrecen de 1 a 8; un número más grande que escribas en el archivo se respeta y se muestra tal cual.
+Un número por encima de 25 se queda en 25. El menú y el launcher ofrecen de 0 a 8 (0 solo sirve con una conexión muy rápida, en la misma casa o ciudad: si no, el juego se traba esperando); un número más grande que escribas en el archivo se respeta y se muestra tal cual.
 
 ### Cómo elegir el número
 
@@ -135,7 +135,7 @@ Online, the game doesn't apply your button the frame you press it: it holds it f
 - **A higher number:** smoother, but buttons take longer to show.
 - **Each player picks their own.** The setting is local: the two players don't need the same number.
 
-With no setting, NativeSmash uses **3 frames**. `auto` keeps the number the game works out itself from the latency it measures in the room.
+With no setting, NativeSmash uses **3 frames**. Also, inside a Local Wireless room the runtime keeps **a single frame waiting** for the screen (outside the room, whatever `display.ini` says): measured in a real match, 28 ms passed from a frame made to the screen, about 11 this way. `auto` keeps the number the game works out itself from the latency it measures in the room.
 
 ### How to change it
 
@@ -143,11 +143,11 @@ Two places. Both write the same file, **`online_delay.txt`**, next to `Play SSBU
 
 | Where | How |
 | :--- | :--- |
-| **The launcher** (Windows) | The `Play SSBU.bat` window, **Online** page: **Auto** or **1 to 8**. |
+| **The launcher** (Windows) | The `Play SSBU.bat` window, **Online** page: **Auto** or **0 to 8**. |
 | **In the game** | <kbd>Esc</kbd> → **Online** page → **Input delay (frames)**. It changes at once; the game uses it from the next match. (This row exists on Windows and Linux; the macOS version has no such menu, so edit the file there.) |
-| **By hand** | A text file `online_delay.txt` with one line: a number from **1 to 25**, or `auto`. Without the file it is 3. |
+| **By hand** | A text file `online_delay.txt` with one line: a number from **0 to 25**, or `auto`. Without the file it is 3. |
 
-A number outside 1 to 25 is brought to the nearest limit. The menu and the launcher offer 1 to 8 only; a larger number you type into the file is kept and shown as it is.
+A number above 25 stays at 25. The menu and the launcher offer 0 to 8 (0 only works on a very fast connection, same house or city: otherwise the game stutters waiting); a larger number you type into the file is kept and shown as it is.
 
 ### Choosing the number
 

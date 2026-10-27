@@ -601,6 +601,32 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, noche (6): **rollback en el VS en red** (`SSBU_NETPLAY_ROLLBACK=1`, o "Rollback (en pruebas)" en el launcher)
+
+El VS en red (`net_lockstep.c`) ya mandaba los botones por cuadro, tenía un reloj de cuadros común y comprobaba que los juegos no
+se separaran. Ahora:
+
+- **No espera los botones del otro:** si no han llegado, juega el cuadro con una suposición (los últimos que llegaron) y lo anota.
+  Juega así hasta 10 cuadros por delante; más allá, espera como antes.
+- **Cuando llegan los de verdad y no coinciden**, pide volver al guardado de antes de ese cuadro (`rbt_net_rollback`). El rollback
+  natural lo hace en el cuadro siguiente: devuelve el estado, el VS vuelve al cuadro del error (`lks_rewind`) y el bucle del juego
+  rejuega desde ahí con los botones conocidos. Los botones y el reloj son los del VS (iguales en los dos PCs); la prueba de rebobinado
+  no graba ni toca nada de eso en este modo. 12 guardados en vez de 8.
+- **Las huellas contra la desincronización** solo se mandan de cuadros jugados con los botones de verdad.
+- **Rival simulado para probar en un PC:** `SSBU_NETPLAY=fake`. Sus botones van cambiando y llegan 3–5 cuadros tarde
+  (`SSBU_NETPLAY_FAKE_LAG`, `SSBU_NETPLAY_FAKE_FROM`).
+
+**Resultado con el rival simulado** (`reports/net2.log`, combate a 144p):
+- decenas de vueltas atrás de 4–11 cuadros;
+- de las suposiciones equivocadas, solo 7 llegaron tarde para corregirse (160 con 8 guardados);
+- sin caídas, y el juego siguió.
+
+**Pero va lento** (10–25 cuadros por segundo en este portátil): el rival cambia de botones cada pocos cuadros, cada vuelta atrás
+rejuega 4–11 cuadros **dibujándolos**, y guardar cuesta ~5 ms cada cuadro. Falta:
+- la **repetición silenciosa** (rejugar sin dibujar ni presentar);
+- probar entre dos PCs de verdad (este modo de VS nunca llegó a conectar entre PCs reales);
+- comprobar que los dos juegos no se separan.
+
 ### 2026-10-27, noche (5): **el rollback natural funciona** (15 de 15)
 
 Tres cambios más y el rollback "como uno de verdad" aguanta:

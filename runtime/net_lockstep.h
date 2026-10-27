@@ -19,7 +19,10 @@ void lks_sim_begin(void);        /* (net_rbtest.c) a frame's simulation begins o
 void lks_sim_end(void);          /* ... and ends */
 int lks_pad(u32 id, LksInput *in, u64 *sampling);   /* (hle_hid.c) player id's pad now; 0: not ours */
 int lks_style(u32 id, u32 *style);                  /* (hle_hid.c) whether player id is connected, in netplay; 0: not ours */
-u64 lks_ticks(u64 now);          /* (kernel.c) the system tick the game's main thread reads */
+u64 lks_ticks(u64 now);
+int lks_rollback_on(void);       /* SSBU_NETPLAY_ROLLBACK=1: pads not come yet guessed, and a wrong guess undone (net_rbtest.c's saves) */
+u32 lks_frame(void);             /* (net_rbtest.c) the frame now */
+void lks_rewind(u32 g);          /* (net_rbtest.c) the game was put back to before frame g's input step */          /* (kernel.c) the system tick the game's main thread reads */
 int lks_picture_due(u32 *frame); /* (gpu_d3d11.c) a picture of the frame now, for comparing two runs: SSBU_LOCKSTEP_PICTURES frames apart */
 
 void hid_local_input(LksInput *in);

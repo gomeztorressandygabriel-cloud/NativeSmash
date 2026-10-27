@@ -55,6 +55,8 @@ typedef int SOCKET;
 #include <string.h>
 
 #include "net_lockstep.h"
+#include "settings.h"
+#include "net_rbtest.h"
 #include "net.h"
 
 volatile int lks_state = -1;
@@ -88,6 +90,16 @@ static u32 frames_max = 15000;      /* (record) */
 static u64 t0, tick_reads;
 static LksInput in_of[4][RING];     /* the players' pads, by frame */
 static u32 have[4];                 /* frames known: 0 .. have-1 */
+/* Rollback (SSBU_NETPLAY_ROLLBACK=1, with the rewind test's per-frame saves: net_rbtest.c): a frame whose pads from another player
+ * have not come yet is not waited for - it is played with a guess (that player's last pads), noted here; when the real ones come and
+ * differ, the game goes back to before that frame and plays it again with them (rbt_net_rollback), the main loop's own replay. */
+static int rb_on;                   /* (on when the per-frame saves are going: rbt_net_ready) */
+#define MAX_GUESS 10                /* frames played on a guess at most (netplay keeps 12 saves) */
+static LksInput guessed_with[4][RING];
+static u8 guessed[4][RING];
+static u32 mispredict_from = ~0u;   /* the first frame played with a guess that turned out wrong */
+static u64 ring_of[RING];           /* the per-frame save each frame's input step comes after */
+static u64 rollbacks, rolled_frames, guesses, guesses_wrong;
 static int me;                      /* this PC's player: 0 host / record / replay, 1.. a joiner */
 
 /* ---- hashes of the pages the simulation writes ----------------------------------------- */
@@ -632,6 +644,13 @@ static void on_packet(const u8 *p, int n, u32 src_vip, const struct sockaddr_in 
             if (f != have[who] || f >= have[who] + RING / 2) continue;
             memcpy(&in_of[who][f % RING], p + HEAD + 13 + i * sizeof(LksInput), sizeof(LksInput));
             have[who] = f + 1;
+            if (guessed[who][f % RING]) {   /* (played on a guess: was it right?) */
+                guessed[who][f % RING] = 0;
+                if (memcmp(&guessed_with[who][f % RING], &in_of[who][f % RING], sizeof(LksInput))) {
+                    guesses_wrong++;
+                    if (f < mispredict_from) mispredict_from = f;
+                }
+            }
         }
         break;
     }
@@ -883,7 +902,39 @@ void lks_preboot(void) {
 }
 
 /* At the first input step: everyone there. The host waits for all its players and starts them; a joiner says hello and waits for the start. */
+/* SSBU_NETPLAY=fake: a second player that is not there, for trying rollback on one PC - host (player 1) with player 2's pads
+ * made up here (a pattern that changes every few frames, from SSBU_NETPLAY_FAKE_FROM on, 0 before: the menus are player 1's) and
+ * arriving SSBU_NETPLAY_FAKE_LAG frames late (3 by default, plus 0-2 of jitter), as through the network. No sockets. */
+static int fake;
+static u32 fake_lag = 3, fake_from = 3600;
+static LksInput fake_pad(u32 f) {
+    LksInput in = {0};
+    if (f < fake_from) return in;
+    u32 t = f - fake_from;
+    if (t % 40 < 6) in.buttons |= 1;                                    /* (A, now and then) */
+    in.lx = (t / 30) % 3 == 0 ? -32767 : (t / 30) % 3 == 1 ? 32767 : 0;  /* (the stick: left, right, still) */
+    return in;
+}
+static void fake_deliver(void) {   /* (each input step) player 2's pads up to some frames ago, as P_INPUT gives them */
+    u32 lag = rb_on ? fake_lag + (frame / 7) % 3 : 0, upto = frame > lag ? frame - lag : 0;   /* (before rollback is on: at once - lockstep would wait for ever) */
+    while (have[1] <= upto) {
+        u32 f = have[1];
+        in_of[1][f % RING] = fake_pad(f);
+        have[1] = f + 1;
+        peer[1].frame = frame;
+        peer[1].last_heard = rt_now_ns();
+        if (guessed[1][f % RING]) {
+            guessed[1][f % RING] = 0;
+            if (memcmp(&guessed_with[1][f % RING], &in_of[1][f % RING], sizeof(LksInput))) {
+                guesses_wrong++;
+                if (f < mispredict_from) mispredict_from = f;
+            }
+        }
+    }
+}
+
 static int connect_peer(void) {
+    if (fake) { peer[1].known = 0; return 1; }
     const char *w = getenv("SSBU_NETPLAY_WAIT");
     double wait_s = w && *w ? atof(w) : via_lobby ? 3600.0 : 300.0;   /* (through the lobby: as long as the others take to start) */
     u64 until = rt_now_ns() + (u64)(wait_s * 1e9), next_hello = 0, next_note = 0, next_room = 0;
@@ -945,6 +996,14 @@ int lks_probe(void) {
     if (!__atomic_exchange_n(&once, 1, __ATOMIC_ACQ_REL)) {
         const char *np = getenv("SSBU_NETPLAY"), *ls = getenv("SSBU_LOCKSTEP");
         if (np && !strcmp(np, "host")) mode = M_HOST;
+        else if (np && !strcmp(np, "fake")) {
+            mode = M_HOST;
+            fake = 1;
+            const char *fl = getenv("SSBU_NETPLAY_FAKE_LAG"), *ff = getenv("SSBU_NETPLAY_FAKE_FROM");
+            if (fl && *fl) fake_lag = (u32)atoi(fl);
+            if (ff && *ff) fake_from = (u32)atoi(ff);
+            fprintf(stderr, "[netplay] on: a made-up player 2, its pads %u-%u frames late (from frame %u)\n", fake_lag, fake_lag + 2, fake_from);
+        }
         else if (np && !strcmp(np, "join")) mode = M_JOIN;
         else if (ls && !strcmp(ls, "record")) mode = M_RECORD;
         else if (ls && !strcmp(ls, "replay")) mode = M_REPLAY;
@@ -976,7 +1035,7 @@ int lks_probe(void) {
                 fprintf(stderr, "[netplay] on: %s, room %s in the lobby %s, %s%d frames of delay%s\n", mode == M_HOST ? "host (player 1)" : "join",
                         room_code, net_relay_address() ? net_relay_address() : "?", delay_auto ? "auto from " : "", delay,
                         mode == M_HOST && nplayers > 2 ? ", waiting for more players" : "");
-        } else if (mode == M_HOST || mode == M_JOIN) {
+        } else if ((mode == M_HOST || mode == M_JOIN) && !fake) {
             const char *pt = getenv("SSBU_NETPLAY_PORT"), *pe = getenv("SSBU_NETPLAY_PEER");
             u16 port = pt && *pt ? (u16)atoi(pt) : 7810;
             nplayers = 2;   /* (to an address: two) */
@@ -1088,9 +1147,30 @@ void lks_input_step(void) {
         if (frame % 60 == 0) stalls = 0;
         u64 waited_from = rt_now_ns(), next_send = waited_from + 10000000ull;
         int waited = 0;
+        if (fake) fake_deliver();
+        if (!rb_on && rbt_net_ready()) { rb_on = 1; fprintf(stderr, "[netplay] rollback on from frame %u: the other players' pads that have not come are guessed\n", frame); }
+        if (rb_on) {
+            ring_of[frame % RING] = rbt_net_ring_frame(frame);
+            if (mispredict_from != ~0u) {   /* (a guess was wrong: back to before that frame, the next frame) */
+                u32 g = mispredict_from;
+                if (frame - g >= MAX_GUESS + 1 || !rbt_net_rollback(ring_of[g % RING], g)) {
+                    fprintf(stderr, "[netplay] frame %u: a wrong guess at frame %u cannot be undone any more: the games may part\n", frame, g);
+                    mispredict_from = ~0u;
+                    rbt_net_cancel();
+                }
+            }
+            for (int i = 0; i < nplayers; i++) {   /* (the pads not come yet, guessed: that player's last ones) */
+                if (i == me || have[i] > frame || frame >= have[i] + MAX_GUESS) continue;
+                LksInput guess = have[i] ? in_of[i][(have[i] - 1) % RING] : (LksInput){0};
+                in_of[i][frame % RING] = guess;
+                guessed_with[i][frame % RING] = guess;
+                guessed[i][frame % RING] = 1;
+                guesses++;
+            }
+        }
         for (;;) {
             int ready = 1;
-            for (int i = 0; i < nplayers; i++) if (i != me && have[i] <= frame) ready = 0;
+            for (int i = 0; i < nplayers; i++) if (i != me && have[i] <= frame && !(rb_on && guessed[i][frame % RING])) ready = 0;
             if (ready) break;
             waited = 1;
             poll_net(2);
@@ -1147,6 +1227,7 @@ void lks_sim_end(void) {
     }
     case M_HOST:
     case M_JOIN:
+        if (rb_on) for (int i = 0; i < nplayers; i++) if (i != me && guessed[i][frame % RING]) return;   /* (a frame played on a guess: its hashes when it is played with the real pads) */
         if (frame % HASH_EVERY == 0) {
             int s = (int)(frame / HASH_EVERY % 4);
             u32 n = ncur < MAX_PAGES / 4 ? ncur : MAX_PAGES / 4;
@@ -1191,6 +1272,27 @@ int lks_picture_due(u32 *f) {
     *f = next;
     next += every;
     return 1;
+}
+
+/* (net_rbtest.c) the game was put back to before frame g's input step: the frames from g are played again, with the pads known now */
+void lks_rewind(u32 g) {
+    rollbacks++;
+    rolled_frames += frame - g + 1;
+    frame = g - 1;
+    mispredict_from = ~0u;
+    if (rollbacks <= 20 || rollbacks % 100 == 0)
+        fprintf(stderr, "[netplay] rollback %llu: back to frame %u (guesses %llu, wrong %llu, frames played again %llu)\n", (unsigned long long)rollbacks, g,
+                (unsigned long long)guesses, (unsigned long long)guesses_wrong, (unsigned long long)rolled_frames);
+}
+u32 lks_frame(void) { return frame; }
+int lks_rollback_on(void) {   /* SSBU_NETPLAY_ROLLBACK=1, or the launcher's "Rollback (testing)" (online_netcode.txt), with the VS netplay */
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("SSBU_NETPLAY_ROLLBACK"), *np = getenv("SSBU_NETPLAY");
+        char line[64];
+        on = e && *e ? atoi(e) != 0 : np && *np && settings_line_read("online_netcode.txt", line, sizeof line) && !_strnicmp(line, "rollback", 8);
+    }
+    return on;
 }
 
 u64 lks_ticks(u64 now) {

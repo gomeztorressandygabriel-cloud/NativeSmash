@@ -6,6 +6,11 @@
 
 extern volatile int rbt_state;   /* -1: not asked yet, 0 off, 1 on */
 int rbt_probe(void);
+/* (net_lockstep.c) netplay with rollback: the per-frame saves going; the save the input step comes after; going back to one */
+int rbt_net_ready(void);
+u64 rbt_net_ring_frame(u32 lks_frame);
+int rbt_net_rollback(u64 ring_from, u32 g);
+void rbt_net_cancel(void);
 static inline int rbt_on(void) {
     int s = rbt_state;
     return s > 0 || (s < 0 && rbt_probe());

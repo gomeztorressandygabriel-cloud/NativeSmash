@@ -58,6 +58,11 @@
 
 volatile int rbt_state = -1;
 
+/* SSBU_NETPLAY_ROLLBACK=1 with the VS netplay (net_lockstep.c): the per-frame saves and the natural rollback below, not as a test
+ * with rounds of its own but when netplay asks (rbt_net_rollback: a guess of another player's pads was wrong). The pads, the clock
+ * and the frames are netplay's then; nothing here records or replays them. */
+static int rbt_net(void) { return lks_rollback_on(); }
+
 GuestFn f_7103667300_orig, f_71037246a0_orig;   /* (the game's own input step and simulation: HLE_WRAP below) */
 extern GuestFn f_710375e690_orig, f_71035493e0_orig, f_710354c990_orig;   /* (the main loop's steps after the input step: below) */
 #define tail_fn(which) ((which) == 0 ? f_710375e690_orig : (which) == 1 ? f_71035493e0_orig : f_710354c990_orig)
@@ -156,6 +161,7 @@ int rbt_probe(void) {
     if (!__atomic_exchange_n(&once, 1, __ATOMIC_ACQ_REL)) {
         const char *env = getenv("SSBU_RB_TEST");
         int on = env && *env ? atoi(env) != 0 : 0;
+        if (rbt_net()) on = 1;
         if (!on) {
             FILE *f = fopen("rollback_test.on", "r");
             if (f) { fclose(f); on = 1; }
@@ -233,7 +239,7 @@ static void tlr_copy(u8 *to, int out) {   /* out: from the game into `to`; else 
     else memcpy(P(void, KERNEL_BASE), to, tlr_size);
 }
 static int freeze_on(void) {
-    if (freeze_mode < 0) freeze_mode = getenv("SSBU_RB_FREEZE") && atoi(getenv("SSBU_RB_FREEZE")) != 0;
+    if (freeze_mode < 0) freeze_mode = (getenv("SSBU_RB_FREEZE") && atoi(getenv("SSBU_RB_FREEZE")) != 0) || rbt_net();
     return freeze_mode;
 }
 /* Every other guest thread held (1), within ms; match: at the waits of the save. 0: not in time (nothing held). */
@@ -341,6 +347,7 @@ static volatile int natural_replaying;
 static u64 plan_at;
 static u64 pads_altered;
 void rbt_pad(u64 out, u32 size) {
+    if (rbt_net()) return;   /* (netplay's pads, by frame) */
     if (hook == HOOK_OFF || !on_sim_thread() || size > PAD_BYTES) return;
     RecFrame *f = &rec[cur];
     if (hook == HOOK_RECORD) {
@@ -363,6 +370,7 @@ void rbt_pad(u64 out, u32 size) {
 
 static volatile u64 tick_last, helper_ticks;   /* (the last tick the replaying thread was given; how often the others asked meanwhile) */
 u64 rbt_ticks(u64 now) {
+    if (rbt_net()) return lks_ticks(now);   /* (netplay's clock of frames: the same on every PC, and taken back with a rollback) */
     if (frame_clock_on && on_sim_thread()) return frame_clock_t0 + ring_frame_no * 320000ull + 16 * ++frame_clock_reads;
     if (hook == HOOK_OFF) return now;
     if (!on_sim_thread()) {   /* (freeze mode, replaying: the helpers see the replayed clock, not the real one) */
@@ -419,6 +427,7 @@ static u32 rnd_cursor;
 static u64 rnd_replayed, rnd_missing, rnd_recorded;
 static SRWLOCK rnd_lock = SRWLOCK_INIT;
 int rbt_random(u8 *out, u64 n) {
+    if (rbt_net()) return 0;
     if (hook == HOOK_OFF) return 0;
     AcquireSRWLockExclusive(&rnd_lock);
     RecFrame *f = &rec[cur];
@@ -1100,6 +1109,9 @@ static u64 plan_from, plan_at;
 static int ring_natural;
 static u64 natural_until, natural_t0;
 static int natural_started;
+static u32 net_rewind_to;                  /* (netplay) the frame netplay goes back to, with the save's */
+static u64 lks_after_ring[RING_MAX];       /* (netplay) per save: its frame number + 1, and the netplay frame whose input step follows it */
+static u32 lks_after_frame[RING_MAX];
 static u64 natural_from_no, natural_off_path;        /* (the next rollback: back to frame plan_from's save at frame plan_at; 0: none planned) */
 static u64 plan_expect[MAX_HOT];      /* (that save's pages' hashes when it was taken) */
 static u32 plan_n, plan_fib_n;
@@ -1108,11 +1120,12 @@ static u64 plan_fib[3 * 16384];          /* the game's, replay 1's, 2's and 3's 
 static int every_on(void) {
     if (every_mode < 0) {
         const char *e = getenv("SSBU_RB_EVERY"), *r = getenv("SSBU_RB_RING"), *g = getenv("SSBU_RB_GAP"), *k = getenv("SSBU_RB_CONTINUE");
-        every_mode = e && atoi(e) != 0 && freeze_on();
+        every_mode = (e && atoi(e) != 0 && freeze_on()) || rbt_net();
+        if (rbt_net()) ring_n = 12;   /* (netplay: room for the pads' trip and a frame or two more) */
         if (r && *r) { ring_n = atoi(r); if (ring_n < 2) ring_n = 2; if (ring_n > RING_MAX) ring_n = RING_MAX; }
         if (g && *g) ring_gap_ns = (u64)(atof(g) * 1e9);
         ring_continue = k && atoi(k) != 0;
-        ring_natural = getenv("SSBU_RB_NATURAL") && atoi(getenv("SSBU_RB_NATURAL")) != 0;
+        ring_natural = (getenv("SSBU_RB_NATURAL") && atoi(getenv("SSBU_RB_NATURAL")) != 0) || rbt_net();
     }
     return every_mode;
 }
@@ -1267,7 +1280,7 @@ static int ring_begin(void) {
     const char *idle = getenv("SSBU_RB_IDLE");
     if (idle && *idle) { ring_idle = (u32)atoi(idle); if (ring_idle < 2) ring_idle = 2; }
     ring_on = 1;
-    if (ring_natural) { frame_clock_t0 = rt_clock_ns() * 12 / 625; frame_clock_reads = 0; frame_clock_on = 1; }
+    if (ring_natural && !rbt_net()) { frame_clock_t0 = rt_clock_ns() * 12 / 625; frame_clock_reads = 0; frame_clock_on = 1; }
     cow_begin();   /* (nothing saved yet: everything read-only) */
     if (frozen) kernel_thaw();
     ring_region_sig = 0;
@@ -1537,9 +1550,13 @@ static void ring_rollback(Cpu *c) {
         u64 best = ~0ull;
         for (u64 k = ring_frame_no > (u64)ring_n - 1 ? ring_frame_no - (u64)ring_n + 1 : 0; k < ring_frame_no; k++)
             if (ring_frame_of[k % (u64)ring_n] == k + 1 && natural_same(&rec[k % (u64)ring_n].sim_cpu, c, 0) &&
+                (!rbt_net() || (k <= plan_from && lks_after_ring[k % (u64)ring_n] == k + 1)) &&
                 (best == ~0ull || (k > plan_from ? k - plan_from : plan_from - k) < (best > plan_from ? best - plan_from : plan_from - best)))
                 best = k;
-        if (best != ~0ull && best != plan_from) { plan_from = best; plan_n = 0; plan_fib_n = 0; }
+        if (best != ~0ull && best != plan_from) {
+            plan_from = best; plan_n = 0; plan_fib_n = 0;
+            if (rbt_net()) net_rewind_to = lks_after_frame[best % (u64)ring_n];
+        }
     }
     u64 now = ring_frame_no, from = plan_from;
     u32 d = (u32)(now - from);
@@ -1586,7 +1603,7 @@ static void ring_rollback(Cpu *c) {
                     round_i + 1, d, (unsigned long long)busy);
             tries = 0;
             plan_at = 0;
-            ring_round_done();
+            if (!rbt_net()) ring_round_done();
             return;
         }
         kernel_thaw();
@@ -1638,6 +1655,7 @@ static void ring_rollback(Cpu *c) {
         natural_t0 = rt_now_ns();
         natural_started = 1;
         ring_frame_no = from;
+        if (rbt_net()) lks_rewind(net_rewind_to);
         pad_replayed = pad_missing = tick_replayed = tick_missing = rnd_replayed = rnd_missing = 0;
         hook = HOOK_PLAY;
         start_frame((u32)s_from);
@@ -1745,14 +1763,36 @@ static void ring_rollback(Cpu *c) {
     ring_round_done();
 }
 
+/* ---- netplay's side (net_lockstep.c) ---- */
+int rbt_net_ready(void) { return rbt_net() && phase == RING && ring_saves > (u64)ring_n; }
+u64 rbt_net_ring_frame(u32 lks_frame) {   /* (each input step) the save it comes after - noted with the netplay frame for going back */
+    int s = (int)(ring_frame_no % (u64)ring_n);
+    if (lks_after_ring[s] != ring_frame_no + 1) { lks_after_ring[s] = ring_frame_no + 1; lks_after_frame[s] = lks_frame; }
+    return ring_frame_no;
+}
+/* Back to save ring_from - netplay frame g's - at the next frame's start; 0: not possible (gone from the ring, or not taken with every
+ * thread held); 1: done or under way (a rollback replaying, or one waiting: asked again next frame until it is done) */
+int rbt_net_rollback(u64 ring_from, u32 g) {
+    if (phase != RING || natural_until || plan_at) return 1;
+    if (ring_frame_no - ring_from > (u64)ring_n - 2 || ring_frame_of[ring_from % (u64)ring_n] != ring_from + 1) return 0;
+    plan_from = ring_from;
+    plan_at = ring_frame_no + 1;
+    plan_n = plan_fib_n = 0;
+    net_rewind_to = g;
+    return 1;
+}
+void rbt_net_cancel(void) { if (!natural_until) plan_at = 0; }
+
 static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the main thread) */
     ring_last_sim_ns = rt_now_ns();
     frame_clock_reads = 0;
     if (phase == IDLE) {
-        if (rt_now_ns() < next_round_ns) return;
+        static u32 net_from = ~0u;
+        if (net_from == ~0u) net_from = getenv("SSBU_NETPLAY_ROLLBACK_FROM") ? (u32)atoi(getenv("SSBU_NETPLAY_ROLLBACK_FROM")) : 600;
+        if (rbt_net() ? !lks_on() || lks_frame() < net_from : rt_now_ns() < next_round_ns) return;
         if (!ring_begin()) { fprintf(stderr, "[rbtest] saving every frame: out of memory: off\n"); phase = DONE; return; }
         phase = RING;
-        next_round_ns = rt_now_ns() + ring_gap_ns;
+        next_round_ns = rbt_net() ? ~0ull : rt_now_ns() + ring_gap_ns;
     }
     if (phase != RING) return;
     if (natural_until) {   /* the main loop playing a rollback's frames again */
@@ -1775,7 +1815,7 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
         natural_replaying = 0;
         ring_busy_since = 0;
         ring_rollbacks_done = 1;
-        ring_round_done();
+        if (!rbt_net()) ring_round_done();
         if (phase != RING) return;   /* (the last round: copy on write is over, no save more) */
     }
     if (!plan_at && rt_now_ns() >= next_round_ns) {   /* the next rollback: back to this frame's save, d frames from now */
@@ -2008,7 +2048,7 @@ HLE_WRAP(710354c990) { tail_call(c, 2); }
 /* The game reads the pads (7103667300, called by the main loop once a frame). */
 /* signature: fc1a0fe8 a90167fa a9025ff8 a90357f6 a9044ff4 a9057bfd 910143fd .0.....8 91....08 08dffd08 360....8 .0.....8 39....08 34.....8 .0.....8 b9....08 */
 HLE_WRAP(7103667300) {
-    if (lks_on() && !rbt_on()) lks_input_step();   /* (netplay: the frame's pads) */
+    if (lks_on() && (!rbt_on() || rbt_net())) lks_input_step();   /* (netplay: the frame's pads) */
     if (rbt_on() && phase == RECORD && hook == HOOK_RECORD && on_sim_thread() && rec_next <= n_frames) {
         start_frame(rec_next);
         rec[rec_next].input_cpu = *c;
@@ -2034,6 +2074,13 @@ HLE_WRAP(71037246a0) {
     if (!rbt_on() || phase == DONE || depth) { f_71037246a0_orig(c); return; }
     depth++;
     frame(c);
+    if (rbt_net() && lks_on()) {   /* (netplay with rollback: its check of what the frame writes, around the simulation) */
+        lks_sim_begin();
+        f_71037246a0_orig(c);
+        lks_sim_end();
+        depth--;
+        return;
+    }
     int recording = phase == RECORD && hook == HOOK_RECORD && on_sim_thread();
     if (recording) watch_now(&sim_seen, NULL);       /* (what the simulation writes: from here...) */
     f_71037246a0_orig(c);

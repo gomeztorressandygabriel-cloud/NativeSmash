@@ -61,6 +61,10 @@ extern u64 gpu_stat_draws;
  * turns it off. */
 static volatile LONG lag_streak;           /* refreshes in a row that waited for the card (the vsync thread) */
 static int skip_now;                       /* the frame being submitted now has its draws left out */
+/* (the rollback, net_rbtest.c) the main loop is playing frames again: they are not drawn (their draws and clears left out, as a
+ * skipped frame's) nor shown, and nothing waits for the screen - the buffer is free again and the refresh signalled the moment the
+ * frame is queued - so a rollback of a few frames costs their simulation only. */
+volatile int vi_silent;
 static u64 skipped_frames, queued_frames;
 void present_skip_stats(u64 *skipped, u64 *queued) { *skipped = skipped_frames; *queued = queued_frames; }
 static volatile LONGLONG interval_sum_us, interval_max_us;   /* (the monitor reads and clears them each second) */
@@ -323,7 +327,17 @@ static void transact(u32 code, In *in, Out *out, Cpu *c) {
                 lat_frame_queued(pending);
             }
             if (rbp_on()) rbp_frame_queued();
-            queue.slots[slot].skipped = skip_now;   /* (the draws submitted for this frame were left out, if the skip was on) */
+            queue.slots[slot].skipped = skip_now || vi_silent;   /* (the draws submitted for this frame were left out, if the skip was on) */
+            if (vi_silent) {   /* (a frame played again: not shown, and not waited for) */
+                queue.slots[slot].state = FREE;
+                gpu_set_skip(1);
+                kernel_signal_event(queue.buffer_event);
+                kernel_signal_event(queue.vsync_event);
+                WakeAllConditionVariable(&queue.freed);
+                queue_output(out);
+                w32(out, 0);
+                break;
+            }
             queued_frames++;
             if (skip_now) skipped_frames++;
             static int allowed = -1;

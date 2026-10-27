@@ -1344,10 +1344,8 @@ static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main 
         kernel_thaw();
     }
     else ring_unheld++;
-    if (!replaying) {
-        memset(&rec[s], 0, sizeof rec[s]);
-        rec[s].sim_cpu = *c;
-    }
+    if (!replaying) memset(&rec[s], 0, sizeof rec[s]);
+    rec[s].sim_cpu = *c;   /* (replaying too: the main loop's registers in this play of the frame - a rollback back to it gives it these) */
     start_frame((u32)s);
     hook = replaying ? HOOK_PLAY : HOOK_RECORD;
     u64 took = rt_now_ns() - t0;
@@ -1651,6 +1649,7 @@ static void ring_rollback(Cpu *c) {
         *c = *then;
         natural_until = now;
         natural_replaying = 1;
+        if (!getenv("SSBU_RB_DRAW_REPLAY")) { vi_silent = 1; gpu_set_skip(1); }   /* (the frames played again: not drawn) */
         natural_from_no = from;
         natural_t0 = rt_now_ns();
         natural_started = 1;
@@ -1766,8 +1765,13 @@ static void ring_rollback(Cpu *c) {
 /* ---- netplay's side (net_lockstep.c) ---- */
 int rbt_net_ready(void) { return rbt_net() && phase == RING && ring_saves > (u64)ring_n; }
 u64 rbt_net_ring_frame(u32 lks_frame) {   /* (each input step) the save it comes after - noted with the netplay frame for going back */
+    static u64 noted_for = ~0ull;
     int s = (int)(ring_frame_no % (u64)ring_n);
-    if (lks_after_ring[s] != ring_frame_no + 1) { lks_after_ring[s] = ring_frame_no + 1; lks_after_frame[s] = lks_frame; }
+    if (noted_for != ring_frame_no || lks_after_ring[s] != ring_frame_no + 1) {   /* (the first input step after this save, in this play) */
+        noted_for = ring_frame_no;
+        lks_after_ring[s] = ring_frame_no + 1;
+        lks_after_frame[s] = lks_frame;
+    }
     return ring_frame_no;
 }
 /* Back to save ring_from - netplay frame g's - at the next frame's start; 0: not possible (gone from the ring, or not taken with every
@@ -1806,13 +1810,25 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
             natural_off_path++;
             natural_until = ring_frame_no;
         }
-        if (ring_frame_no < natural_until) { ring_save(c, 1); return; }
+        if (ring_frame_no < natural_until) {
+            /* (netplay: a frame whose every pad is known for good is never gone back to - no save, and the replay is quicker) */
+            if (rbt_net() && lks_frame() + 1 < lks_confirmed()) {
+                ring_frame_of[ring_frame_no % (u64)ring_n] = 0;
+                rec[ring_frame_no % (u64)ring_n].sim_cpu = *c;
+                start_frame((u32)(ring_frame_no % (u64)ring_n));
+                hook = HOOK_PLAY;
+                return;
+            }
+            ring_save(c, 1);
+            return;
+        }
         fprintf(stderr, "[rbtest] rollback %u: back at frame %llu, live again; the frames played again in %.1f ms; pads replayed %llu (missing %llu), ticks %llu (missing %llu), random bytes %llu (missing %llu)\n",
                 round_i + 1, (unsigned long long)ring_frame_no, (rt_now_ns() - natural_t0) / 1e6, (unsigned long long)pad_replayed, (unsigned long long)pad_missing,
                 (unsigned long long)tick_replayed, (unsigned long long)tick_missing, (unsigned long long)rnd_replayed, (unsigned long long)rnd_missing);
         fflush(stderr);
         natural_until = 0;
         natural_replaying = 0;
+        if (vi_silent) { vi_silent = 0; gpu_set_skip(0); }   /* (this frame, live: drawn) */
         ring_busy_since = 0;
         ring_rollbacks_done = 1;
         if (!rbt_net()) ring_round_done();

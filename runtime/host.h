@@ -87,6 +87,8 @@ void kernel_hold_undo(void);   /* (frozen, the memory put back to when they were
 u32 kernel_keys(u64 *keys, u32 max);
 void vi_queue_save(int *out);              /* (ipc_vi.c, the rewind test) the display queue's 64 slots' states */
 void vi_queue_restore(const int *in);
+extern volatile int vi_silent;            /* (ipc_vi.c) frames a rollback plays again: not drawn, shown nor waited for */
+void gpu_set_skip(int on);
 int kernel_regs(u64 id, u64 *out);   /* (the rewind test, frozen) a guest thread's x0-x30 and sp now */   /* (frozen) every other guest thread's place, as kernel_freeze's keys */
 u32 kernel_held_woken(u64 *last_id);
 void kernel_activity(u32 out[4]);   /* (the rewind test) service requests, handles made and closed, memory unmapped since the last call */

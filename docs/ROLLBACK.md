@@ -601,6 +601,26 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, noche (7): repetición silenciosa y dos arreglos
+
+- **Rejugar sin dibujar:** mientras el bucle rejuega los cuadros de un rollback (`vi_silent` en `ipc_vi.c`):
+  - sus dibujos y borrados se saltan, como en un cuadro que el salto de cuadros deja fuera; la subida de datos y las sincronizaciones
+    de la GPU sí se hacen;
+  - el búfer queda libre en cuanto el juego entrega la imagen;
+  - el refresco de pantalla se avisa al momento, y nada espera a la pantalla.
+  `SSBU_RB_DRAW_REPLAY=1` vuelve a dibujarlos.
+- **Arreglo:** los guardados hechos *mientras se rejuega* guardaban los registros del bucle de la jugada anterior a la corrección. Un
+  rollback poco después de otro volvía a uno de ellos con registros viejos y el juego se caía (`main+0x37ae210`). Ahora cada guardado
+  apunta los registros de esa jugada.
+- **Menos guardados al rejugar:** en red, un cuadro cuyos botones ya se conocen todos de verdad nunca se rebobina; no se guarda.
+
+**Resultado con el rival simulado** (`net5`): 110 correcciones sin caídas, el juego a ~37 cuadros por segundo (antes 10–25). Cada
+corrección de 7–10 cuadros cuesta 100–170 ms: aun sin dibujar, el juego prepara cada cuadro (escena, efectos, listas de dibujo) y
+en este portátil eso son ~10–15 ms por cuadro rejugado.
+
+En `net4` se colgó pronto, otra vez en la cola de imágenes (el juego espera en el camino de presentar; huecos 0 libre, 1 mostrado,
+2 del juego). Es el mismo cuelgue raro de antes; falta entender qué espera el juego de la cola tras rebobinar.
+
 ### 2026-10-27, noche (6): **rollback en el VS en red** (`SSBU_NETPLAY_ROLLBACK=1`, o "Rollback (en pruebas)" en el launcher)
 
 El VS en red (`net_lockstep.c`) ya mandaba los botones por cuadro, tenía un reloj de cuadros común y comprobaba que los juegos no

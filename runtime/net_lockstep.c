@@ -1285,6 +1285,11 @@ void lks_rewind(u32 g) {
                 (unsigned long long)guesses, (unsigned long long)guesses_wrong, (unsigned long long)rolled_frames);
 }
 u32 lks_frame(void) { return frame; }
+u32 lks_confirmed(void) {   /* the frames whose pads from every player are known for good: 0 .. this - 1 */
+    u32 c = ~0u;
+    for (int i = 0; i < nplayers; i++) if (i != me && have[i] < c) c = have[i];
+    return c;
+}
 int lks_rollback_on(void) {   /* SSBU_NETPLAY_ROLLBACK=1, or the launcher's "Rollback (testing)" (online_netcode.txt), with the VS netplay */
     static int on = -1;
     if (on < 0) {

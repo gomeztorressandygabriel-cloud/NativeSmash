@@ -22,6 +22,7 @@ int lks_style(u32 id, u32 *style);                  /* (hle_hid.c) whether playe
 u64 lks_ticks(u64 now);
 int lks_rollback_on(void);       /* SSBU_NETPLAY_ROLLBACK=1: pads not come yet guessed, and a wrong guess undone (net_rbtest.c's saves) */
 u32 lks_frame(void);             /* (net_rbtest.c) the frame now */
+u32 lks_confirmed(void);         /* (net_rbtest.c) frames 0 .. this - 1 have every player's real pads */
 void lks_rewind(u32 g);          /* (net_rbtest.c) the game was put back to before frame g's input step */          /* (kernel.c) the system tick the game's main thread reads */
 int lks_picture_due(u32 *frame); /* (gpu_d3d11.c) a picture of the frame now, for comparing two runs: SSBU_LOCKSTEP_PICTURES frames apart */
 

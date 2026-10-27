@@ -64,6 +64,10 @@ $Words = @{
     lobPublic = @('Pública', 'Public'); lobPrivate = @('Privada (código)', 'Private (code)'); lobCustom = @('Tu servidor', 'Your server'); lobOff = @('Sin conexión', 'Offline')
     code = @('Código de la sala', 'Lobby code'); server = @('Servidor (host:puerto)', 'Server (host:port)')
     directConn = @('Conexiones directas', 'Direct connections')
+    netcodeLabel = @('Modo de red (Local Wireless)', 'Netcode (Local Wireless)')
+    netcodeNormal = @('Normal', 'Normal')
+    netcodeRollback = @('Rollback (en pruebas)', 'Rollback (testing)')
+    netcodeHelp = @('Normal: el online de siempre, con el retraso de arriba. Rollback: en desarrollo, todavía hace lo mismo que Normal. Todos en la sala deben elegir el mismo.', 'Normal: the usual online, with the delay above. Rollback: in development, for now it does the same as Normal. Everyone in the room must pick the same.')
     delayLabel = @('Retraso de entrada en línea, en cuadros (menos es más rápido; si es muy poco, se traba)', 'Online input delay, in frames (lower is quicker; too low and it stutters)')
     delayAuto = @('Auto (el del juego)', 'Auto (the game''s)')
     delayHelp = @('Cuántos cuadros guarda el juego antes de aplicar tu botón, para esperar al otro jugador. Menos es más rápido, pero si es muy poco para la conexión el juego se traba esperando. Con una buena conexión directa, prueba 2 o 3.', 'How many frames the game holds your button before applying it, to wait for the other player. Lower is quicker, but if it is too low for the connection the game stutters waiting. On a good direct connection, try 2 or 3.')
@@ -163,6 +167,7 @@ $launcherIni = Join-Path $Root 'launcher.ini'
 $serverFile = Join-Path $Root 'online_server.txt'
 $nameFile = Join-Path $Root 'online_name.txt'
 $directFile = Join-Path $Root 'online_direct.txt'
+$netcodeFile = Join-Path $Root 'online_netcode.txt'
 $delayFile = Join-Path $Root 'online_delay.txt'
 $vsFile = Join-Path $Root 'vs_netplay.txt'   # the VS netplay (docs\NETPLAY.md): off | host <delay> | join <address> <delay>
 
@@ -414,6 +419,9 @@ $xaml = @'
             <TextBlock x:Name="DirectHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
             <TextBlock x:Name="DelayLabel" Style="{StaticResource Label}" Margin="0,26,0,8"/>
             <WrapPanel x:Name="DelayChips" MaxWidth="660" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="NetcodeLabel" Style="{StaticResource Label}" Margin="0,26,0,8"/>
+            <WrapPanel x:Name="NetcodeChips"/>
+            <TextBlock x:Name="NetcodeHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
             <TextBlock x:Name="VsTitle" Style="{StaticResource Label}" Margin="0,30,0,8" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="SemiBold"/>
             <WrapPanel x:Name="VsChips"/>
             <TextBlock x:Name="VsMine" Style="{StaticResource Label}" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="SemiBold" MaxWidth="560" HorizontalAlignment="Left"/>
@@ -565,7 +573,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('NetcodeLabel', 'netcodeLabel'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -648,6 +656,8 @@ $delayItems = @(@{ Value = 'auto'; Text = (T 'delayAuto') }); foreach ($n in 0..
 if ($delayNow -notin ($delayItems | ForEach-Object { $_.Value })) { $delayItems += @{ Value = $delayNow; Text = $delayNow } }
 New-Chips (Find 'DelayChips') $delayItems $delayNow
 (Find 'DelayChips').ToolTip = (T 'delayHelp')
+$netcodeNow = if (([string](Get-LineValue $netcodeFile)).Trim() -match '^(?i)rollback') { 'rollback' } else { 'normal' }
+New-Chips (Find 'NetcodeChips') @(@{ Value = 'normal'; Text = (T 'netcodeNormal') }, @{ Value = 'rollback'; Text = (T 'netcodeRollback') }) $netcodeNow
 
 # ---- the VS netplay (vs_netplay.txt; the game gets it as SSBU_NETPLAY* variables when Play starts it) ----
 $vsWords = @(([string](Get-LineValue $vsFile)).Trim() -split '\s+' | Where-Object { $_ })
@@ -851,6 +861,7 @@ function Get-WindowValues {
         "$nameFile|" = (Find 'NameBox').Text.Trim()
         "$directFile|" = if ((Find 'DirectConn').IsChecked) { 'on' } else { 'off' }
         "$delayFile|" = Get-Chip (Find 'DelayChips')
+        "$netcodeFile|" = Get-Chip (Find 'NetcodeChips')
         "$vsFile|" = switch (Get-Chip (Find 'VsChips')) {
             'host' { "host $(Get-Chip (Find 'VsDelayChips')) $script:vsCode $(Get-Chip (Find 'VsPlayersChips'))" }
             'join' { "join $(((Find 'VsPeerBox').Text -replace '\s', '')) $(Get-Chip (Find 'VsDelayChips'))" }

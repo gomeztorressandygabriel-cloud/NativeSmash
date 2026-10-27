@@ -34,6 +34,7 @@ int net_configured(void);            /* netplay asked for (host or join) */
 /* The game's online input delay, in frames, that the player picked (hle_net.c: the wrapper of the game's own calculation; the settings
  * menu and online_delay.txt set it): -1 leaves the game's own number, else 1..25. */
 int net_input_delay(void);
+int net_rollback(void);               /* online_netcode.txt: rollback (in development) */
 void net_input_delay_set(int frames);
 int net_log(void);                   /* SSBU_NET_LOG */
 u32 net_local_ip(void);              /* this player's virtual address (host order), 0 until the relay gives one */

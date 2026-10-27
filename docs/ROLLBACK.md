@@ -601,6 +601,28 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-26: ¿vive el combate en zonas de memoria propias? No
+
+Prueba: un combate automático contra la CPU (ventana de 256x144, `SSBU_RB_TEST=1`), con dos sondas nuevas en `net_rbtest.c`:
+
+- **Los allocators de Nintendo** (`nn::mem::StandardAllocator::Initialize`, envuelto en `sdk+0x2e7600`): el juego crea **uno solo, de 1 MB**
+  (desde `main+0x36f83a4`). Ninguna de las ~5 700 páginas que escribe un cuadro de combate cae dentro. El juego reparte su memoria con
+  un allocator propio, dentro de `main`, sobre la memoria que pide al sistema.
+- **El censo por zonas de 1 MB** (quién escribe cada página en 10 cuadros): de 547 páginas que solo escribe la simulación, **442 están
+  en zonas de 1 MB donde también escriben hilos que van a su ritmo** (sonido, efectos, sistema). Solo 105 viven en zonas limpias.
+  Los objetos del combate están intercalados con los de otras cosas.
+
+**Conclusión:** guardar "las zonas del combate" no funciona tal cual: no hay zonas del combate. Quedan dos caminos:
+
+1. **Parar todos los hilos del juego y rebobinar todo junto** (como un emulador): exige guardar también el estado de cada hilo (su pila
+   del host y sus registros), como ya se hace con las fibras. Es la idea 2 de la lista; nada la descarta todavía.
+2. **Localizar los objetos del combate uno por uno** (luchadores, artículos, escenario, generador aleatorio) por sus estructuras:
+   lento, pero no depende de los hilos.
+
+Además, en las tres rondas las dos repeticiones del mismo cuadro **siguieron difiriendo en 30–70 páginas**, con números de coma flotante
+(posiciones) distintos: los hilos 3 y 4 (los trabajadores de tareas del juego) hacen trabajo del combate y también de otras cosas, y al
+dejar sus páginas fuera, parte del combate no se rebobina. Cualquier rollback tiene que incluirlos.
+
 ### La prueba de "rebobinar" (`runtime/net_rbtest.c`, fase 3)
 
 Apagada salvo con `SSBU_RB_TEST=1` (o un archivo `rollback_test.on`). Engancha las dos funciones del bucle principal con `HLE_WRAP`

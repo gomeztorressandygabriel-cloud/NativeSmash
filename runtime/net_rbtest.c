@@ -59,6 +59,30 @@ volatile int rbt_state = -1;
 
 GuestFn f_7103667300_orig, f_71037246a0_orig;   /* (the game's own input step and simulation: HLE_WRAP below) */
 
+/* ---- the game's allocators (rollback's next method: save the combat's memory, not pages by thread) ----
+ * The game takes its memory through nn::mem::StandardAllocator, each one over a region of its own. Every one the
+ * game makes is noted here (and in the log while the test is on); the census then says, per region, how many of
+ * its pages only the simulation wrote and how many another thread wrote too. A region the simulation alone writes
+ * can be saved and put back whole. */
+#define MAX_ALLOCS 128
+static struct { u64 self, base, size, caller; } allocs[MAX_ALLOCS];
+static volatile LONG nallocs;
+/* (the sdk's nn::mem::StandardAllocator::Initialize(void *, size_t, bool); the two-argument one ends in it) */
+/* signature: f81d0ff5 a9014ff4 a9027bfd 910083fd 39400009 35.....9 8b020029 913ffc2a aa0103e8 9274cd41 9274cd29 2a0303f4 aa0203f5 aa0003f3 eb010122 b4.....8 */
+HLE_WRAP(71092e7600) {
+    u64 self = c->x[0], base = c->x[1], size = c->x[2], caller = c->x[30];
+    f_71092e7600_orig(c);
+    LONG i = InterlockedIncrement(&nallocs) - 1;
+    if (i < MAX_ALLOCS) { allocs[i].self = self; allocs[i].base = base; allocs[i].size = size; allocs[i].caller = caller; }
+    if (rbt_on()) fprintf(stderr, "[rbtest] allocator %ld: %#llx, %#llx-%#llx (%.1f MB), made from main+%#llx\n", (long)i, (unsigned long long)self,
+                          (unsigned long long)base, (unsigned long long)(base + size), size / 1048576.0, (unsigned long long)(caller - 0x7100000000ull));
+}
+static int alloc_of(u64 page) {
+    LONG n = nallocs < MAX_ALLOCS ? nallocs : MAX_ALLOCS;
+    for (LONG i = 0; i < n; i++) if (page >= allocs[i].base && page < allocs[i].base + allocs[i].size) return (int)i;
+    return -1;
+}
+
 #ifdef __APPLE__   /* (no Direct3D renderer there to share the alias area's watch with) */
 static long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, void (*each)(u64 page, void *user), void *user) {
     (void)base; (void)size; (void)n; (void)seen; (void)each; (void)user;
@@ -520,6 +544,44 @@ static void census_end(void) {
         }
     }
     nshared += mixed;
+    {   /* per allocator: pages written, and how many of them a thread of its own pace wrote too */
+        static u32 pages_in[MAX_ALLOCS + 1], pages_foreign[MAX_ALLOCS + 1], pages_sim[MAX_ALLOCS + 1];
+        memset(pages_in, 0, sizeof pages_in); memset(pages_foreign, 0, sizeof pages_foreign); memset(pages_sim, 0, sizeof pages_sim);
+        for (u32 i = 0; i < ncensus; i++) {
+            int a = alloc_of(census_page[i]);
+            int k = a < 0 ? MAX_ALLOCS : a;
+            u64 all = census_in[i] | census_out[i];
+            pages_in[k]++;
+            if (all & foreign_threads) pages_foreign[k]++;
+            if (census_in[i] && !(all & foreign_threads)) pages_sim[k]++;
+        }
+        LONG n = nallocs < MAX_ALLOCS ? nallocs : MAX_ALLOCS;
+        for (LONG a = 0; a <= n; a++) {
+            int k = a == n ? MAX_ALLOCS : (int)a;
+            if (!pages_in[k]) continue;
+            if (k == MAX_ALLOCS) fprintf(stderr, "[rbtest] census by allocator: outside every allocator: %u pages written, %u by the simulation only, %u by a thread of its own pace\n",
+                                         pages_in[k], pages_sim[k], pages_foreign[k]);
+            else fprintf(stderr, "[rbtest] census by allocator: %d (%#llx-%#llx, %.1f MB, from main+%#llx): %u pages written, %u by the simulation only, %u by a thread of its own pace\n",
+                         k, (unsigned long long)allocs[k].base, (unsigned long long)(allocs[k].base + allocs[k].size), allocs[k].size / 1048576.0,
+                         (unsigned long long)(allocs[k].caller - 0x7100000000ull), pages_in[k], pages_sim[k], pages_foreign[k]);
+        }
+    }
+    {   /* by 1 MB region of the address space: whether the combat's pages sit in regions of their own */
+        u32 i = 0, shown = 0, clean = 0, foreign_only = 0, both = 0;
+        while (i < ncensus) {
+            u64 mb = census_page[i] >> 20;
+            u32 sim = 0, own = 0, n = 0;
+            for (; i < ncensus && census_page[i] >> 20 == mb; i++) {
+                u64 all = census_in[i] | census_out[i];
+                n++;
+                if (all & foreign_threads) own++; else if (census_in[i]) sim++;
+            }
+            if (sim && !own) clean++; else if (own && !sim) foreign_only++; else if (sim && own) both++;
+            if (n >= 4 && shown++ < 200)
+                fprintf(stderr, "[rbtest] census by MB: %#llx: %u pages, %u by the simulation only, %u by a thread of its own pace\n", (unsigned long long)(mb << 20), n, sim, own);
+        }
+        fprintf(stderr, "[rbtest] census by MB: regions with simulation pages only %u, with own-pace pages only %u, with both %u\n", clean, foreign_only, both);
+    }
     fprintf(stderr, "[rbtest] census (%u frames, %u pages): the main thread wrote %u pages while the simulation ran, %u outside it; pages left out: %u, %u of them written by the main thread or a helper too\n",
             CENSUS_FRAMES, ncensus, main_in, main_out, nforeign - before, mixed);
 }

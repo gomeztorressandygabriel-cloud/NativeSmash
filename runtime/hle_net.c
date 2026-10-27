@@ -118,6 +118,17 @@ int net_input_delay(void) {
     }
     return input_delay_want;
 }
+/* online_netcode.txt (the launcher's Netcode choice): "rollback" asks for the rollback netcode in Local Wireless (in
+ * development: for now it only says so in the log); anything else, the game's own, with the input delay above. */
+int net_rollback(void) {
+    static int on = -1;
+    if (on < 0) {
+        char line[32];
+        on = settings_line_read("online_netcode.txt", line, sizeof line) && !_strnicmp(line, "rollback", 8);
+        if (on) fprintf(stderr, "[net] netcode: rollback asked for (online_netcode.txt); not ready yet, so the game's own for now\n");
+    }
+    return on;
+}
 void net_input_delay_set(int frames) { input_delay_want = frames < 0 ? -1 : frames > 25 ? 25 : frames; }
 /* signature: fc1d0fe8 a9014ff4 a9027bfd 910083fd b9403008 4ea01c08 aa0003f3 7100091f 54.....1 .0.....8 f9....08 f9....08 f9....00 5284e261 9....... 1e220000 */
 HLE_WRAP(71016ccae0) {
@@ -125,6 +136,7 @@ HLE_WRAP(71016ccae0) {
     f_71016ccae0_orig(c);
     if (!net_configured()) return;
     int want = net_input_delay();
+    (void)net_rollback();   /* (says in the log when it is asked for) */
     u32 game = ld8(self + 0x41);
     if (want >= 0) st8(self + 0x41, (u8)want);
     fprintf(stderr, "[net] input delay: the game chose %u frames, %s\n", game, want >= 0 ? "using the number in online_delay.txt (3 without it)" : "keeping it (online_delay.txt: auto)");

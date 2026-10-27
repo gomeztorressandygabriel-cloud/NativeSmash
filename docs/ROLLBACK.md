@@ -601,6 +601,22 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, noche (3): seguir jugando desde la repetición (`SSBU_RB_CONTINUE=1`)
+
+Como haría un rollback de verdad: después de rebobinar, el juego sigue desde el estado de la repetición 3, no desde su propio
+guardado.
+
+- `every53`/`every54` (sin `main+0x375e690` en la repetición): el juego siguió después de 4 y de 3 vueltas atrás. La 54 se cayó
+  **durante** la cuarta, en una tarea de luchador.
+- `every55`/`every56` (`SSBU_RB_TAIL=7`, con `main+0x375e690`): la 55 siguió después de 4 vueltas atrás. La 56 se cayó justo al seguir
+  después de la tercera (puntero nulo).
+- La repetición y el juego en vivo siguen difiriendo en ~700–1 400 páginas. Es lo que hace el resto del bucle principal (el dibujo y
+  las llamadas indirectas que la repetición no hace). Seguir desde la repetición necesita lo que de eso lea la simulación.
+- **Lo siguiente:** averiguar qué de esas páginas lee la simulación del cuadro siguiente, y si hace falta repetir también la
+  preparación del dibujo (sin presentar la imagen).
+- Las vueltas atrás 4 y 5 tardan mucho en llegar (miles de cuadros) porque los hilos no están en el mismo sitio que en el guardado;
+  hay que mirarlo.
+
 ### 2026-10-27, noche (2): la caída era la repetición incompleta
 
 - **Volver a un guardado anterior**, comprobado. La vuelta atrás se planea con antelación: al guardar el cuadro al que se va a volver

@@ -628,6 +628,23 @@ idéntica.
 algo que no está en la memoria del juego cambia durante la primera. Sospechosos: las 6 fibras que corren en el momento del guardado
 (no se guardan), estado del runtime (servicios emulados) o valores que el hilo gráfico del PC escribe en la memoria del juego.
 
+#### Las últimas diferencias, y el siguiente obstáculo: las fibras que nacen dentro de la ventana
+
+- **Una tercera repetición** separa las diferencias que quedan en tres tipos: un generador aleatorio que saca **un número de más** en
+  una repetición sí y en otra no (la 1.ª y la 3.ª coinciden), algo que **se inicializa una vez** durante la 1.ª repetición (la 2.ª y la
+  3.ª coinciden), y unas pocas páginas distintas en cada repetición.
+- **No es la función del azar del combate:** envuelta (`main+0x366f660`), las tres repeticiones la llaman las mismas veces, desde los
+  mismos sitios y en el mismo orden. Tampoco el reloj de los ayudantes (no lo leen al repetir) ni el azar del sistema (no se pide).
+- **No crecen:** con 10 cuadros siguen siendo 2–7 páginas, como con 1. Una diferencia del combate (posición, daño) crecería cuadro a
+  cuadro; esto apunta a efectos o caché, no a la lógica del combate. Falta confirmarlo con 30 y 60 cuadros.
+- **El obstáculo nuevo:** en una ronda de 10 cuadros el juego creó **10 fibras nuevas** dentro de la ventana (`phx::Fiber::setup`,
+  `main+0x353c820`, llamado desde el código de un luchador). Al repetir, crear esas fibras otra vez **abortó el juego** (`abort` desde
+  `main+0x37c97f0`, junto a `nn::os::Mutex`). La tabla de fibras del runtime (`hle_fiber.c`) reutiliza los huecos de las fibras
+  terminadas, y una fibra que corría en un hilo retenido al guardar no se guarda: si termina dentro de la ventana y su hueco se reutiliza,
+  al devolver el estado la tabla no cuadra con la memoria del juego. En las rondas sin fibras nuevas no pasa.
+- **Lo siguiente:** guardar también las fibras que corren en otros hilos (están quietas mientras los hilos esperan) y no reutilizar
+  huecos de fibras mientras dura una ventana; después, repetir 30 y 60 cuadros para ver si las diferencias crecen.
+
 ### 2026-10-26: ¿vive el combate en zonas de memoria propias? No
 
 Prueba: un combate automático contra la CPU (ventana de 256x144, `SSBU_RB_TEST=1`), con dos sondas nuevas en `net_rbtest.c`:

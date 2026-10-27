@@ -105,7 +105,7 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define MAX_TICKS 1024             /* tick reads kept per frame */
 #define ROUND_GAP_NS 10000000000ull
 
-static const u32 round_frames[] = {1, 1, 1, 5, 10};
+static u32 round_frames[] = {1, 1, 1, 5, 10};   /* (SSBU_RB_ROUNDS="1,10,30,60": others, at most 60 frames and 5 rounds) */
 #define ROUNDS (sizeof round_frames / sizeof *round_frames)
 
 typedef struct RecFrame {
@@ -134,7 +134,7 @@ static u32 nhot, hot_overflow;
 static u8 *snap;                       /* the saved pages, in hot[] order */
 static u8 snap_ok[MAX_HOT];            /* (a page not committed then was not saved) */
 static u8 *snap_now;                   /* the game's state at the end of the window, given back after the test */
-static u64 sum_real[MAX_HOT], sum_one[MAX_HOT], sum_two[MAX_HOT];
+static u64 sum_real[MAX_HOT], sum_one[MAX_HOT], sum_two[MAX_HOT], sum_three[MAX_HOT];
 static u8 *sim_bits;                   /* one bit an alias page: written while the simulation ran, in the window */
 static u64 sim_seen;
 static u64 late[MAX_LATE];             /* (pages a round's save missed: the next round's hot set has them) */
@@ -332,16 +332,55 @@ void rbt_pad(u64 out, u32 size) {
     } else pad_missing++;
 }
 
+static volatile u64 tick_last, helper_ticks;   /* (the last tick the replaying thread was given; how often the others asked meanwhile) */
 u64 rbt_ticks(u64 now) {
-    if (hook == HOOK_OFF || !on_sim_thread()) return now;
+    if (hook == HOOK_OFF) return now;
+    if (!on_sim_thread()) {   /* (freeze mode, replaying: the helpers see the replayed clock, not the real one) */
+        if (hook == HOOK_PLAY && freeze_on() && tick_last) { helper_ticks++; return tick_last; }
+        return now;
+    }
     RecFrame *f = &rec[cur];
     if (hook == HOOK_RECORD) {
         if (f->nticks < MAX_TICKS) f->ticks[f->nticks++] = now;
-        return now;
+        return tick_last = now;
     }
-    if (tick_cursor < f->nticks) { tick_replayed++; return f->ticks[tick_cursor++]; }
+    if (tick_cursor < f->nticks) { tick_replayed++; return tick_last = f->ticks[tick_cursor++]; }
     tick_missing++;
     return now;
+}
+
+/* (freeze mode) every call of 710366f660 - it advances the combat's random generator - while replaying: who called it, on
+ * which thread, so that two replays' lists show the call one of them made and the other did not */
+#define MAX_RNG_CALLS 4096
+static struct { u64 caller, caller2; u32 thread; } rng_calls[3][MAX_RNG_CALLS];
+static volatile LONG nrng_calls[3];
+static volatile int rng_replay;   /* 1..3 while that replay runs, else 0 */
+GuestFn f_710366f660_orig;
+/* signature: d102c3ff 6d0423e9 a9056ffc a90667fa a9075ff8 a90857f6 a9094ff4 a90a7bfd 910283fd a9452408 cb080129 b202e7ea f29999aa 9345fd29 9b0a7d29 2a0103f6 */
+HLE_WRAP(710366f660) {
+    int r = rng_replay;
+    if (r >= 1 && r <= 3) {
+        LONG i = InterlockedIncrement(&nrng_calls[r - 1]) - 1;
+        if (i < MAX_RNG_CALLS) {
+            rng_calls[r - 1][i].caller = c->x[30] - 0x7100000000ull;
+            rng_calls[r - 1][i].caller2 = c->x[29] ? ld64(c->x[29] + 8) - 0x7100000000ull : 0;   /* (the caller's caller, by the frame record) */
+            rng_calls[r - 1][i].thread = GetCurrentThreadId();
+        }
+    }
+    f_710366f660_orig(c);
+}
+static void rng_compare(int a, int b) {   /* the first call where replays a and b part */
+    LONG na = nrng_calls[a - 1] < MAX_RNG_CALLS ? nrng_calls[a - 1] : MAX_RNG_CALLS, nb = nrng_calls[b - 1] < MAX_RNG_CALLS ? nrng_calls[b - 1] : MAX_RNG_CALLS;
+    LONG i = 0;
+    while (i < na && i < nb && rng_calls[a - 1][i].caller == rng_calls[b - 1][i].caller && rng_calls[a - 1][i].caller2 == rng_calls[b - 1][i].caller2) i++;
+    fprintf(stderr, "[rbtest] random draws: replay %d made %ld, replay %d made %ld; the same up to draw %ld", a, (long)nrng_calls[a - 1], b, (long)nrng_calls[b - 1], (long)i);
+    for (int k = 0; k < 2; k++) {
+        int w = k ? b : a;
+        LONG n = k ? nb : na;
+        if (i < n) fprintf(stderr, "; replay %d's next: from main+%#llx (in main+%#llx), thread %lu", w, (unsigned long long)rng_calls[w - 1][i].caller,
+                           (unsigned long long)rng_calls[w - 1][i].caller2, (unsigned long)rng_calls[w - 1][i].thread);
+    }
+    fprintf(stderr, "\n");
 }
 
 static u32 rnd_cursor;
@@ -386,6 +425,15 @@ static void begin_round(void) {
     read_regions();
     discover_seen = 0;
     if (watch_now(&discover_seen, NULL) < 0) return;   /* (only to bring the clock to now; tried again next frame) */
+    static int rounds_read;
+    if (!rounds_read++ && getenv("SSBU_RB_ROUNDS")) {
+        const char *s = getenv("SSBU_RB_ROUNDS");
+        for (u32 i = 0; i < ROUNDS && *s; i++) {
+            u32 n = (u32)strtoul(s, (char **)&s, 10);
+            round_frames[i] = n < 1 ? 1 : n > MAX_N ? MAX_N : n;
+            while (*s == ',' || *s == ' ') s++;
+        }
+    }
     n_frames = round_frames[round_i];
     frames_in_phase = 0;
     phase = DISCOVER;
@@ -830,7 +878,9 @@ static double watched_replay(Cpu *c, int which, u64 *sums, u64 *replay_seen) {
     int fib_restored = fibers_restore(0, &skipped, &dropped);
     if (replay_seen) { *replay_seen = 0; watch_now(replay_seen, NULL); }
     u32 before = stage(0);
+    if (which >= 1 && which <= 3) { nrng_calls[which - 1] = 0; rng_replay = which; }
     double ms = replay(c);
+    rng_replay = 0;
     u32 during = stage(0);
     /* (freeze mode: hashed once every thread is idle again - the simulation's helpers may still be finishing the jobs
      * it gave them) */
@@ -885,6 +935,10 @@ static void check_and_replay(Cpu *c) {
 
     /* replay 2, from the save again */
     double ms2 = watched_replay(c, 2, sum_two, NULL);
+    /* (freeze mode) and a third: the same as the second (something outside the saved state set once, by the first), or
+     * as the first (something flipping every time)? */
+    int third = freeze_on();
+    if (third) watched_replay(c, 3, sum_three, NULL);
 
     /* the game's state back as it was */
     put_back(snap_now);
@@ -900,12 +954,21 @@ static void check_and_replay(Cpu *c) {
     snprintf(line, sizeof line, "[rbtest] round %u (%u frames): replayed in %.1f and %.1f ms (%.2f ms a frame); pads replayed %llu (missing %llu), ticks replayed %llu (missing %llu); pages written outside the saved ones while replaying: %lld",
              round_i + 1, n_frames, ms1, ms2, ms2 / n_frames, (unsigned long long)pads1, (unsigned long long)pads_missing1,
              (unsigned long long)ticks1, (unsigned long long)ticks_missing1, escaped_replay == ~0ull ? -1ll : (long long)escaped_replay);
-    snprintf(line + strlen(line), sizeof line - strlen(line), "; random bytes recorded %llu, replayed %llu (missing %llu)", (unsigned long long)rnd_recorded,
-             (unsigned long long)rnd_replayed, (unsigned long long)rnd_missing);
+    snprintf(line + strlen(line), sizeof line - strlen(line), "; random bytes recorded %llu, replayed %llu (missing %llu); ticks the helpers read %llu", (unsigned long long)rnd_recorded,
+             (unsigned long long)rnd_replayed, (unsigned long long)rnd_missing, (unsigned long long)helper_ticks);
+    helper_ticks = 0;
     rnd_recorded = rnd_replayed = rnd_missing = 0;
     fprintf(stderr, "%s\n", line);
     compare("replay 1 vs replay 2 (the same frames twice from the same save)", sum_one, sum_two, line, sizeof line);
     fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
+    rng_compare(1, 2);
+    if (third) {
+        rng_compare(2, 3);
+        compare("replay 2 vs replay 3", sum_two, sum_three, line, sizeof line);
+        fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
+        compare("replay 1 vs replay 3", sum_one, sum_three, line, sizeof line);
+        fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
+    }
     compare("replay 1 vs the game (which also drew its frames)", sum_one, sum_real, line, sizeof line);
     fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
     show_words(sum_one, sum_two);

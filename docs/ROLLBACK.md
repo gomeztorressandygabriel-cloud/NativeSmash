@@ -601,6 +601,35 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### Plan (2026-10-27): de "rebobinar es exacto" a jugar con rollback en 2 PCs
+
+Lo que falta no es la memoria del juego (ya vuelve exacta), sino lo que el juego hace **fuera** de ella cada cuadro: el reloj del bucle
+principal y la parte gráfica. Un emulador con rollback (GGPO en Dolphin o RMG-K) resuelve lo mismo con dos reglas: los cuadros
+rejugados no se muestran, y el tiempo del juego avanza por cuadros, no por reloj. El plan, en orden:
+
+1. **Reloj por cuadros.** Durante el rollback, el hilo principal ve un reloj que avanza exactamente un cuadro (16,67 ms) por simulación,
+   como ya hace el VS en red (`lks_ticks`). Así el acumulador del bucle (`x20`) vale lo mismo cada vez que se juega un cuadro, el
+   bucle no simula dos veces "para ponerse al día", y al rejugar va por el mismo camino. Entonces `x20` puede volver a la comprobación
+   de "mismo sitio".
+2. **Repetición silenciosa.** Mientras el bucle rejuega cuadros, el runtime no espera a la pantalla (`ipc_vi`: el búfer se devuelve al
+   momento, sin mostrarlo), y los envíos a la GPU de esos cuadros se dan por terminados al instante (sus sincronizaciones se cumplen).
+   Eso quita el cuelgue esperando a la gráfica y abarata la repetición (sin los 16 ms del vsync por cuadro). Riesgo: recursos que un
+   cuadro rejugado sube a la GPU; si se nota, se dejan pasar solo esos.
+3. **Rollback natural estable**, con el reloj por cuadros y la repetición silenciosa: la prueba de siempre (botones equivocados y
+   corrección), 5 de 5 sin caídas.
+4. **Transporte.** Los botones viajan por el mismo camino que ya funciona con tus amigos: el relay de Local Wireless (`net_relay.c`,
+   directo o por el servidor). Paquete: cuadro + los últimos N botones (repetidos por si se pierde alguno), y el último cuadro
+   confirmado. Predicción: repetir el último botón del otro. Rebobinar solo cuando llega uno distinto.
+5. **Detección de desincronización:** una huella del estado cada 60 cuadros (la de `lks_sim_end`), comparada entre los dos.
+6. **Primera prueba en 2 PCs:** tú y un amigo en VS, con retraso 1–2 más rollback. Lo que se mide: rollbacks por segundo, cuadros
+   rebobinados y desincronizaciones.
+
+**Coste en este portátil:** guardar cada cuadro cuesta 5–7 ms y rejugar uno silencioso ~3–5 ms. Con 2 cuadros de rollback, el cuadro
+en que se corrige cuesta 15–20 ms y se pierde ese cuadro; los demás cuadros, solo el guardado. Para bajarlo:
+- guardar solo lo que cambió de verdad (las páginas que se escriben cada cuadro, ~2 600);
+- no guardar en los cuadros ya confirmados por los dos;
+- mantener el retraso en 1–2, para que haya pocos rollbacks.
+
 ### 2026-10-27, noche (4): rollback "natural" (`SSBU_RB_NATURAL=1`)
 
 En vez de repetir a mano solo algunos pasos del cuadro, es el **propio bucle principal** el que vuelve a jugar los cuadros, con todos

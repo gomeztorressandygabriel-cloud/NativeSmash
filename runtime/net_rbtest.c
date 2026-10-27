@@ -1028,6 +1028,15 @@ static u64 ring_frame_of[RING_MAX];       /* the frame saved there, plus one (0:
 static u8 *ring_tlr[RING_MAX];
 static u64 ring_tlr_size[RING_MAX];
 static u8 ring_events[RING_MAX][4096];
+static const u64 ring_reg_ids[4] = {3, 4, 12, 13};   /* (the helpers whose registers each save keeps, to say what differs) */
+static u64 ring_regs[RING_MAX][4][32];
+static u64 ring_waits[RING_MAX][64 * 6];
+static u32 ring_nwaits[RING_MAX];
+static void show_wait(const char *when, const u64 *w) {
+    fprintf(stderr, "[rbtest]   %s: guest thread %llu%s%s%s%s mutex %#llx condition %#llx address %#llx handles %llu fiber %#llx\n", when,
+            (unsigned long long)(w[0] & 0xFFFFFFFFFFFFull), w[0] >> 56 & 1 ? " sleeping" : "", w[0] >> 56 & 2 ? " requesting" : "", w[0] >> 56 & 4 ? " parked" : "",
+            w[0] >> 56 & 8 ? " held" : "", (unsigned long long)w[1], (unsigned long long)w[2], (unsigned long long)w[3], (unsigned long long)w[4], (unsigned long long)w[5]);
+}
 static u64 ring_keys[RING_MAX][256];
 static u32 ring_nkeys[RING_MAX];
 static u32 ring_room;                     /* pages committed in each save */
@@ -1199,7 +1208,12 @@ static void ring_save(Cpu *c) {
     ring_pages_ns += t2 - t1; ring_tlr_ns += t3 - t2; ring_fib_ns += t4 - t3;
     memcpy(ring_keys[s], freeze_keys, nfreeze_keys * sizeof *freeze_keys);
     ring_nkeys[s] = nfreeze_keys;
-    if (frozen) { kernel_events(ring_events[s], 1); kernel_thaw(); }
+    if (frozen) {
+        kernel_events(ring_events[s], 1);
+        ring_nwaits[s] = kernel_waits(ring_waits[s], 64);
+        for (int h = 0; h < 4; h++) if (!kernel_regs(ring_reg_ids[h], ring_regs[s][h])) memset(ring_regs[s][h], 0, sizeof ring_regs[s][h]);
+        kernel_thaw();
+    }
     else ring_unheld++;
     memset(&rec[s], 0, sizeof rec[s]);
     rec[s].sim_cpu = *c;
@@ -1224,36 +1238,65 @@ static void ring_save(Cpu *c) {
     }
 }
 
+/* With every other thread at the same place as at save s (the same wait, fiber and registers), within 300 ms; once threads are
+ * held (from the first put-back on), their waits are first put back to where they were held (kernel_hold_undo): a wake-up while
+ * replaying did not happen in the memory put back. Not in time: put back anyway, and counted. */
+static u64 ring_unsafe;
+static int keys_same(const u64 *a, u32 na, const u64 *b, u32 nb) {
+    if (na != nb) return 0;
+    for (u32 i = 0; i < na; i++) {
+        u32 j = 0;
+        while (j < nb && b[j] != a[i]) j++;
+        if (j == nb) return 0;
+    }
+    return 1;
+}
 static void ring_put_back(int s) {
     u64 busy = 0, t0 = rt_now_ns();
-    memcpy(freeze_keys, ring_keys[s], ring_nkeys[s] * sizeof *freeze_keys);   /* (first: every thread at the waits of that save) */
-    nfreeze_keys = ring_nkeys[s];
-    int frozen = freeze_all(1, 300, &busy), matched = frozen;
-    u64 odd = busy;
-    if (!frozen) frozen = freeze_all(0, 1000, &busy);
+    int frozen = 0, matched = 0;
+    static u64 now_keys[256];
+    u32 nnow = 0;
+    if (!holding) {
+        memcpy(freeze_keys, ring_keys[s], ring_nkeys[s] * sizeof *freeze_keys);
+        nfreeze_keys = ring_nkeys[s];
+        frozen = matched = freeze_all(1, 300, &busy);
+        if (!frozen) frozen = freeze_all(0, 1000, &busy);
+        if (frozen) nnow = kernel_keys(now_keys, 256);
+    } else
+        do {
+            if (frozen) { kernel_thaw(); SwitchToThread(); }
+            frozen = freeze_all(0, 1000, &busy);
+            if (!frozen) break;
+            kernel_hold_undo();
+            nnow = kernel_keys(now_keys, 256);
+            matched = keys_same(now_keys, nnow, ring_keys[s], ring_nkeys[s]);
+        } while (!matched && rt_now_ns() - t0 < 300000000ull);
     if (!frozen) fprintf(stderr, "[rbtest] rollback: the other threads not all held in 1 s (guest thread %llu busy): put back anyway\n", (unsigned long long)busy);
-    u32 differ = 0;   /* threads at other waits than at that save */
-    if (!matched)
-        for (u32 i = 0; i < nfreeze_keys; i++) {
+    if (!matched) {
+        u32 differ = 0;
+        for (u32 i = 0; i < nnow; i++) {
             u32 j = 0;
-            while (j < ring_nkeys[s] && ring_keys[s][j] != freeze_keys[i]) j++;
+            while (j < ring_nkeys[s] && ring_keys[s][j] != now_keys[i]) j++;
             differ += j == ring_nkeys[s];
         }
-    if (differ) fprintf(stderr, "[rbtest] rollback: the threads not at the waits of frame %llu's save in 300 ms (guest thread %llu): %u elsewhere\n",
-                        (unsigned long long)(ring_frame_of[s] - 1), (unsigned long long)odd, differ);
+        ring_unsafe++;
+        fprintf(stderr, "[rbtest] rollback: put back frame %llu's save with %u threads not at the same place as then (wait, fiber or registers)\n",
+                (unsigned long long)(ring_frame_of[s] - 1), differ);
+    }
     ring_wait_ns += rt_now_ns() - t0;
     ring_check_regions();
-    AcquireSRWLockExclusive(&cow_lock);
     u64 then = ring_frame_of[s] - 1;
-    for (u32 i = 0; i < nhot; i++) {
+    u32 n = nhot;
+    for (u32 i = 0; i < n; i++) {
         if (!hot_ok[i]) continue;
         if (hot_watched[i]) {
             if (hot_since[i] <= then) continue;   /* (not written since before that save: as it was then) */
-            ring_wake_now(i);
+            AcquireSRWLockExclusive(&cow_lock);
+            if (hot_watched[i]) ring_wake_now(i);
+            ReleaseSRWLockExclusive(&cow_lock);
         }
-        memcpy(P(void, hot[i]), ring_pages[s] + (u64)i * PAGE, PAGE);
+        memcpy(P(void, hot[i]), ring_pages[s] + (u64)i * PAGE, PAGE);   /* (without the lock: a page read-only after all faults to it) */
     }
-    ReleaseSRWLockExclusive(&cow_lock);
     tlr_size = ring_tlr_size[s];   /* (a thread made since: its region is past this, and kept) */
     tlr_copy(ring_tlr[s], 0);
     u32 skipped, dropped;
@@ -1306,6 +1349,38 @@ static void ring_compare(u32 round, const char *what, const u64 *a, const u64 *b
     fprintf(stderr, "%s\n", line);
 }
 
+/* A rollback stuck for 5 s: where the main thread is, and every guest thread's state (once) */
+static volatile u64 ring_busy_since;
+void kernel_thread_states(void (*line)(const char *text));   /* (kernel.c) */
+static void watchdog_line(const char *text) { fputs(text, stderr); }
+static DWORD WINAPI ring_watchdog(void *unused) {
+    (void)unused;
+    HANDLE main = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, sim_thread);
+    for (int told = 0;;) {
+        Sleep(500);
+        u64 since = ring_busy_since;
+        if (!since || told || rt_now_ns() - since < 5000000000ull) continue;
+        told = 1;
+        fprintf(stderr, "[rbtest] rollback stuck for 5 s: the main thread is at\n");
+        if (main) rt_backtrace_thread(main, 20);
+        fprintf(stderr, "[rbtest] and the guest threads (if the kernel's lock is free):\n");
+        kernel_thread_states(watchdog_line);
+        fflush(stderr);
+    }
+    return 0;
+}
+
+static void ring_round_done(void) {
+    next_round_ns = rt_now_ns() + ring_gap_ns;
+    if (++round_i == ROUNDS) {
+        ring_on = 0;
+        cow_end();
+        hook = HOOK_OFF;
+        phase = DONE;
+        fprintf(stderr, "[rbtest] done\n");
+    }
+}
+
 static void ring_rollback(Cpu *c) {
     u32 d = round_frames[round_i];
     if (d > (u32)ring_n - 1) d = (u32)ring_n - 1;
@@ -1314,6 +1389,56 @@ static void ring_rollback(Cpu *c) {
     int s_now = (int)(now % (u64)ring_n), s_from = (int)(from % (u64)ring_n);
     if (ring_frame_of[s_from] != from + 1 || ring_frame_of[s_now] != now + 1) return;   /* (not all held then: the next frame) */
     for (u64 k = from; k < now; k++) if (!rec[k % (u64)ring_n].have_input) return;   /* (a frame without its input step: the next one) */
+    {   /* every other thread at the same place as at that save (wait, fiber, registers) - else not safe: the next frame */
+        static u32 tries;
+        u64 busy = 0;
+        memcpy(freeze_keys, ring_keys[s_from], ring_nkeys[s_from] * sizeof *freeze_keys);
+        nfreeze_keys = ring_nkeys[s_from];
+        if (!freeze_all(1, 5, &busy)) {
+            static int shown;
+            if (shown < 6 && freeze_all(0, 50, &busy)) {   /* (what differs in the helpers' registers) */
+                shown++;
+                for (int h = 0; h < 4; h++) {
+                    u64 r[32];
+                    if (!kernel_regs(ring_reg_ids[h], r)) continue;
+                    char line[1024];
+                    int k = snprintf(line, sizeof line, "[rbtest] rollback %u: guest thread %llu's registers %u frames after:", round_i + 1, (unsigned long long)ring_reg_ids[h], d);
+                    int any = 0;
+                    for (int x = 0; x < 32; x++)
+                        if (r[x] != ring_regs[s_from][h][x] && k < (int)sizeof line - 64) {
+                            k += snprintf(line + k, sizeof line - k, " %s%d %#llx->%#llx", x == 31 ? "sp" : "x", x == 31 ? 0 : x,
+                                          (unsigned long long)ring_regs[s_from][h][x], (unsigned long long)r[x]);
+                            any = 1;
+                        }
+                    fprintf(stderr, "%s%s\n", line, any ? "" : " the same");
+                }
+                static u64 w[64 * 6];
+                u32 nw = kernel_waits(w, 64);
+                for (u32 i = 0; i < nw; i++)
+                    for (u32 j = 0; j < ring_nwaits[s_from]; j++)
+                        if ((w[6 * i] & 0xFFFFFFFFFFFFull) == (ring_waits[s_from][6 * j] & 0xFFFFFFFFFFFFull) && memcmp(w + 6 * i + 1, ring_waits[s_from] + 6 * j + 1, 5 * 8)) {
+                            show_wait("now", w + 6 * i);
+                            show_wait("then", ring_waits[s_from] + 6 * j);
+                        }
+                kernel_thaw();
+            }
+            if (++tries < 600) return;
+            fprintf(stderr, "[rbtest] rollback %u: never safe in 600 frames (a thread never at the same place as %u frames before; the last: guest thread %llu): skipped\n",
+                    round_i + 1, d, (unsigned long long)busy);
+            tries = 0;
+            ring_round_done();
+            return;
+        }
+        kernel_thaw();
+        if (tries) fprintf(stderr, "[rbtest] rollback %u: safe after %u frames\n", round_i + 1, tries);
+        tries = 0;
+    }
+    ring_unsafe = 0;
+    { u32 act[3]; kernel_activity(act); }
+    ipc_note = 1;
+    static int watching;
+    if (!watching++) CloseHandle(CreateThread(NULL, 0, ring_watchdog, NULL, 0, NULL));
+    ring_busy_since = rt_now_ns();
     u32 n = nhot;
     fprintf(stderr, "[rbtest] rollback %u: going back %u frames, from frame %llu\n", round_i + 1, d, (unsigned long long)now);
     fflush(stderr);
@@ -1336,9 +1461,13 @@ static void ring_rollback(Cpu *c) {
         pad_alter = 0;
         ring_hash(ring_sum[r]);
     }
+    ipc_note = 0;
+    u32 act[3];
+    kernel_activity(act);
+    fprintf(stderr, "[rbtest] rollback %u: during the replays %u service requests, %u handles made, %u closed (none of it rewound)\n", round_i + 1, act[0], act[1], act[2]);
     if (!ring_continue) ring_put_back(s_now);
     u32 woken = kernel_held_woken(&woken_id);
-    if (woken) fprintf(stderr, "[rbtest] rollback %u: %u wake-ups of held threads while replaying (the last: guest thread %llu): they go on as woken\n",
+    if (woken) fprintf(stderr, "[rbtest] rollback %u: %u wake-ups of held threads while replaying (the last: guest thread %llu): undone at each put-back\n",
                        round_i + 1, woken, (unsigned long long)woken_id);
     if (holding) { InterlockedExchange(&holding, 0); kernel_release(); }
     hold_wanted = 0;
@@ -1354,14 +1483,9 @@ static void ring_rollback(Cpu *c) {
     rng_compare(1, 3);
     fprintf(stderr, "[rbtest] rollback %u: the game goes on from %s\n", round_i + 1, ring_continue ? "replay 3" : "its own save");
     fflush(stderr);
-    next_round_ns = rt_now_ns() + ring_gap_ns;
-    if (++round_i == ROUNDS) {
-        ring_on = 0;
-        cow_end();
-        hook = HOOK_OFF;
-        phase = DONE;
-        fprintf(stderr, "[rbtest] done\n");
-    }
+    if (ring_unsafe) fprintf(stderr, "[rbtest] rollback %u: %llu put-backs with threads not at the same place as at their save\n", round_i + 1, (unsigned long long)ring_unsafe);
+    ring_busy_since = 0;
+    ring_round_done();
 }
 
 static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the main thread) */

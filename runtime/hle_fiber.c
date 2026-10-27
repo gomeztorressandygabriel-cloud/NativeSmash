@@ -157,7 +157,7 @@ HLE(_ZN2nn2os6detail20DispatchFiberContextEPPNS1_22FiberContextForHorizonES4_) {
     }
     Cpu *n = next->cpu;
     n->thread = c->thread; n->tpidrro = c->tpidrro; n->tpidr = c->tpidr; n->fpcr = c->fpcr; n->fpsr = c->fpsr;
-    if (own_fibers()) kernel_set_fiber(c->thread, next->token);   /* (the rewind test: which fiber each thread is on) */
+    if (own_fibers()) kernel_set_fiber(c->thread, next->token, next->cpu);   /* (the rewind test: which fiber each thread is on) */
     FIB_SWITCH(next->host);
     /* Resumed - possibly on another thread, whose identity the switcher handed us. */
 }

@@ -59,6 +59,8 @@ typedef struct KThread {
     volatile int held;   /* (the rewind test) kept in its wait, even when woken, until kernel_release */
     volatile int parked;   /* (the rewind test) held at the gate after SleepThread or a service request: as good as waiting */
     volatile u64 fiber;    /* (the rewind test) the guest fiber it runs now (hle_fiber.c), 0: its own */
+    Cpu *volatile active;  /* (the rewind test) that fiber's guest context (NULL: the thread's own) */
+    struct { u64 mutex_addr, cv_key, cv_mutex, arb_addr, order, wait_handles; u32 mutex_tag, wait_count; int cancelled; } kept;   /* (its wait when held) */
 } KThread;
 
 typedef struct KObject { int type, signaled; KThread *thread; void *session; } KObject;
@@ -121,7 +123,9 @@ static void kwake_handle(u32 handle) {
 }
 
 /* ---- handles --------------------------------------------------------------------- */
+static volatile LONG activity[3];   /* (the rewind test) service requests, handles made, handles closed - since kernel_activity */
 static u32 new_handle(int type, KThread *t) {
+    InterlockedIncrement(&activity[1]);
     for (u32 i = 1; i < 4096; i++)
         if (objects[i].type == OBJ_FREE) {
             objects[i] = (KObject){type, 0, t};
@@ -282,9 +286,7 @@ static KThread *threads_waiting(u64 KThread_field_offset, u64 addr, u32 *count) 
     *count = 0;
     for (u32 i = 0; i < nthreads; i++) {
         KThread *t = threads[i];
-        /* (the rewind test: a thread held while replaying is not there to wake - woken, it would go on after the put-back
-         * as if signalled, though the memory put back says nobody did) */
-        if (t->exited || t->held || *(u64 *)((u8 *)t + KThread_field_offset) != addr) continue;
+        if (t->exited || *(u64 *)((u8 *)t + KThread_field_offset) != addr) continue;
         ++*count;
         if (!first || t->order < first->order) first = t;
     }
@@ -489,6 +491,7 @@ void rt_svc(Cpu *c, u32 n) {
         void *s = kernel_session_of(h);
         if (!s) { x[0] = R_INVALID_HANDLE; return; }
         if (me) me->requesting = 1;
+        InterlockedIncrement(&activity[0]);
         x[0] = ipc_request(c, s, n == 0x21 ? c->tpidrro : x[0], n == 0x21 ? 0x100 : x[1]);
         if (me) {
             me->requesting = 0;
@@ -581,6 +584,7 @@ void rt_svc(Cpu *c, u32 n) {
         break;
     case 0x16: {   /* CloseHandle(handle) */
         u32 k = (u32)x[0] - 0xA000;
+        InterlockedIncrement(&activity[2]);
         if (k < 4096 && objects[k].type == OBJ_SESSION) { ipc_close(objects[k].session); objects[k].type = OBJ_FREE; }
         if (k < 4096 && (objects[k].type == OBJ_EVENT || objects[k].type == OBJ_MEMORY)) objects[k].type = OBJ_FREE;
         x[0] = R_OK;   /* thread objects stay: their thread may still be running */
@@ -710,6 +714,28 @@ int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, 
  * lock to go on, which this keeps) or in SleepThread (held when it ends). 0, with nothing held, when one is running,
  * in a service request, or the lock is busy: try again. Each thread's wait (what it waits on) goes in keys; with
  * match, the waits must be the same ones as in keys (the threads idle where they were at the save). */
+static u64 regs_hash(const Cpu *c) {
+    u64 h = 0xCBF29CE484222325ull;
+    for (int r = 19; r < 31; r++) h = (h ^ c->x[r]) * 0x100000001B3ull;   /* (the callee-saved ones, the frame and the return address: what the
+                                                                            * code goes on with once the wait ends - x0-x18 are scratch then) */
+    return (h ^ c->sp) * 0x100000001B3ull & 0x0000FFFFFFFFFFFFull;   /* (the id stays readable in the top 16 bits) */
+}
+static u64 key_of(KThread *t) {   /* where a waiting thread is */
+    return t->id << 48 ^ (t->mutex_addr | t->cv_key | t->arb_addr | (t->wait_count ? t->wait_handles : 0) | (u64)(t->sleeping | t->parked) | (u64)t->requesting << 1)
+           ^ t->fiber * 0x9E3779B97F4A7C15ull    /* (and the fiber it is on: the same wait on another fiber is not the same place) */
+           ^ regs_hash(t->active ? t->active : t->cpu);   /* (and its registers: the same wait on another job is not the same place either) */
+}
+/* (frozen) every other thread's key now, in kernel_freeze's order */
+u32 kernel_keys(u64 *keys, u32 max) {
+    DWORD self = GetCurrentThreadId();
+    u32 k = 0;
+    for (u32 i = 0; i < nthreads && k < max; i++) {
+        KThread *t = threads[i];
+        if (!t->started || t->exited || !t->host || GetThreadId(t->host) == self) continue;
+        keys[k++] = key_of(t);
+    }
+    return k;
+}
 int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id) {
     if (!TryEnterCriticalSection(&klock)) return 0;
     InterlockedExchange(&kfrozen, 1);
@@ -722,8 +748,7 @@ int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id) {
         if (!t->started || t->exited || !t->host || GetThreadId(t->host) == self) continue;
         int waiting = t->mutex_addr || t->cv_key || t->arb_addr || t->wait_count;
         if (!waiting && !t->sleeping && !t->requesting && !t->parked) { ok = 0; if (busy_id) *busy_id = t->id; break; }   /* (in a service request: held when it ends) */
-        u64 key = t->id << 48 ^ (t->mutex_addr | t->cv_key | t->arb_addr | (t->wait_count ? t->wait_handles : 0) | (u64)(t->sleeping | t->parked) | (u64)t->requesting << 1)
-                  ^ t->fiber * 0x9E3779B97F4A7C15ull;   /* (and the fiber it is on: the same wait on another fiber is not the same place) */
+        u64 key = key_of(t);
         if (match) { if (k >= *n || keys[k] != key) { ok = 0; if (busy_id) *busy_id = t->id; } }
         else if (k < max) keys[k] = key;
         k++;
@@ -734,7 +759,7 @@ int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id) {
     return 1;
 }
 u64 kernel_tlr_end(void) { return tlr_next; }   /* (net_rbtest.c) the thread-local regions in use: KERNEL_BASE up to here */
-void kernel_set_fiber(void *thread, u64 fiber) { if (thread) ((KThread *)thread)->fiber = fiber; }
+void kernel_set_fiber(void *thread, u64 fiber, Cpu *cpu) { if (thread) { ((KThread *)thread)->fiber = fiber; ((KThread *)thread)->active = cpu; } }
 void kernel_thaw(void) { InterlockedExchange(&kfrozen, 0); LeaveCriticalSection(&klock); }
 
 /* (net_rbtest.c, with kernel_freeze's lock held) Every guest thread but this one and those in `allow` (guest ids) kept
@@ -747,10 +772,53 @@ u32 kernel_hold(const u64 *allow, u32 nallow) {
         if (!t->started || t->exited || !t->host || GetThreadId(t->host) == self) continue;
         int ok = 0;
         for (u32 k = 0; k < nallow; k++) ok |= allow[k] == t->id;
-        if (!ok) { t->held = 1; n++; }
+        if (!ok) {
+            t->held = 1; n++;
+            t->kept.mutex_addr = t->mutex_addr; t->kept.cv_key = t->cv_key; t->kept.cv_mutex = t->cv_mutex; t->kept.arb_addr = t->arb_addr;
+            t->kept.order = t->order; t->kept.wait_handles = t->wait_handles; t->kept.mutex_tag = t->mutex_tag; t->kept.wait_count = t->wait_count;
+            t->kept.cancelled = t->cancelled;
+        }
     }
     return n;
 }
+/* (with kernel_freeze's lock held, the game's memory put back as it was when they were held) every held thread's wait as it was
+ * then: a wake-up while replaying (a mutex handed over, a condition signalled) did not happen in the memory put back, and the
+ * thread - which never left its wait - goes on waiting for the real one */
+void kernel_hold_undo(void) {
+    for (u32 i = 0; i < nthreads; i++) {
+        KThread *t = threads[i];
+        if (!t->held) continue;
+        t->mutex_addr = t->kept.mutex_addr; t->cv_key = t->kept.cv_key; t->cv_mutex = t->kept.cv_mutex; t->arb_addr = t->kept.arb_addr;
+        t->order = t->kept.order; t->wait_handles = t->kept.wait_handles; t->mutex_tag = t->kept.mutex_tag; t->wait_count = t->kept.wait_count;
+        t->cancelled = t->kept.cancelled;
+    }
+}
+/* (the rewind test, frozen) each guest thread's wait, 6 numbers a thread: id, mutex, condition, address, handles (count),
+ * fiber - with flags (sleeping 1, requesting 2, parked 4, held 8) in the id's top byte */
+u32 kernel_waits(u64 *out, u32 max) {
+    u32 n = 0;
+    for (u32 i = 0; i < nthreads && n < max; i++) {
+        KThread *t = threads[i];
+        if (!t->started || t->exited || !t->host) continue;
+        u64 *o = out + 6 * n++;
+        o[0] = t->id | (u64)(t->sleeping | t->requesting << 1 | t->parked << 2 | t->held << 3) << 56;
+        o[1] = t->mutex_addr; o[2] = t->cv_key; o[3] = t->arb_addr; o[4] = t->wait_count; o[5] = t->fiber;
+    }
+    return n;
+}
+/* (the rewind test, frozen) guest thread id's registers now: x0-x30 and sp (32 numbers); 0 if there is no such thread */
+int kernel_regs(u64 id, u64 *out) {
+    for (u32 i = 0; i < nthreads; i++) {
+        KThread *t = threads[i];
+        if (t->id != id || t->exited) continue;
+        const Cpu *c = t->active ? t->active : t->cpu;
+        for (int r = 0; r < 31; r++) out[r] = c->x[r];
+        out[31] = c->sp;
+        return 1;
+    }
+    return 0;
+}
+void kernel_activity(u32 out[3]) { for (int i = 0; i < 3; i++) out[i] = (u32)InterlockedExchange(&activity[i], 0); }
 u32 kernel_held_woken(u64 *last_id) { *last_id = woken_held_id; return (u32)InterlockedExchange(&woken_held, 0); }
 /* (the rewind test, frozen) the kernel's events' states - set or not - saved with the pages and put back with them: an event
  * set while replaying stayed set after the put-back, though the game's memory said nobody had set it */
@@ -806,7 +874,9 @@ void kernel_dump_threads(void) {
         if (!t || !t->started || t->exited || !t->host) continue;
         const char *state = t->mutex_addr ? "waiting for a mutex" : t->cv_key ? "waiting on a condition" :
                             t->arb_addr ? "waiting on an address" : "running or in a system call";
-        fprintf(stderr, "  thread %llu (priority %d): %s%s%s%s\n", t->id, t->priority, state, t->held ? ", held" : "", t->requesting ? ", in a service request" : "", t->sleeping ? ", sleeping" : "");
+        fprintf(stderr, "  thread %llu (priority %d): %s%s%s%s (mutex %#llx, condition %#llx, address %#llx, handles %u, fiber %#llx%s)\n", t->id, t->priority, state,
+                t->held ? ", held" : "", t->requesting ? ", in a service request" : "", t->sleeping ? ", sleeping" : "", t->mutex_addr, t->cv_key, t->arb_addr,
+                t->wait_count, t->fiber, t->parked ? ", parked" : "");
         rt_backtrace_thread(t->host, 6);
     }
     LeaveCriticalSection(&klock);

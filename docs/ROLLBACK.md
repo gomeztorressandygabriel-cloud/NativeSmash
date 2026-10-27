@@ -601,6 +601,42 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, tarde: buscando por qué rebobinar tumba el juego
+
+Corridas `every10`–`every24` (5 vueltas atrás de 1–7 cuadros cada una, combate contra la CPU a 144p). Terminaron sin caídas 5 de 15;
+las demás se cayeron (casi siempre en una tarea de luchador: excepción de su script `L2CE`, o leer un puntero nulo en
+`main+0x37ae210`, siempre desde el sistema de trabajos `main+0x353d1b0` / `main+0x37cc0e0`) o se colgaron.
+
+Lo que se cambió, en orden:
+
+- **Despertar a un hilo retenido.** La repetición despierta 4–80 veces a hilos retenidos (sobre todo el 11). Saltárselos al despertar
+  colgaba la repetición. Ahora sí se los despierta, pero al devolver cada guardado su espera vuelve a como estaba al retenerlos
+  (`kernel_hold_undo`): el aviso no pasó en la memoria devuelta.
+- **"Mismo sitio" ahora incluye los registros.** Además de la espera y la fibra, la clave de cada hilo incluye sus registros
+  guardados por el llamado (x19–x30 y sp). x0–x18 cambian de un cuadro a otro (son temporales y no se usan al volver de la espera).
+  Con todos los registros nunca coincidía nada. Si al ir a rebobinar algún hilo no está donde estaba en ese guardado, la vuelta atrás
+  se aplaza al cuadro siguiente; casi siempre coincide a la primera.
+- **Eventos del kernel** guardados y devueltos con cada guardado.
+- **Sin cerrojo** al copiar las páginas de vuelta (una página protegida de más ya no puede dejar al hilo principal esperándose a sí mismo).
+- **Diagnóstico:** si una vuelta atrás tarda más de 5 s se escribe dónde está el hilo principal; se cuentan las peticiones a servicios
+  durante las repeticiones.
+
+Lo que se descartó:
+
+- **No es copiar solo lo que cambió:** con eso casi apagado (`SSBU_RB_IDLE=100000`) también se cae.
+- **No son hilos en otro sitio:** las caídas pasan también después de vueltas atrás en las que todos los hilos estaban exactamente en
+  el mismo sitio (espera, fibra y registros).
+
+**Lo que queda sin rebobinar** y es sospechoso:
+
+- Las **peticiones a servicios** durante las repeticiones (7–30 por vuelta atrás: `mii`, `audout` —búferes de sonido—, `hwopus`).
+  Cambian el estado del servicio en el runtime, que no se devuelve.
+- El estado del **runtime** que el código del juego toca sin pasar por la memoria del juego (funciones reemplazadas por el runtime, las
+  fibras de los hilos que corrían).
+- Los **registros de coma flotante** guardados por el llamado (d8–d15), que la clave no mira.
+
+Hasta resolver esto, la prueba sirve para medir y comparar, pero rebobinar todavía no es seguro.
+
 ### 2026-10-27: copiar solo lo que cambió, y lo que falla al rebobinar
 
 **Copiar solo lo que cambió.** Una página guardada está "activa" (se copia en cada guardado) o "vigilada" (de solo lectura, no se

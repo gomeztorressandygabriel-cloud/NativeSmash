@@ -77,12 +77,17 @@ enum { KT_RUNNING, KT_WAITING, KT_SLEEPING, KT_REQUESTING };
 int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, int state), void *user);   /* every guest thread alive and what it does (0: the kernel's lock is busy) */
 int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id);   /* (the rewind test) every other guest thread held in a wait (1: the kernel's lock kept until kernel_thaw) */
 void kernel_thaw(void);
-void kernel_set_fiber(void *thread, u64 fiber);   /* (hle_fiber.c) the guest fiber a thread switched to, for the rewind test */
+void kernel_set_fiber(void *thread, u64 fiber, Cpu *cpu);   /* (hle_fiber.c) the guest fiber a thread switched to, for the rewind test */
 u64 kernel_tlr_end(void);
 u32 kernel_data_regions(u64 *base, u64 *size, u32 max);   /* the modules' writable data (their global variables) */   /* the thread-local regions in use end here (they start at KERNEL_BASE) */
 u32 kernel_hold(const u64 *allow, u32 nallow);   /* (the rewind test, frozen) the other guest threads kept in their waits, but for allow */
 void kernel_release(void);
-u32 kernel_held_woken(u64 *last_id);   /* (the rewind test) held threads woken since the last call, and the last one's guest id */
+void kernel_hold_undo(void);   /* (frozen, the memory put back to when they were held) the held threads' waits as they were then */
+u32 kernel_keys(u64 *keys, u32 max);
+int kernel_regs(u64 id, u64 *out);   /* (the rewind test, frozen) a guest thread's x0-x30 and sp now */   /* (frozen) every other guest thread's place, as kernel_freeze's keys */
+u32 kernel_held_woken(u64 *last_id);
+void kernel_activity(u32 out[3]);   /* (the rewind test) service requests, handles made and closed since the last call */
+u32 kernel_waits(u64 *out, u32 max);   /* (the rewind test, frozen) each guest thread's wait: 6 numbers a thread, how many threads */   /* (the rewind test) held threads woken since the last call, and the last one's guest id */
 void kernel_events(u8 *state, int out);   /* (the rewind test, frozen) the events' states (4096 bytes): out, saved into state; else put back */
 u32 kernel_memory_regions(u64 *base, u64 *size, u32 max);   /* the guest's heap and stack regions (0: the kernel's lock is busy) */
 HANDLE kernel_thread_host(u64 id);                     /* the host thread running a guest thread (NULL: none, or the kernel's lock busy) */
@@ -91,6 +96,7 @@ HANDLE kernel_thread_host(u64 id);                     /* the host thread runnin
 void *ipc_connect(const char *port);                   /* a session on a named port, or NULL */
 u32 ipc_request(Cpu *c, void *session, u64 message, u64 size);   /* handle one request in place */
 void ipc_close(void *session);
+extern volatile int ipc_note;   /* (the rewind test) name each service request in the log */
 void kernel_signal_event(u32 handle);
 /* Point a guest nn::os::SystemEventType at a new kernel event; returns the event's handle. */
 u32 rt_attach_system_event(Cpu *c, u64 system_event, int auto_clear);

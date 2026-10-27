@@ -129,6 +129,7 @@ static u32 domain_add(Session *s, IpcObject *o) {
     rt_fatal("ipc: domain full");
 }
 
+volatile int ipc_note;   /* (the rewind test) every request named in the log while it replays */
 u32 ipc_request(Cpu *c, void *session, u64 message, u64 size) {
     Session *s = session;
     u32 *m = P(u32, message);
@@ -208,6 +209,7 @@ u32 ipc_request(Cpu *c, void *session, u64 message, u64 size) {
         } else if (!target) {
             ipc->result = RESULT(10, 236);   /* no such object */
         } else {
+            if (ipc_note) fprintf(stderr, "[rbtest] service request while replaying: %s, command %u (thread %lu)\n", target->name, ipc->command, (unsigned long)GetCurrentThreadId());
             target->handle(target, ipc);
         }
         ReleaseSRWLockExclusive(&lock);

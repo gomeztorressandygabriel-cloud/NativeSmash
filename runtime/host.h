@@ -86,7 +86,7 @@ void kernel_hold_undo(void);   /* (frozen, the memory put back to when they were
 u32 kernel_keys(u64 *keys, u32 max);
 int kernel_regs(u64 id, u64 *out);   /* (the rewind test, frozen) a guest thread's x0-x30 and sp now */   /* (frozen) every other guest thread's place, as kernel_freeze's keys */
 u32 kernel_held_woken(u64 *last_id);
-void kernel_activity(u32 out[3]);   /* (the rewind test) service requests, handles made and closed since the last call */
+void kernel_activity(u32 out[4]);   /* (the rewind test) service requests, handles made and closed, memory unmapped since the last call */
 u32 kernel_waits(u64 *out, u32 max);   /* (the rewind test, frozen) each guest thread's wait: 6 numbers a thread, how many threads */   /* (the rewind test) held threads woken since the last call, and the last one's guest id */
 void kernel_events(u8 *state, int out);   /* (the rewind test, frozen) the events' states (4096 bytes): out, saved into state; else put back */
 u32 kernel_memory_regions(u64 *base, u64 *size, u32 max);   /* the guest's heap and stack regions (0: the kernel's lock is busy) */

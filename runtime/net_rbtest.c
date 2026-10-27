@@ -1076,6 +1076,7 @@ static int ring_grow(u32 need) {   /* (cow_lock held) every save has room for `n
  * watched for one frame in 16; one the game leaves alone stays out of the copying. */
 static u32 ring_idle = 16, ring_cursor;
 static u8 hot_watched[MAX_HOT];
+static DWORD hot_writer[MAX_HOT];   /* (the last thread whose write made the page active: who writes it) */
 static u64 hot_since[MAX_HOT];
 #define MAP_SIZE (MAX_HOT * 2)
 static u64 map_key[MAP_SIZE];             /* page -> its index in hot[] (open addressing; 0: free) */
@@ -1090,22 +1091,42 @@ static u32 *map_slot(u64 page, int add) {
     return &map_val[h];
 }
 
-static void ring_wake(u32 i) {   /* (cow_lock held) a watched page active again: the saves since it was watched get it */
+/* Pages only the runtime's own threads write (the renderer: the GPU's semaphores and query results in the game's memory) are
+ * the PC's progress, not the game's: not saved, put back or compared - a rewind would make the game wait for GPU work done. One
+ * the game writes too is the game's. */
+static u8 hot_host[MAX_HOT];
+static DWORD guest_tids[256];
+static volatile LONG nguest_tids;
+static void note_guest_tid(void *user, u64 id, int priority, int core, int state) {
+    (void)user; (void)priority; (void)core; (void)state;
+    HANDLE h = kernel_thread_host(id);
+    if (h && nguest_tids < 256) guest_tids[nguest_tids++] = GetThreadId(h);
+}
+static int is_guest_tid(DWORD tid) {
+    for (LONG i = 0; i < nguest_tids; i++) if (guest_tids[i] == tid) return 1;
+    return 0;
+}
+static void ring_wake(u32 i, int by) {   /* (cow_lock held) a watched page active again: the saves since it was watched get it; by: 1 the
+                                          * game's thread wrote it, 0 the runtime's, -1 neither (a put-back) */
     for (int s = 0; s < ring_n; s++)
         if (ring_frame_of[s] && ring_frame_of[s] - 1 > hot_since[i]) memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE);
     hot_watched[i] = 0;
+    if (by >= 0) hot_writer[i] = GetCurrentThreadId();
+    if (by > 0) hot_host[i] = 0;
     ring_woken++;
 }
 
 static void ring_promote(u64 page) {   /* (the write handler, cow_lock held; the caller then makes the page writable) */
     u32 *known = map_slot(page, 0);
-    if (known) { ring_wake(*known); return; }
+    if (known) { ring_wake(*known, is_guest_tid(GetCurrentThreadId())); return; }
     if (nhot == MAX_HOT || !ring_grow(nhot + 1)) { ring_overflow++; return; }
     u32 i = nhot;
     for (int s = 0; s < ring_n; s++) if (ring_frame_of[s]) memcpy(ring_pages[s] + (u64)i * PAGE, P(void, page), PAGE);
     hot[i] = page;
     hot_ok[i] = 1;
     hot_watched[i] = 0;
+    hot_writer[i] = GetCurrentThreadId();
+    hot_host[i] = !is_guest_tid(hot_writer[i]);
     *map_slot(page, 1) = i;
     if (page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) { u64 b = (page - ALIAS_BASE) / PAGE; hot_bits[b >> 3] |= (u8)(1u << (b & 7)); }
     nhot = i + 1;
@@ -1134,7 +1155,7 @@ static void ring_demote(u32 n) {   /* (frozen, cow_lock held, right after the sa
 
 static void ring_wake_now(u32 i) {   /* (cow_lock held) active again without a write: before a put-back writes it */
     u8 mask, *bit = cow_bit_of(hot[i], &mask);
-    ring_wake(i);
+    ring_wake(i, -1);
     DWORD old;
     VirtualProtect(P(void, hot[i]), PAGE, PAGE_READWRITE, &old);
     if (bit) *bit &= (u8)~mask;   /* (after: a write meanwhile still finds its bit, waits for the lock and goes through) */
@@ -1164,6 +1185,9 @@ static int ring_begin(void) {
     memset(ring_frame_of, 0, sizeof ring_frame_of);
     memset(map_key, 0, sizeof map_key);
     memset(hot_watched, 0, sizeof hot_watched);
+    memset(hot_host, 0, sizeof hot_host);
+    nguest_tids = 0;
+    kernel_thread_each(note_guest_tid, NULL);
     const char *idle = getenv("SSBU_RB_IDLE");
     if (idle && *idle) { ring_idle = (u32)atoi(idle); if (ring_idle < 2) ring_idle = 2; }
     ring_on = 1;
@@ -1190,7 +1214,7 @@ static void ring_save(Cpu *c) {
     u32 n = nhot, active = 0;
     if (ring_grow(n))
         for (u32 i = 0; i < n; i++)
-            if (hot_ok[i] && !hot_watched[i]) { memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE); active++; }
+            if (hot_ok[i] && !hot_watched[i] && !hot_host[i]) { memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE); active++; }
     ring_frame_of[s] = frozen ? ring_frame_no + 1 : 0;
     u64 td = rt_now_ns();
     if (frozen) ring_demote(n);   /* (with the threads held: a write the moment a page is read-only must find this save done) */
@@ -1212,6 +1236,15 @@ static void ring_save(Cpu *c) {
         kernel_events(ring_events[s], 1);
         ring_nwaits[s] = kernel_waits(ring_waits[s], 64);
         for (int h = 0; h < 4; h++) if (!kernel_regs(ring_reg_ids[h], ring_regs[s][h])) memset(ring_regs[s][h], 0, sizeof ring_regs[s][h]);
+        if (ring_saves % 60 == 0) {   /* (threads the game made since: theirs too) */
+            LONG had = nguest_tids;
+            nguest_tids = 0;
+            kernel_thread_each(note_guest_tid, NULL);
+            if (!nguest_tids) nguest_tids = had;
+        }
+        /* a rollback this frame: the other threads (but the helpers) held from this save on - one that ran on between the save and
+         * the rollback would find what it did undone by the put-back, while it went on */
+        if (rt_now_ns() >= next_round_ns && !holding) { hold_wanted = 1; hold_others(); }
         kernel_thaw();
     }
     else ring_unheld++;
@@ -1241,7 +1274,7 @@ static void ring_save(Cpu *c) {
 /* With every other thread at the same place as at save s (the same wait, fiber and registers), within 300 ms; once threads are
  * held (from the first put-back on), their waits are first put back to where they were held (kernel_hold_undo): a wake-up while
  * replaying did not happen in the memory put back. Not in time: put back anyway, and counted. */
-static u64 ring_unsafe;
+static u64 ring_unsafe, ring_tlr_hash;
 static int keys_same(const u64 *a, u32 na, const u64 *b, u32 nb) {
     if (na != nb) return 0;
     for (u32 i = 0; i < na; i++) {
@@ -1288,7 +1321,7 @@ static void ring_put_back(int s) {
     u64 then = ring_frame_of[s] - 1;
     u32 n = nhot;
     for (u32 i = 0; i < n; i++) {
-        if (!hot_ok[i]) continue;
+        if (!hot_ok[i] || hot_host[i]) continue;
         if (hot_watched[i]) {
             if (hot_since[i] <= then) continue;   /* (not written since before that save: as it was then) */
             AcquireSRWLockExclusive(&cow_lock);
@@ -1310,7 +1343,7 @@ static void ring_put_back(int s) {
 static void ring_hash(u64 *out) {   /* (with every thread held) */
     u64 busy = 0;
     int frozen = freeze_all(0, 1000, &busy);
-    for (u32 i = 0; i < nhot; i++) out[i] = hot_ok[i] ? page_hash(P(u8, hot[i])) : 0;
+    for (u32 i = 0; i < nhot; i++) out[i] = hot_ok[i] && !hot_host[i] ? page_hash(P(u8, hot[i])) : 0;
     if (frozen) kernel_thaw();
 }
 
@@ -1334,17 +1367,20 @@ static double ring_replay(Cpu *c, u64 from, u64 to) {
 static void ring_compare(u32 round, const char *what, const u64 *a, const u64 *b, u32 n) {
     u32 alias = 0, data = 0, nfirst = 0;
     u64 first[6];
+    DWORD first_writer[6];
     for (u32 i = 0; i < n; i++) {
         if (!a[i] || !b[i] || a[i] == b[i]) continue;
         if (hot[i] >= ALIAS_BASE && hot[i] < ALIAS_BASE + ALIAS_SIZE) alias++; else data++;
-        if (nfirst < 6) first[nfirst++] = hot[i];
+        if (nfirst < 6) { first[nfirst] = hot[i]; first_writer[nfirst++] = hot_writer[i]; }
     }
-    char line[512];
+    char line[1024];
     int k = snprintf(line, sizeof line, "[rbtest] rollback %u RESULT %s: ", round, what);
     if (!alias && !data) snprintf(line + k, sizeof line - k, "IDENTICAL (%u pages compared)", n);
     else {
         k += snprintf(line + k, sizeof line - k, "DIFFERENT in %u of %u pages (%u of the game's memory, %u of the modules' globals); the first:", alias + data, n, alias, data);
-        for (u32 i = 0; i < nfirst; i++) k += snprintf(line + k, sizeof line - k, " %#llx", (unsigned long long)first[i]);
+        for (u32 i = 0; i < nfirst; i++)
+            k += snprintf(line + k, sizeof line - k, " %#llx (written by thread %lu%s, guest %lld)", (unsigned long long)first[i], (unsigned long)first_writer[i],
+                          first_writer[i] == sim_thread ? ": the main one" : "", guest_of(first_writer[i]));
     }
     fprintf(stderr, "%s\n", line);
 }
@@ -1434,7 +1470,7 @@ static void ring_rollback(Cpu *c) {
         tries = 0;
     }
     ring_unsafe = 0;
-    { u32 act[3]; kernel_activity(act); }
+    { u32 act[4]; kernel_activity(act); }
     ipc_note = 1;
     static int watching;
     if (!watching++) CloseHandle(CreateThread(NULL, 0, ring_watchdog, NULL, 0, NULL));
@@ -1443,6 +1479,8 @@ static void ring_rollback(Cpu *c) {
     fprintf(stderr, "[rbtest] rollback %u: going back %u frames, from frame %llu\n", round_i + 1, d, (unsigned long long)now);
     fflush(stderr);
     ring_hash(ring_sum[0]);
+    ring_tlr_hash = 0;
+    for (u64 i = 0; i < tlr_size; i += 8) ring_tlr_hash = (ring_tlr_hash ^ *P(u64, KERNEL_BASE + i)) * 0x100000001B3ull;
     u64 woken_id;
     kernel_held_woken(&woken_id);
     hold_wanted = 1;
@@ -1462,10 +1500,18 @@ static void ring_rollback(Cpu *c) {
         ring_hash(ring_sum[r]);
     }
     ipc_note = 0;
-    u32 act[3];
+    u32 act[4];
     kernel_activity(act);
-    fprintf(stderr, "[rbtest] rollback %u: during the replays %u service requests, %u handles made, %u closed (none of it rewound)\n", round_i + 1, act[0], act[1], act[2]);
-    if (!ring_continue) ring_put_back(s_now);
+    fprintf(stderr, "[rbtest] rollback %u: during the replays %u service requests, %u handles made, %u closed (none of it rewound), %u unmappings (kept, cleared)\n", round_i + 1, act[0], act[1], act[2], act[3]);
+    if (!ring_continue) {
+        ring_put_back(s_now);
+        static u64 after[MAX_HOT];   /* (the game's state given back: as it was before the rollback, page by page?) */
+        ring_hash(after);
+        ring_compare(round_i + 1, "the game before the rollback vs after it (must be identical)", ring_sum[0], after, n);
+        u64 tlr_after = 0;
+        for (u64 i = 0; i < tlr_size; i += 8) tlr_after = (tlr_after ^ *P(u64, KERNEL_BASE + i)) * 0x100000001B3ull;
+        if (tlr_after != ring_tlr_hash) fprintf(stderr, "[rbtest] rollback %u: the thread-local regions differ from before the rollback\n", round_i + 1);
+    }
     u32 woken = kernel_held_woken(&woken_id);
     if (woken) fprintf(stderr, "[rbtest] rollback %u: %u wake-ups of held threads while replaying (the last: guest thread %llu): undone at each put-back\n",
                        round_i + 1, woken, (unsigned long long)woken_id);
@@ -1498,6 +1544,8 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
     if (phase != RING) return;
     ring_save(c);
     if (rt_now_ns() >= next_round_ns) ring_rollback(c);
+    if (holding) { InterlockedExchange(&holding, 0); kernel_release(); }   /* (no rollback after all this frame) */
+    hold_wanted = 0;
     ring_frame_no++;
 }
 #else

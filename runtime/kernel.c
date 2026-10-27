@@ -123,7 +123,7 @@ static void kwake_handle(u32 handle) {
 }
 
 /* ---- handles --------------------------------------------------------------------- */
-static volatile LONG activity[3];   /* (the rewind test) service requests, handles made, handles closed - since kernel_activity */
+static volatile LONG activity[4];   /* (the rewind test) service requests, handles made, handles closed - since kernel_activity */
 static u32 new_handle(int type, KThread *t) {
     InterlockedIncrement(&activity[1]);
     for (u32 i = 1; i < 4096; i++)
@@ -537,7 +537,8 @@ void rt_svc(Cpu *c, u32 n) {
             if (maps[i].size && maps[i].dst == x[0]) {
                 memcpy(G2H(maps[i].src), G2H(maps[i].dst), maps[i].size);
                 gpu_memory_unmapping(maps[i].dst, maps[i].size);   /* (queued GPU work and the renderer may read it) */
-                VirtualFree(G2H(maps[i].dst), maps[i].size, MEM_DECOMMIT);
+                if (rbt_on()) { memset(G2H(maps[i].dst), 0, maps[i].size); InterlockedIncrement(&activity[3]); }   /* (the rewind test: kept, see below) */
+                else VirtualFree(G2H(maps[i].dst), maps[i].size, MEM_DECOMMIT);
                 remove_region(maps[i].dst);
                 maps[i].size = 0;
             }
@@ -639,7 +640,10 @@ void rt_svc(Cpu *c, u32 n) {
         break;
     case 0x2D:     /* UnmapPhysicalMemory(address, size) */
         gpu_memory_unmapping(x[0], x[1]);   /* (queued GPU work and the renderer may read it) */
-        VirtualFree(G2H(x[0]), x[1], MEM_DECOMMIT);
+        /* (the rewind test: the memory kept, cleared - a rewind to before the unmapping puts back a game that still uses it, and
+         * the clearing is rewound as any other write) */
+        if (rbt_on()) { memset(G2H(x[0]), 0, x[1]); InterlockedIncrement(&activity[3]); }
+        else VirtualFree(G2H(x[0]), x[1], MEM_DECOMMIT);
         unmap_range(x[0], x[1]);
         x[0] = R_OK;
         break;
@@ -818,7 +822,7 @@ int kernel_regs(u64 id, u64 *out) {
     }
     return 0;
 }
-void kernel_activity(u32 out[3]) { for (int i = 0; i < 3; i++) out[i] = (u32)InterlockedExchange(&activity[i], 0); }
+void kernel_activity(u32 out[4]) { for (int i = 0; i < 4; i++) out[i] = (u32)InterlockedExchange(&activity[i], 0); }
 u32 kernel_held_woken(u64 *last_id) { *last_id = woken_held_id; return (u32)InterlockedExchange(&woken_held, 0); }
 /* (the rewind test, frozen) the kernel's events' states - set or not - saved with the pages and put back with them: an event
  * set while replaying stayed set after the put-back, though the game's memory said nobody had set it */

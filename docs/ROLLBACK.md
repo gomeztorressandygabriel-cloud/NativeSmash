@@ -601,6 +601,36 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, noche: el estado devuelto ya es idéntico
+
+Nueva comprobación: después de devolver el guardado del cuadro actual, se calcula la huella de cada página y se compara con la de
+antes de rebobinar. Debe dar idéntico. Daba 3–100 páginas distintas, y también las zonas por hilo. Dos causas, arregladas:
+
+1. **Los demás hilos seguían corriendo entre el guardado y la vuelta atrás** (sonido, etc.). Lo que hacían se borraba al devolver el
+   guardado, mientras ellos seguían adelante. Ahora, en el cuadro de una vuelta atrás, se retienen desde el mismo guardado.
+2. **Páginas que solo escribe el runtime** (el hilo de gráficos del PC: semáforos y resultados de la GPU en la memoria del juego,
+   `0x60450e0000`, `0x60450e7000`, `0x6040991000`). Son el avance de la GPU, no del juego, y devolverlas hacía que el juego viera
+   trabajo de la GPU sin hacer. Ahora una página que escribió primero un hilo que no es del juego no se guarda, no se devuelve y no se
+   compara, salvo que el juego también la escriba.
+
+También, mientras la prueba está encendida, **desmapear memoria** (`UnmapPhysicalMemory`, `UnmapMemory`) la deja puesta y a cero
+en vez de liberarla, para que un rebobinado a antes del desmapeo no lea memoria que ya no existe. En las pruebas no pasó dentro de una
+ventana, pero el riesgo existía.
+
+**Resultado** (`every30`–`every36`): el juego devuelto queda **IDÉNTICO** al de antes en todas las vueltas atrás desde el arreglo, y la
+repetición 1 y la 3 difieren solo en las 2 páginas de siempre. Terminaron sin caídas 4 de 7 corridas. La caída que queda (`every36`)
+pasó **durante** una repetición de 7 cuadros, en una tarea del hilo principal (`main+0x37ae210`, puntero nulo). La comprobación
+nueva solo cubre la vuelta al guardado actual, no la ida a uno anterior: el siguiente paso es comprobar también esa (huellas por guardado).
+
+Repos de rollback revisados (`someusername6/rollback-netcode`, `godot-rollback-netcode`, temas de GitHub): ninguno trata el estado
+fuera de la memoria del juego. Ideas para cuando se conecte a la red:
+
+- **Protocolo:** cada paquete repite las entradas recientes; botones confirmados frente a usados para saber desde qué cuadro rebobinar;
+  una huella del estado cada 60 cuadros para detectar desincronización.
+- **Pruebas:** un modo que rebobina a la fuerza cada cuadro, para cazar fallos.
+- **Sonido:** no repetir sonidos al volver a simular.
+- **Diagnóstico:** un registro de la partida por jugador, y una herramienta que encuentre el primer cuadro donde se separan.
+
 ### 2026-10-27, tarde: buscando por qué rebobinar tumba el juego
 
 Corridas `every10`–`every24` (5 vueltas atrás de 1–7 cuadros cada una, combate contra la CPU a 144p). Terminaron sin caídas 5 de 15;

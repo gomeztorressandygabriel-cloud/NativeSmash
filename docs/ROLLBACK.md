@@ -624,6 +624,18 @@ rejugados no se muestran, y el tiempo del juego avanza por cuadros, no por reloj
 6. **Primera prueba en 2 PCs:** tú y un amigo en VS, con retraso 1–2 más rollback. Lo que se mide: rollbacks por segundo, cuadros
    rebobinados y desincronizaciones.
 
+**Lo que se encontró fuera (2026-10-27):**
+- El cuelgue de la repetición natural está en el camino de **presentar la imagen**. La pila del hilo principal pasa por `sdk+0x429fe0` y
+  `sdk+0x26ea0`, junto a las dos funciones que el mod *less-delay* (xNaxdy, GPL-3.0) toca para quitar la espera del vsync
+  ("set_interval": `sdk+0x429d60` y `sdk+0x26e94`). Confirma el paso 2: los cuadros rejugados no deben esperar a la pantalla.
+- **less-delay** quita un cuadro de retraso así: anula la espera del vsync y retiene la actualización de escena del juego hasta que su
+  propio hilo de vsync avisa. Es la idea "Less-Delay" pendiente para Local Wireless. **latency-slider-de** (AGPL-3.0) solo cambia el
+  byte de retraso online, lo mismo que ya hace `online_delay.txt`.
+- **DShad** hizo un rollback de Smash Ultimate en 2021–2022: primero en yuzu, guardando todo el emulador, y luego como mod de Skyline
+  guardando el estado del juego. Llegó a una prueba de concepto Switch contra PC, con desincronizaciones sin corregir y estado sin
+  terminar (vidas, tiempo, "staleness"). No hay código publicado. Slippi (Melee) y RetroArch hacen lo mismo que el plan: los cuadros
+  rejugados no se dibujan ni suenan.
+
 **Coste en este portátil:** guardar cada cuadro cuesta 5–7 ms y rejugar uno silencioso ~3–5 ms. Con 2 cuadros de rollback, el cuadro
 en que se corrige cuesta 15–20 ms y se pierde ese cuadro; los demás cuadros, solo el guardado. Para bajarlo:
 - guardar solo lo que cambió de verdad (las páginas que se escriben cada cuadro, ~2 600);

@@ -82,6 +82,8 @@ u64 kernel_tlr_end(void);
 u32 kernel_data_regions(u64 *base, u64 *size, u32 max);   /* the modules' writable data (their global variables) */   /* the thread-local regions in use end here (they start at KERNEL_BASE) */
 u32 kernel_hold(const u64 *allow, u32 nallow);   /* (the rewind test, frozen) the other guest threads kept in their waits, but for allow */
 void kernel_release(void);
+u32 kernel_held_woken(u64 *last_id);   /* (the rewind test) held threads woken since the last call, and the last one's guest id */
+void kernel_events(u8 *state, int out);   /* (the rewind test, frozen) the events' states (4096 bytes): out, saved into state; else put back */
 u32 kernel_memory_regions(u64 *base, u64 *size, u32 max);   /* the guest's heap and stack regions (0: the kernel's lock is busy) */
 HANDLE kernel_thread_host(u64 id);                     /* the host thread running a guest thread (NULL: none, or the kernel's lock busy) */
 

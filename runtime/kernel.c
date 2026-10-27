@@ -104,7 +104,12 @@ static int kwait(KThread *me, u64 deadline) {
     return 1;
 }
 
-static void kwake(KThread *t) { WakeConditionVariable(&t->woken); }
+static volatile LONG woken_held;   /* (the rewind test) held threads woken meanwhile: their wake-up outlives a put-back */
+static u64 woken_held_id;
+static void kwake(KThread *t) {
+    if (t->held) { InterlockedIncrement(&woken_held); woken_held_id = t->id; }
+    WakeConditionVariable(&t->woken);
+}
 
 /* Object `handle` became signalled: wake the threads waiting for it in WaitSynchronization. */
 static void kwake_handle(u32 handle) {
@@ -277,7 +282,9 @@ static KThread *threads_waiting(u64 KThread_field_offset, u64 addr, u32 *count) 
     *count = 0;
     for (u32 i = 0; i < nthreads; i++) {
         KThread *t = threads[i];
-        if (t->exited || *(u64 *)((u8 *)t + KThread_field_offset) != addr) continue;
+        /* (the rewind test: a thread held while replaying is not there to wake - woken, it would go on after the put-back
+         * as if signalled, though the memory put back says nobody did) */
+        if (t->exited || t->held || *(u64 *)((u8 *)t + KThread_field_offset) != addr) continue;
         ++*count;
         if (!first || t->order < first->order) first = t;
     }
@@ -743,6 +750,15 @@ u32 kernel_hold(const u64 *allow, u32 nallow) {
         if (!ok) { t->held = 1; n++; }
     }
     return n;
+}
+u32 kernel_held_woken(u64 *last_id) { *last_id = woken_held_id; return (u32)InterlockedExchange(&woken_held, 0); }
+/* (the rewind test, frozen) the kernel's events' states - set or not - saved with the pages and put back with them: an event
+ * set while replaying stayed set after the put-back, though the game's memory said nobody had set it */
+void kernel_events(u8 *state, int out) {
+    for (u32 i = 0; i < 4096; i++) {
+        if (out) state[i] = objects[i].type == OBJ_EVENT ? (u8)(2 | (objects[i].signaled != 0)) : 0;
+        else if (state[i] && objects[i].type == OBJ_EVENT) objects[i].signaled = state[i] & 1;
+    }
 }
 void kernel_release(void) {
     EnterCriticalSection(&klock);

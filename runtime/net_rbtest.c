@@ -724,16 +724,20 @@ static u8 *cow_bit_of(u64 page, u8 *mask) {   /* the byte and bit that say page 
 }
 static int cow_take(u64 page) {   /* (the write handler) 1: it was a page waiting for its copy - copied, writable now */
     u8 mask, *bit = cow_on ? cow_bit_of(page, &mask) : NULL;
-    if (!bit || !(*bit & mask)) return 0;
+    if (!bit) return 0;
+    if (!(*bit & mask)) {   /* (another thread made it writable between this write and now: go through) */
+        MEMORY_BASIC_INFORMATION mi;
+        return VirtualQuery(P(void, page), &mi, sizeof mi) && mi.Protect == PAGE_READWRITE;
+    }
     AcquireSRWLockExclusive(&cow_lock);
     if (*bit & mask) {
         LONG k = ncow;
         if (ring_on) ring_promote(page);
         else if (k < MAX_COW) { cow_page[k] = page; memcpy(cow_orig + (u64)k * PAGE, P(void, page), PAGE); ncow = k + 1; }
         else cow_overflow++;
-        *bit &= (u8)~mask;
         DWORD old;
         VirtualProtect(P(void, page), PAGE, PAGE_READWRITE, &old);
+        *bit &= (u8)~mask;   /* (after: another thread's write meanwhile still finds its bit, waits for the lock and goes through) */
     }
     ReleaseSRWLockExclusive(&cow_lock);
     return 1;
@@ -1023,6 +1027,7 @@ static u8 *ring_pages[RING_MAX];
 static u64 ring_frame_of[RING_MAX];       /* the frame saved there, plus one (0: none, or not all held then) */
 static u8 *ring_tlr[RING_MAX];
 static u64 ring_tlr_size[RING_MAX];
+static u8 ring_events[RING_MAX][4096];
 static u64 ring_keys[RING_MAX][256];
 static u32 ring_nkeys[RING_MAX];
 static u32 ring_room;                     /* pages committed in each save */
@@ -1055,15 +1060,75 @@ static int ring_grow(u32 need) {   /* (cow_lock held) every save has room for `n
     return 1;
 }
 
-static void ring_promote(u64 page) {   /* (the write handler, cow_lock held) */
+/* Only what changes is copied each frame. A saved page is "active" (writable, copied at every save) or "watched" (read-only
+ * since frame `since`, not copied: nobody has written it since). Every frame 1/SSBU_RB_IDLE (16) of the active pages become
+ * watched, right after this frame's save copied them; the first write to a watched one makes it active again, its contents
+ * (as at `since`) going first into the saves taken after `since`, which did not copy it. A page written every frame is
+ * watched for one frame in 16; one the game leaves alone stays out of the copying. */
+static u32 ring_idle = 16, ring_cursor;
+static u8 hot_watched[MAX_HOT];
+static u64 hot_since[MAX_HOT];
+#define MAP_SIZE (MAX_HOT * 2)
+static u64 map_key[MAP_SIZE];             /* page -> its index in hot[] (open addressing; 0: free) */
+static u32 map_val[MAP_SIZE];
+static u64 ring_woken, ring_demoted, ring_demote_ns;
+static u32 ring_active;
+
+static u32 *map_slot(u64 page, int add) {
+    u32 h = (u32)((page >> 12) * 0x9E3779B97F4A7C15ull >> 40) & (MAP_SIZE - 1);
+    while (map_key[h] && map_key[h] != page) h = (h + 1) & (MAP_SIZE - 1);
+    if (!map_key[h]) { if (!add) return NULL; map_key[h] = page; }
+    return &map_val[h];
+}
+
+static void ring_wake(u32 i) {   /* (cow_lock held) a watched page active again: the saves since it was watched get it */
+    for (int s = 0; s < ring_n; s++)
+        if (ring_frame_of[s] && ring_frame_of[s] - 1 > hot_since[i]) memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE);
+    hot_watched[i] = 0;
+    ring_woken++;
+}
+
+static void ring_promote(u64 page) {   /* (the write handler, cow_lock held; the caller then makes the page writable) */
+    u32 *known = map_slot(page, 0);
+    if (known) { ring_wake(*known); return; }
     if (nhot == MAX_HOT || !ring_grow(nhot + 1)) { ring_overflow++; return; }
     u32 i = nhot;
     for (int s = 0; s < ring_n; s++) if (ring_frame_of[s]) memcpy(ring_pages[s] + (u64)i * PAGE, P(void, page), PAGE);
     hot[i] = page;
     hot_ok[i] = 1;
+    hot_watched[i] = 0;
+    *map_slot(page, 1) = i;
     if (page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) { u64 b = (page - ALIAS_BASE) / PAGE; hot_bits[b >> 3] |= (u8)(1u << (b & 7)); }
     nhot = i + 1;
     ring_promoted++;
+}
+
+static void ring_demote(u32 n) {   /* (frozen, cow_lock held, right after the save) the next slice of the pages watched */
+    u32 per = (n + ring_idle - 1) / ring_idle;
+    u64 run = 0, run_end = 0;
+    for (u32 j = 0; j < per && n; j++) {
+        u32 i = ring_cursor++ % n;
+        u8 mask, *bit;
+        if (hot_watched[i] || !hot_ok[i] || !(bit = cow_bit_of(hot[i], &mask))) continue;
+        hot_watched[i] = 1;
+        hot_since[i] = ring_frame_no;
+        *bit |= mask;   /* (first: a write the moment it is read-only finds it) */
+        ring_demoted++;
+        if (hot[i] == run_end) { run_end += PAGE; continue; }
+        DWORD old;
+        if (run) VirtualProtect(P(void, run), run_end - run, PAGE_READONLY, &old);
+        run = hot[i]; run_end = run + PAGE;
+    }
+    DWORD old;
+    if (run) VirtualProtect(P(void, run), run_end - run, PAGE_READONLY, &old);
+}
+
+static void ring_wake_now(u32 i) {   /* (cow_lock held) active again without a write: before a put-back writes it */
+    u8 mask, *bit = cow_bit_of(hot[i], &mask);
+    ring_wake(i);
+    DWORD old;
+    VirtualProtect(P(void, hot[i]), PAGE, PAGE_READWRITE, &old);
+    if (bit) *bit &= (u8)~mask;   /* (after: a write meanwhile still finds its bit, waits for the lock and goes through) */
 }
 
 static void ring_check_regions(void) {   /* the alias area's mapping changed: which saved pages can be copied */
@@ -1088,6 +1153,10 @@ static int ring_begin(void) {
     int frozen = freeze_all(0, 500, &busy);
     nhot = 0;
     memset(ring_frame_of, 0, sizeof ring_frame_of);
+    memset(map_key, 0, sizeof map_key);
+    memset(hot_watched, 0, sizeof hot_watched);
+    const char *idle = getenv("SSBU_RB_IDLE");
+    if (idle && *idle) { ring_idle = (u32)atoi(idle); if (ring_idle < 2) ring_idle = 2; }
     ring_on = 1;
     cow_begin();   /* (nothing saved yet: everything read-only) */
     if (frozen) kernel_thaw();
@@ -1095,7 +1164,8 @@ static int ring_begin(void) {
     ring_frame_no = 0;
     fprintf(stderr, "[rbtest] saving every frame: a ring of %d saves; rollbacks of", ring_n);
     for (u32 i = 0; i < ROUNDS; i++) fprintf(stderr, " %u", round_frames[i] < (u32)ring_n ? round_frames[i] : (u32)ring_n - 1);
-    fprintf(stderr, " frames, %.0f s apart; afterwards the game goes on from %s\n", ring_gap_ns / 1e9, ring_continue ? "replay 3 (as a rollback would)" : "its own save");
+    fprintf(stderr, " frames, %.0f s apart; afterwards the game goes on from %s; each frame 1/%u of the pages copied are watched instead\n", ring_gap_ns / 1e9,
+            ring_continue ? "replay 3 (as a rollback would)" : "its own save", ring_idle);
     fflush(stderr);
     return 1;
 }
@@ -1108,9 +1178,15 @@ static void ring_save(Cpu *c) {
     ring_check_regions();
     u64 t1 = rt_now_ns();
     AcquireSRWLockExclusive(&cow_lock);
-    u32 n = nhot;
-    if (ring_grow(n)) for (u32 i = 0; i < n; i++) if (hot_ok[i]) memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE);
+    u32 n = nhot, active = 0;
+    if (ring_grow(n))
+        for (u32 i = 0; i < n; i++)
+            if (hot_ok[i] && !hot_watched[i]) { memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE); active++; }
     ring_frame_of[s] = frozen ? ring_frame_no + 1 : 0;
+    u64 td = rt_now_ns();
+    if (frozen) ring_demote(n);   /* (with the threads held: a write the moment a page is read-only must find this save done) */
+    ring_demote_ns += rt_now_ns() - td;
+    ring_active = active;
     ReleaseSRWLockExclusive(&cow_lock);
     u64 t2 = rt_now_ns();
     tlr_copy(ring_tlr[s], 1);
@@ -1123,7 +1199,7 @@ static void ring_save(Cpu *c) {
     ring_pages_ns += t2 - t1; ring_tlr_ns += t3 - t2; ring_fib_ns += t4 - t3;
     memcpy(ring_keys[s], freeze_keys, nfreeze_keys * sizeof *freeze_keys);
     ring_nkeys[s] = nfreeze_keys;
-    if (frozen) kernel_thaw();
+    if (frozen) { kernel_events(ring_events[s], 1); kernel_thaw(); }
     else ring_unheld++;
     memset(&rec[s], 0, sizeof rec[s]);
     rec[s].sim_cpu = *c;
@@ -1137,10 +1213,13 @@ static void ring_save(Cpu *c) {
         fprintf(stderr, "[rbtest] every frame: %llu saves, the last 120 in %.2f ms on average (at most %.2f), holding the threads %.2f ms (at most %.2f); %u pages saved (%.1f MB), %llu joined in them%s; %u fibers; not all held: %llu\n",
                 (unsigned long long)ring_saves, ring_save_ns / 120 / 1e6, ring_save_max_ns / 1e6, ring_hold_ns / 120 / 1e6, ring_hold_max_ns / 1e6,
                 n, n * (double)PAGE / 1048576.0, (unsigned long long)ring_promoted, ring_overflow ? ", more than the most kept" : "", ring_fibers, (unsigned long long)ring_unheld);
-        fprintf(stderr, "[rbtest] every frame: of it, on average: copying the pages %.2f ms, the thread-local regions %.2f ms (%.0f KB), the fibers %.2f ms\n",
-                ring_pages_ns / 120 / 1e6, ring_tlr_ns / 120 / 1e6, tlr_size / 1024.0, ring_fib_ns / 120 / 1e6);
+        fprintf(stderr, "[rbtest] every frame: of it, on average: copying the pages %.2f ms (the last time %u pages, %.1f MB, of %u; the others not written lately), "
+                        "watching %.2f ms; per frame %.0f pages watched, %.0f written again; the thread-local regions %.2f ms (%.0f KB), the fibers %.2f ms\n",
+                (ring_pages_ns - ring_demote_ns) / 120 / 1e6, ring_active, ring_active * (double)PAGE / 1048576.0, n, ring_demote_ns / 120 / 1e6,
+                ring_demoted / 120.0, ring_woken / 120.0, ring_tlr_ns / 120 / 1e6, tlr_size / 1024.0, ring_fib_ns / 120 / 1e6);
         fflush(stderr);
         ring_save_ns = ring_save_max_ns = ring_hold_ns = ring_hold_max_ns = ring_pages_ns = ring_tlr_ns = ring_fib_ns = 0;
+        ring_demote_ns = ring_demoted = ring_woken = 0;
         ring_promoted = ring_unheld = 0;
     }
 }
@@ -1165,13 +1244,22 @@ static void ring_put_back(int s) {
     ring_wait_ns += rt_now_ns() - t0;
     ring_check_regions();
     AcquireSRWLockExclusive(&cow_lock);
-    for (u32 i = 0; i < nhot; i++) if (hot_ok[i]) memcpy(P(void, hot[i]), ring_pages[s] + (u64)i * PAGE, PAGE);
+    u64 then = ring_frame_of[s] - 1;
+    for (u32 i = 0; i < nhot; i++) {
+        if (!hot_ok[i]) continue;
+        if (hot_watched[i]) {
+            if (hot_since[i] <= then) continue;   /* (not written since before that save: as it was then) */
+            ring_wake_now(i);
+        }
+        memcpy(P(void, hot[i]), ring_pages[s] + (u64)i * PAGE, PAGE);
+    }
     ReleaseSRWLockExclusive(&cow_lock);
     tlr_size = ring_tlr_size[s];   /* (a thread made since: its region is past this, and kept) */
     tlr_copy(ring_tlr[s], 0);
     u32 skipped, dropped;
     fibers_restore(2 + s, &skipped, &dropped);
     ring_skipped = skipped;
+    if (frozen) kernel_events(ring_events[s], 0);
     if (hold_wanted && !holding) hold_others();
     if (frozen) kernel_thaw();
 }
@@ -1227,7 +1315,11 @@ static void ring_rollback(Cpu *c) {
     if (ring_frame_of[s_from] != from + 1 || ring_frame_of[s_now] != now + 1) return;   /* (not all held then: the next frame) */
     for (u64 k = from; k < now; k++) if (!rec[k % (u64)ring_n].have_input) return;   /* (a frame without its input step: the next one) */
     u32 n = nhot;
+    fprintf(stderr, "[rbtest] rollback %u: going back %u frames, from frame %llu\n", round_i + 1, d, (unsigned long long)now);
+    fflush(stderr);
     ring_hash(ring_sum[0]);
+    u64 woken_id;
+    kernel_held_woken(&woken_id);
     hold_wanted = 1;
     nguest = 0;
     kernel_thread_each(note_guest, NULL);
@@ -1245,6 +1337,9 @@ static void ring_rollback(Cpu *c) {
         ring_hash(ring_sum[r]);
     }
     if (!ring_continue) ring_put_back(s_now);
+    u32 woken = kernel_held_woken(&woken_id);
+    if (woken) fprintf(stderr, "[rbtest] rollback %u: %u wake-ups of held threads while replaying (the last: guest thread %llu): they go on as woken\n",
+                       round_i + 1, woken, (unsigned long long)woken_id);
     if (holding) { InterlockedExchange(&holding, 0); kernel_release(); }
     hold_wanted = 0;
     hook = HOOK_RECORD;

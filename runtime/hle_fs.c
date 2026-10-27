@@ -15,6 +15,7 @@
 #include <stdlib.h>
 
 #include "host.h"
+#include "net_rbtest.h"
 
 #define R_PATH_NOT_FOUND RESULT(2, 1)
 #define R_PATH_EXISTS RESULT(2, 2)
@@ -345,7 +346,10 @@ static u64 read_at(Handle *h, i64 offset, void *buf, u64 size) {
     if (offset < 0 || (u64)offset > total) return ~0ull;
     if (size > total - (u64)offset) size = total - (u64)offset;
     if (!size) return 0;
+    if (rbt_on())   /* (the rewind test keeps pages read-only until written, and Windows' ReadFile fails on one instead of faulting: written first) */
+        for (u8 *q = buf; q < (u8 *)buf + size; q = (u8 *)(((uintptr_t)q | 0xFFF) + 1)) { volatile u8 *v = q; *v = *v; }
     int ok = h->host ? pread_all(h->host, (u64)offset, buf, size) : rom_read(h->offset + (u64)offset, buf, size);
+    if (!ok && rbt_on()) fprintf(stderr, "[rbtest] a file read failed (error %lu)\n", (unsigned long)GetLastError());
     return ok ? size : ~0ull;
 }
 

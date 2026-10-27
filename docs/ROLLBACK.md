@@ -601,6 +601,38 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27: copiar solo lo que cambió, y lo que falla al rebobinar
+
+**Copiar solo lo que cambió.** Una página guardada está "activa" (se copia en cada guardado) o "vigilada" (de solo lectura, no se
+copia). Cada cuadro, 1/16 de las activas pasan a vigiladas (`SSBU_RB_IDLE`) justo después de copiarse. La primera escritura a una
+vigilada la vuelve activa, y antes su contenido va a los guardados hechos desde que se vigila, que no la copiaron. Al devolver un
+guardado, una página vigilada desde antes de ese guardado ya está como entonces y no se toca.
+
+- **Resultado:** se copian ~3 400–4 100 páginas (13–16 MB) de ~6 000–8 000. Copiar baja de 5,5–13 ms a **2,7–4 ms**; vigilar cuesta
+  0,2–1,2 ms (~250 páginas por cuadro van y vuelven). El guardado entero queda en **5–7 ms** de media (antes 8–13), con picos de
+  10–35 ms. Congelar los hilos sigue costando ~1,5–2 ms. En corridas seguidas, con el PC más cargado, subió a 8–9 ms.
+- **Las correcciones siguen exactas:** la repetición 1 y la 3 difieren solo en las 2 páginas de siempre.
+- **Sin rebobinar es estable:** 100 s guardando en cada cuadro (2 600 guardados) sin caídas (`reports/every6.log`).
+- **Arreglado por el camino:**
+  - `ReadFile` de Windows falla (en vez de avisar) si escribe en una página de solo lectura. La lectura de archivos del juego
+    (`hle_fs.c`) toca antes cada página de destino mientras la prueba está encendida.
+  - Dos carreras en la copia al escribir: ahora la página se hace escribible antes de borrar su marca.
+
+**Lo que falla: rebobinar a veces tumba el juego**, segundos después o durante una repetición, siempre en tareas de luchadores que
+corren los hilos trabajadores (`lua2cpp_*`, desde `main+0x353d1b0` / `main+0x37cc0e0`). Pasaba también antes de copiar solo lo que
+cambió (`every1.log`). Lo que se encontró:
+
+- Los hilos retenidos mientras se repite se **despiertan** igual: 4–80 veces por vuelta atrás, casi siempre el hilo 11. Al soltarlos
+  siguen como si los hubieran avisado, aunque la memoria devuelta dice que nadie lo hizo. Ahora quien despierta (mutex, árbitro,
+  variable de condición) se salta a los hilos retenidos, pero las esperas por objetos (`WaitSynchronization`) aún los despiertan, y
+  devolver el guardado sigue esperando a veces 300–900 ms a que los hilos vuelvan a sus esperas de entonces.
+- Los **eventos del kernel** (encendido/apagado) no están en la memoria del juego: ahora se guardan y se devuelven con cada guardado
+  (`kernel_events`).
+- En una corrida (`every9.log`) un luchador lanzó una excepción de su script (`lua2cpp_pit`) en un trabajador durante la repetición.
+
+**Lo siguiente:** que rebobinar sea estable. Hay que decidir qué hilos corren mientras se repite y cómo vuelven exactamente a sus
+esperas; es la parte del "estado fuera de la memoria" que aún no está entera.
+
 ### 2026-10-27: **guardar en cada cuadro** (`SSBU_RB_EVERY=1`)
 
 Ya no hay 120 cuadros de búsqueda. Un anillo de `SSBU_RB_RING` guardados (8 por defecto) toma uno al empezar la simulación de cada

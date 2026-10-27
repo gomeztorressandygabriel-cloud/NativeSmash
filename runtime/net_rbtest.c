@@ -330,12 +330,19 @@ static int on_sim_thread(void) { return sim_thread && GetCurrentThreadId() == si
  * every pad read gets A held and the left stick full left. Replay 3 then goes back to the recorded pads, and must come out as
  * replay 1 did: a rewind after a wrong guess puts the game where the right pads take it. */
 static volatile int pad_alter;
+static int ring_natural;   /* (saving every frame, below) */
+static u64 plan_at;
 static u64 pads_altered;
 void rbt_pad(u64 out, u32 size) {
     if (hook == HOOK_OFF || !on_sim_thread() || size > PAD_BYTES) return;
     RecFrame *f = &rec[cur];
     if (hook == HOOK_RECORD) {
         if (f->npad < MAX_PADS) { memcpy(f->pad[f->npad], P(void, out), size); f->pad_size[f->npad++] = size; }
+        if (ring_natural && plan_at && size >= 0x18) {   /* (the frames before a rollback: played live with a wrong guess) */
+            st64(out + 8, ld64(out + 8) | 1);
+            st32(out + 0x10, (u32)-32767);
+            pads_altered++;
+        }
     } else if (pad_cursor < f->npad && f->pad_size[pad_cursor] == size) {
         memcpy(P(void, out), f->pad[pad_cursor++], size);
         pad_replayed++;
@@ -1056,7 +1063,13 @@ static u64 ring_promoted, ring_overflow, ring_saves, ring_unheld, ring_save_ns, 
 static u64 ring_pages_ns, ring_tlr_ns, ring_fib_ns, ring_wait_ns;
 static u32 ring_fibers, ring_skipped;
 static u64 ring_sum[4][MAX_HOT];
-static u64 plan_from, plan_at;        /* (the next rollback: back to frame plan_from's save at frame plan_at; 0: none planned) */
+static u64 plan_from, plan_at;
+/* SSBU_RB_NATURAL=1: a rollback as a real one - the frames before it played live with other buttons (a wrong guess of the other
+ * player's), then the save of the first of them put back and the frames played again by the game's own main loop (every step it
+ * takes, the drawing too) with the recorded buttons, then on from there */
+static int ring_natural;
+static u64 natural_until, natural_t0;
+static int natural_started;        /* (the next rollback: back to frame plan_from's save at frame plan_at; 0: none planned) */
 static u64 plan_expect[MAX_HOT];      /* (that save's pages' hashes when it was taken) */
 static u32 plan_n, plan_fib_n;
 static u64 plan_fib[3 * 16384];          /* the game's, replay 1's, 2's and 3's */
@@ -1068,6 +1081,7 @@ static int every_on(void) {
         if (r && *r) { ring_n = atoi(r); if (ring_n < 2) ring_n = 2; if (ring_n > RING_MAX) ring_n = RING_MAX; }
         if (g && *g) ring_gap_ns = (u64)(atof(g) * 1e9);
         ring_continue = k && atoi(k) != 0;
+        ring_natural = getenv("SSBU_RB_NATURAL") && atoi(getenv("SSBU_RB_NATURAL")) != 0;
     }
     return every_mode;
 }
@@ -1234,7 +1248,7 @@ static int ring_begin(void) {
     return 1;
 }
 
-static void ring_save(Cpu *c) {
+static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main loop plays again - its record is kept */
     u64 t0 = rt_now_ns(), busy = 0;
     int s = (int)(ring_frame_no % (u64)ring_n);
     int frozen = freeze_all(0, 20, &busy);
@@ -1284,10 +1298,12 @@ static void ring_save(Cpu *c) {
         kernel_thaw();
     }
     else ring_unheld++;
-    memset(&rec[s], 0, sizeof rec[s]);
-    rec[s].sim_cpu = *c;
+    if (!replaying) {
+        memset(&rec[s], 0, sizeof rec[s]);
+        rec[s].sim_cpu = *c;
+    }
     start_frame((u32)s);
-    hook = HOOK_RECORD;
+    hook = replaying ? HOOK_PLAY : HOOK_RECORD;
     u64 took = rt_now_ns() - t0;
     ring_saves++;
     ring_save_ns += took; if (took > ring_save_max_ns) ring_save_max_ns = took;
@@ -1459,7 +1475,23 @@ static void ring_round_done(void) {
     }
 }
 
+static int natural_same(const Cpu *then, const Cpu *c) {   /* the main loop at the same place (x20, its clock, let through) */
+    if (then->sp != c->sp || then->x[30] != c->x[30]) return 0;
+    for (int r = 19; r < 30; r++) if (r != 20 && then->x[r] != c->x[r]) return 0;
+    return 1;
+}
+
 static void ring_rollback(Cpu *c) {
+    if (ring_natural && !natural_same(&rec[plan_from % (u64)ring_n].sim_cpu, c)) {
+        /* (the main loop calls the simulation from more than one place - twice in a pass to catch up: back to the nearest save it
+         * took from the same place as now instead) */
+        u64 best = ~0ull;
+        for (u64 k = ring_frame_no > (u64)ring_n - 1 ? ring_frame_no - (u64)ring_n + 1 : 0; k < ring_frame_no; k++)
+            if (ring_frame_of[k % (u64)ring_n] == k + 1 && natural_same(&rec[k % (u64)ring_n].sim_cpu, c) &&
+                (best == ~0ull || (k > plan_from ? k - plan_from : plan_from - k) < (best > plan_from ? best - plan_from : plan_from - best)))
+                best = k;
+        if (best != ~0ull && best != plan_from) { plan_from = best; plan_n = 0; plan_fib_n = 0; }
+    }
     u64 now = ring_frame_no, from = plan_from;
     u32 d = (u32)(now - from);
     int s_now = (int)(now % (u64)ring_n), s_from = (int)(from % (u64)ring_n);
@@ -1518,6 +1550,51 @@ static void ring_rollback(Cpu *c) {
     if (!watching++) CloseHandle(CreateThread(NULL, 0, ring_watchdog, NULL, 0, NULL));
     ring_busy_since = rt_now_ns();
     u32 n = nhot;
+    if (ring_natural) {
+        /* the main loop at the same place as at that save (the registers it keeps across the call, and its stack) - else not safe */
+        const Cpu *then = &rec[s_from].sim_cpu;
+        int same = then->sp == c->sp && then->x[30] == c->x[30];
+        for (int r = 19; r < 30 && same; r++) same = r == 20 || then->x[r] == c->x[r];   /* (x20: the main loop's clock, kept in the PC's
+                                                                                           * own variables - it cannot go back; let through) */
+        if (!same) {
+            static int told;
+            if (told++ < 5) {
+                fprintf(stderr, "[rbtest] rollback %u: the main loop is not where it was at frame %llu's save:", round_i + 1, (unsigned long long)from);
+                for (int r = 19; r < 31; r++) if (then->x[r] != c->x[r]) fprintf(stderr, " x%d %#llx->%#llx", r, (unsigned long long)then->x[r], (unsigned long long)c->x[r]);
+                if (then->sp != c->sp) fprintf(stderr, " sp %#llx->%#llx", (unsigned long long)then->sp, (unsigned long long)c->sp);
+                fprintf(stderr, "\n");
+            }
+            ipc_note = 0;
+            ring_busy_since = 0;
+            return;   /* (the next frame) */
+        }
+        fprintf(stderr, "[rbtest] rollback %u: going back %u frames, from frame %llu; the main loop plays them again with the right buttons\n", round_i + 1, d,
+                (unsigned long long)now);
+        fflush(stderr);
+        hold_wanted = 1;
+        ring_put_back(s_from);
+        if (plan_n) {
+            static u64 back[MAX_HOT];
+            ring_hash(back);
+            char what[128];
+            snprintf(what, sizeof what, "frame %llu's save put back vs that frame as it was (must be identical)", (unsigned long long)from);
+            ring_compare(round_i + 1, what, plan_expect, back, plan_n);
+        }
+        if (holding) { InterlockedExchange(&holding, 0); kernel_release(); }
+        hold_wanted = 0;
+        ipc_note = 0;
+        *c = *then;
+        natural_until = now;
+        natural_t0 = rt_now_ns();
+        natural_started = 1;
+        ring_frame_no = from;
+        pad_replayed = pad_missing = tick_replayed = tick_missing = rnd_replayed = rnd_missing = 0;
+        hook = HOOK_PLAY;
+        start_frame((u32)s_from);
+        plan_at = 0;
+        ring_busy_since = 0;
+        return;
+    }
     fprintf(stderr, "[rbtest] rollback %u: going back %u frames, from frame %llu\n", round_i + 1, d, (unsigned long long)now);
     fflush(stderr);
     ring_hash(ring_sum[0]);
@@ -1626,6 +1703,16 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
         next_round_ns = rt_now_ns() + ring_gap_ns;
     }
     if (phase != RING) return;
+    if (natural_until) {   /* the main loop playing a rollback's frames again */
+        ring_frame_no++;
+        if (ring_frame_no < natural_until) { ring_save(c, 1); return; }
+        fprintf(stderr, "[rbtest] rollback %u: back at frame %llu, live again; the frames played again in %.1f ms; pads replayed %llu (missing %llu), ticks %llu (missing %llu), random bytes %llu (missing %llu)\n",
+                round_i + 1, (unsigned long long)ring_frame_no, (rt_now_ns() - natural_t0) / 1e6, (unsigned long long)pad_replayed, (unsigned long long)pad_missing,
+                (unsigned long long)tick_replayed, (unsigned long long)tick_missing, (unsigned long long)rnd_replayed, (unsigned long long)rnd_missing);
+        fflush(stderr);
+        natural_until = 0;
+        ring_round_done();
+    }
     if (!plan_at && rt_now_ns() >= next_round_ns) {   /* the next rollback: back to this frame's save, d frames from now */
         u32 d = round_frames[round_i];
         if (d > (u32)ring_n - 1) d = (u32)ring_n - 1;
@@ -1633,8 +1720,9 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
         plan_at = plan_from + d;
         plan_n = 0;
     }
-    ring_save(c);
+    ring_save(c, 0);
     if (plan_at && ring_frame_no >= plan_at) ring_rollback(c);
+    if (natural_started) { natural_started = 0; return; }   /* (the frame number is the rollback's first now: its simulation runs next) */
     if (holding) { InterlockedExchange(&holding, 0); kernel_release(); }   /* (no rollback after all this frame) */
     hold_wanted = 0;
     ring_frame_no++;

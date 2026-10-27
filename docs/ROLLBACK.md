@@ -601,6 +601,23 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27, noche (4): rollback "natural" (`SSBU_RB_NATURAL=1`)
+
+En vez de repetir a mano solo algunos pasos del cuadro, es el **propio bucle principal** el que vuelve a jugar los cuadros, con todos
+sus pasos (también el dibujo), como un emulador con rollback:
+
+- Los cuadros anteriores a la vuelta atrás se juegan en vivo con **otros botones**, como una predicción equivocada. Al llegar el
+  momento, se devuelve el guardado del primero de ellos y el bucle los juega otra vez con los botones grabados (los buenos). Cada
+  cuadro rejugado deja su guardado nuevo, y al alcanzar el cuadro de partida el juego sigue en vivo.
+- **Condición:** el bucle principal tiene que estar en el mismo sitio que en ese guardado (mismos registros guardados por el llamado y
+  misma pila). Dos excepciones:
+  - `x20` es el reloj del bucle; vive en variables del propio PC y no se puede rebobinar, así que se deja pasar.
+  - El bucle a veces llama a la simulación desde **otro sitio** (`main+0x374c370` en vez de `main+0x374c248`: dos simulaciones en
+    una pasada para ponerse al día). Entonces se vuelve al guardado más cercano tomado desde el mismo sitio.
+- **Resultado** (`every59`–`every61`): vueltas atrás de 1–2 cuadros rejugadas por el bucle en 7–50 ms, el estado devuelto idéntico al
+  guardado, y **el juego siguió en vivo**. Pero: una caída justo después de una (`every61`, puntero nulo); las de 4–7 cuadros casi
+  nunca encuentran un momento válido; y no se ha comprobado que el `x20` "adelantado" no cambie lo que hace el bucle.
+
 ### 2026-10-27, noche (3): seguir jugando desde la repetición (`SSBU_RB_CONTINUE=1`)
 
 Como haría un rollback de verdad: después de rebobinar, el juego sigue desde el estado de la repetición 3, no desde su propio

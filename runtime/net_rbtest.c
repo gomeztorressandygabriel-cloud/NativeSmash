@@ -321,6 +321,11 @@ static long long watch_now(u64 *seen, void (*each)(u64 page, void *user)) {
 /* ---- the hooks ------------------------------------------------------------------------ */
 static int on_sim_thread(void) { return sim_thread && GetCurrentThreadId() == sim_thread; }
 
+/* (freeze mode) replay 2 with other buttons than the recorded ones - a wrong guess of the other player's pad, as rollback makes:
+ * every pad read gets A held and the left stick full left. Replay 3 then goes back to the recorded pads, and must come out as
+ * replay 1 did: a rewind after a wrong guess puts the game where the right pads take it. */
+static volatile int pad_alter;
+static u64 pads_altered;
 void rbt_pad(u64 out, u32 size) {
     if (hook == HOOK_OFF || !on_sim_thread() || size > PAD_BYTES) return;
     RecFrame *f = &rec[cur];
@@ -329,6 +334,11 @@ void rbt_pad(u64 out, u32 size) {
     } else if (pad_cursor < f->npad && f->pad_size[pad_cursor] == size) {
         memcpy(P(void, out), f->pad[pad_cursor++], size);
         pad_replayed++;
+        if (pad_alter && size >= 0x18) {   /* (nn::hid npad state: buttons at +8, the left stick's x and y at +0x10) */
+            st64(out + 8, ld64(out + 8) | 1);
+            st32(out + 0x10, (u32)-32767);
+            pads_altered++;
+        }
     } else pad_missing++;
 }
 
@@ -894,6 +904,17 @@ static LONG WINAPI on_write(EXCEPTION_POINTERS *e) {
     if (cow_on) {   /* (guest addresses map to host ones by a fixed offset: G2H) */
         u64 h = e->ExceptionRecord->ExceptionInformation[1], g0 = (u64)(uintptr_t)P(u8, 0);
         if (h >= g0 && cow_take((h - g0) & ~(PAGE - 1))) return EXCEPTION_CONTINUE_EXECUTION;
+        static volatile LONG told;
+        if (h >= g0 && InterlockedIncrement(&told) <= 3) {   /* (a write the copy on write did not expect: why) */
+            u64 page = (h - g0) & ~(PAGE - 1);
+            u8 mask = 0, *bit = cow_bit_of(page, &mask);
+            MEMORY_BASIC_INFORMATION mi;
+            SIZE_T q = VirtualQuery(P(void, page), &mi, sizeof mi);
+            fprintf(stderr, "[rbtest] copy on write: a write to %#llx it does not know (in the alias area %d, hot %d, bit %s, protection %#lx, state %#lx, allocation %#llx)\n",
+                    (unsigned long long)page, page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE, page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE ? is_hot(page) : -1,
+                    bit ? (*bit & mask ? "set" : "clear") : "none", q ? (unsigned long)mi.Protect : 0ul, q ? (unsigned long)mi.State : 0ul,
+                    q ? (unsigned long long)((u8 *)mi.AllocationBase - (u8 *)P(u8, 0)) : 0ull);
+        }
     }
     u64 host = e->ExceptionRecord->ExceptionInformation[1];
     if (host < (u64)(uintptr_t)P(u8, ALIAS_BASE) || host >= (u64)(uintptr_t)P(u8, ALIAS_BASE) + ALIAS_SIZE) return EXCEPTION_CONTINUE_SEARCH;
@@ -1056,8 +1077,13 @@ static void check_and_replay(Cpu *c) {
     escaped = escaped_before;
     u64 pads1 = pad_replayed, pads_missing1 = pad_missing, ticks1 = tick_replayed, ticks_missing1 = tick_missing;
 
-    /* replay 2, from the save again */
+    /* replay 2, from the save again (freeze mode: with other buttons) */
+    pad_alter = freeze_on();
+    pads_altered = 0;
     double ms2 = watched_replay(c, 2, sum_two, NULL);
+    pad_alter = 0;
+    if (freeze_on()) fprintf(stderr, "[rbtest] round %u: replay 2 played with other buttons (%llu pad reads changed); replay 3 with the recorded ones again\n",
+                             round_i + 1, (unsigned long long)pads_altered);
     /* (freeze mode) and a third: the same as the second (something outside the saved state set once, by the first), or
      * as the first (something flipping every time)? */
     int third = freeze_on();

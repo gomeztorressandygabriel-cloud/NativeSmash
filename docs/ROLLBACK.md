@@ -601,6 +601,18 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27: **una predicción equivocada se corrige exacta** (repetir con otros botones)
+
+La repetición 2 se juega con otros botones (A pulsado y la palanca a la izquierda en cada lectura de mandos), como una predicción
+equivocada del mando del otro; la 3 vuelve a los botones grabados. Rondas de 1, 10, 30, 60 y 60 cuadros:
+
+- Con otros botones el combate se va por otro camino: 0, 11, 164, 297 y 225 páginas de la simulación distintas.
+- **La repetición 3 sale idéntica a la 1 en todas las rondas** (0 páginas de la simulación distintas), aun después de 60 cuadros de
+  predicción equivocada. Es exactamente lo que hace un rollback: rebobinar y volver a simular con el botón correcto.
+- **Pendiente:** después de la última ronda (al devolver el estado real tras 5 rondas), el juego se cayó en una tarea de un luchador
+  (`lua2cpp_gamewatch`, leyendo `0xffffffffffffffff`). Algo del estado del runtime (fuera de la memoria del juego: objetos del kernel,
+  sonido, el renderizador) no vuelve atrás y se acumula. Las rondas sí terminan bien.
+
 ### 2026-10-27, de madrugada: **la simulación se rebobina y se repite idéntica**, hasta 60 cuadros
 
 La pieza que faltaba: **las variables globales de los módulos** (`.data` y `.bss` de `main`, `sdk`, `subsdk0` y los `lua2cpp_*`, las

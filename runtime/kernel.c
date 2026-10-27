@@ -937,3 +937,4 @@ void kernel_init(void) {
                          PAGE_READWRITE) != G2H(areas[i].base))
             rt_fatal("kernel: cannot reserve the %s area at %#llx", areas[i].what, areas[i].base);
 }
+

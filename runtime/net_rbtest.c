@@ -1181,14 +1181,14 @@ static int is_guest_tid(DWORD tid) {
 }
 static void ring_wake(u32 i, int by) {   /* (cow_lock held) a watched page active again: the saves since it was watched get it; by: 1 the
                                           * game's thread wrote it, 0 the runtime's, -1 neither (a put-back) */
-    /* (a page the runtime alone had written was in no save: as now in every one, as a page new to them) */
-    int to_all = by > 0 && hot_host[i];
-    if (to_all) ring_host_turned++;
     for (int s = 0; s < ring_n; s++)
-        if (ring_frame_of[s] && (to_all || ring_frame_of[s] - 1 > hot_since[i])) memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE);
+        if (ring_frame_of[s] && ring_frame_of[s] - 1 > hot_since[i]) memcpy(ring_pages[s] + (u64)i * PAGE, P(void, hot[i]), PAGE);
     hot_watched[i] = 0;
     if (by >= 0) hot_writer[i] = GetCurrentThreadId();
-    if (by > 0) hot_host[i] = 0;
+    /* (a page the runtime's threads write - the GPU's semaphores and fences - is theirs for good, even if the game writes it too:
+     * put back, a fence the GPU had signalled since read as pending again, and the GPU never signals it twice - the graphics
+     * driver's window code then waited for it for ever) */
+    if (by == 0 && !hot_host[i]) { hot_host[i] = 1; ring_host_turned++; }
     ring_woken++;
 }
 
@@ -1362,8 +1362,28 @@ static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main 
                 ring_demoted / 120.0, ring_woken / 120.0, ring_tlr_ns / 120 / 1e6, tlr_size / 1024.0, ring_fib_ns / 120 / 1e6);
         fflush(stderr);
         ring_save_ns = ring_save_max_ns = ring_hold_ns = ring_hold_max_ns = ring_pages_ns = ring_tlr_ns = ring_fib_ns = 0;
+        if (ring_saves % 600 == 0) {   /* the runtime's pages, by the thread that wrote them last */
+            DWORD tid[16]; u32 cnt[16], nt = 0;
+            for (u32 i = 0; i < n; i++) {
+                if (!hot_host[i]) continue;
+                u32 k = 0;
+                while (k < nt && tid[k] != hot_writer[i]) k++;
+                if (k == nt && nt < 16) { tid[nt] = hot_writer[i]; cnt[nt++] = 0; }
+                if (k < nt) cnt[k]++;
+            }
+            for (u32 k = 0; k < nt; k++) {
+                char name[64] = "?";
+                HANDLE h = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, tid[k]);
+                if (h) {
+                    PWSTR w = NULL;
+                    if (SUCCEEDED(GetThreadDescription(h, &w)) && w) { WideCharToMultiByte(CP_UTF8, 0, w, -1, name, sizeof name, NULL, NULL); LocalFree(w); }
+                    CloseHandle(h);
+                }
+                fprintf(stderr, "[rbtest] the runtime's pages: %u written last by thread %lu (%s)\n", cnt[k], (unsigned long)tid[k], name);
+            }
+        }
         if (ring_protect_failed || ring_host_turned)
-            fprintf(stderr, "[rbtest] every frame: pages that could not be made read-only %llu; the runtime's pages the game then wrote %llu\n",
+            fprintf(stderr, "[rbtest] every frame: pages that could not be made read-only %llu; the game's pages the runtime's threads wrote too (theirs from then on) %llu\n",
                     (unsigned long long)ring_protect_failed, (unsigned long long)ring_host_turned);
         ring_demote_ns = ring_demoted = ring_woken = 0;
         ring_promoted = ring_unheld = 0;

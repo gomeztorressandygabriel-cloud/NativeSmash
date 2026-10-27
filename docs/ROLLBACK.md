@@ -601,6 +601,33 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27: **guardar en cada cuadro** (`SSBU_RB_EVERY=1`)
+
+Ya no hay 120 cuadros de búsqueda. Un anillo de `SSBU_RB_RING` guardados (8 por defecto) toma uno al empezar la simulación de cada
+cuadro, con los demás hilos quietos: las páginas, las zonas por hilo y las fibras.
+
+- **Qué páginas:** desde el principio toda la memoria del juego (la zona alias y las variables globales de los módulos) es de solo
+  lectura. La primera escritura a una página la suma a las que se guardan; su contenido de ese momento va también a los guardados ya
+  hechos, porque nadie la había escrito. Arranca en ~5 900 páginas y crece a ~8 800 (34 MB) en un minuto de combate.
+- **Fibras:** en el anillo, una fibra terminada solo guarda sus campos, sin la pila (nunca vuelve a correr).
+- **Rebobinar:** cada `SSBU_RB_GAP` s (5 por defecto) se vuelve 1, 2, 4, 7 y 7 cuadros atrás. Se repite con los botones grabados (1),
+  con otros (2) y otra vez con los grabados (3), y el juego sigue desde su propio guardado (`SSBU_RB_CONTINUE=1`: desde la repetición 3).
+  Al devolver un guardado, primero se espera hasta 300 ms a que los hilos estén en las mismas esperas que entonces.
+- **Arreglado:** el hilo gráfico del PC no se congela y escribió en una página justo entre hacerla de solo lectura y encender el
+  manejador. Ahora la marca se pone antes de proteger, y al terminar se desprotege antes de apagar.
+
+**Resultado** (`reports/every3.log`, combate contra la CPU a 144p): las 5 vueltas atrás completas, **sin caídas, y el juego siguió
+jugando**. La repetición 1 y la 3 difieren solo en las 2 páginas de siempre (`0x60406a0000`, `0x605eea0000`, que no son de la
+simulación). Con otros botones el combate cambia (4 a 6 páginas en 1–7 cuadros). Repetir cuesta ~2 ms por cuadro en combate.
+
+**El problema: guardar cuesta demasiado en este portátil.** Copiar 24–34 MB cada cuadro tarda **5,5–13 ms de media**, con picos de
+30–500 ms. Congelar los hilos suma 1,5 ms, y a veces 6–18 ms. El PC estaba sin memoria libre (el juego usa 6 GB de 7,7), así que la copia
+va a ~3 GB/s. Con 16,7 ms por cuadro no cabe. Faltan dos caminos, y quizá los dos:
+
+1. **Guardar solo el estado del combate:** la repetición y el juego "en vivo" difieren en 700–1 250 páginas, que el dibujo escribe y la
+   simulación no rehace. Si la simulación no las lee, sobran en el guardado, y son más o menos la mitad.
+2. **Copiar solo lo escrito desde el último cuadro**, en vez de todo cada vez.
+
 ### 2026-10-27: **una predicción equivocada se corrige exacta** (repetir con otros botones)
 
 La repetición 2 se juega con otros botones (A pulsado y la palanca a la izquierda en cada lectura de mandos), como una predicción

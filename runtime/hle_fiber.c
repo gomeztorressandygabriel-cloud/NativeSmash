@@ -167,8 +167,9 @@ HLE(_ZN2nn2os6detail20DispatchFiberContextEPPNS1_22FiberContextForHorizonES4_) {
  * fiber's guest context and the part of its host stack in use - in one of FIBER_SAVES saves, each
  * one put back as often as asked. A fiber running then (the thread saving, or one on another thread)
  * is left as it is. Fibers made after the save are dropped from the slots (their host fibers are
- * kept: a test-only leak). */
-#define FIBER_SAVES 2
+ * kept: a test-only leak). Saves 2 and up are the per-frame ring's (SSBU_RB_EVERY): a finalized fiber
+ * there keeps only its fields - it never runs again, and its slot is never reused while testing. */
+#define FIBER_SAVES (2 + 16)
 #ifdef _WIN32
 typedef struct SavedFib { Fib *f; Fib fields; Cpu cpu; int has_cpu; RbfSaved host; } SavedFib;
 typedef struct FiberSave { SavedFib *fib; u32 n, nspare; Fib **spare; } FiberSave;
@@ -188,6 +189,7 @@ int fibers_save(int which, u32 *running) {
         SavedFib *k = &v->fib[i];
         k->f = fibs[i];
         k->fields = *fibs[i];
+        if (which >= 2 && fibs[i]->finalized) { k->has_cpu = 0; memset(&k->host, 0, sizeof k->host); continue; }
         k->has_cpu = fibs[i]->cpu && fibs[i]->host && !rbf_running(fibs[i]->host);
         if (k->has_cpu) k->cpu = *fibs[i]->cpu;
         if (!fibs[i]->host || !rbf_save(fibs[i]->host, &k->host)) memset(&k->host, 0, sizeof k->host);

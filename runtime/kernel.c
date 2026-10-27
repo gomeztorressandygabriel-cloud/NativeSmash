@@ -56,6 +56,8 @@ typedef struct KThread {
     u64 wait_handles;   /* while in WaitSynchronization: its handle array (guest) and count */
     u32 wait_count;
     volatile int sleeping, requesting;   /* in SleepThread; in a service request (for the rollback probe's view of who is busy) */
+    volatile int held;   /* (the rewind test) kept in its wait, even when woken, until kernel_release */
+    volatile int parked;   /* (the rewind test) held at the gate after SleepThread or a service request: as good as waiting */
 } KThread;
 
 typedef struct KObject { int type, signaled; KThread *thread; void *session; } KObject;
@@ -71,6 +73,7 @@ static Region regions[4096];
 static u32 region_count;
 static struct { u64 dst, src, size; } maps[1024];
 static u64 heap_size, tlr_next = KERNEL_BASE, next_thread_id = 1, wait_order;
+static volatile LONG kfrozen;   /* (the rewind test) kernel_freeze holds the kernel's lock: a thread out of SleepThread waits for it */
 
 /* ---- time ------------------------------------------------------------------------ */
 static u64 now_ns(void) { return rt_clock_ns(); }
@@ -96,6 +99,7 @@ static int kwait(KThread *me, u64 deadline) {
         ms = (DWORD)((deadline - now + 999999) / 1000000);
     }
     SleepConditionVariableCS(&me->woken, &klock, ms);
+    while (me->held) SleepConditionVariableCS(&me->woken, &klock, INFINITE);   /* (the rewind test holds it) */
     return 1;
 }
 
@@ -438,7 +442,17 @@ void rt_svc(Cpu *c, u32 n) {
     case 0x0B:   /* SleepThread(ns): non-positive values are yield requests */
         if (me) me->sleeping = 1;
         if ((i64)x[0] > 0) Sleep((DWORD)((x[0] + 999999) / 1000000)); else SwitchToThread();
-        if (me) me->sleeping = 0;
+        if (me) {
+            me->sleeping = 0;
+            MemoryBarrier();   /* (against kernel_freeze's check: it sets kfrozen, then looks at sleeping) */
+            if (kfrozen || me->held) {
+                EnterCriticalSection(&klock);
+                me->parked = 1;
+                while (me->held) SleepConditionVariableCS(&me->woken, &klock, INFINITE);
+                me->parked = 0;
+                LeaveCriticalSection(&klock);
+            }
+        }
         return;
     case 0x10: x[0] = 0; return;                         /* GetCurrentProcessorNumber */
     case 0x1E: x[0] = rt_ticks(); return;                /* GetSystemTick */
@@ -468,7 +482,17 @@ void rt_svc(Cpu *c, u32 n) {
         if (!s) { x[0] = R_INVALID_HANDLE; return; }
         if (me) me->requesting = 1;
         x[0] = ipc_request(c, s, n == 0x21 ? c->tpidrro : x[0], n == 0x21 ? 0x100 : x[1]);
-        if (me) me->requesting = 0;
+        if (me) {
+            me->requesting = 0;
+            MemoryBarrier();   /* (as after SleepThread: held here while the rewind test holds it) */
+            if (kfrozen || me->held) {
+                EnterCriticalSection(&klock);
+                me->parked = 1;
+                while (me->held) SleepConditionVariableCS(&me->woken, &klock, INFINITE);
+                me->parked = 0;
+                LeaveCriticalSection(&klock);
+            }
+        }
         return;
     }
     }
@@ -667,6 +691,55 @@ int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, 
     return 1;
 }
 
+/* (net_rbtest.c) Every guest thread but this one held where it is: all of them waiting in the kernel (they need its
+ * lock to go on, which this keeps) or in SleepThread (held when it ends). 0, with nothing held, when one is running,
+ * in a service request, or the lock is busy: try again. Each thread's wait (what it waits on) goes in keys; with
+ * match, the waits must be the same ones as in keys (the threads idle where they were at the save). */
+int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id) {
+    if (!TryEnterCriticalSection(&klock)) return 0;
+    InterlockedExchange(&kfrozen, 1);
+    MemoryBarrier();
+    DWORD self = GetCurrentThreadId();
+    u32 k = 0;
+    int ok = 1;
+    for (u32 i = 0; i < nthreads && ok; i++) {
+        KThread *t = threads[i];
+        if (!t->started || t->exited || !t->host || GetThreadId(t->host) == self) continue;
+        int waiting = t->mutex_addr || t->cv_key || t->arb_addr || t->wait_count;
+        if (!waiting && !t->sleeping && !t->requesting && !t->parked) { ok = 0; if (busy_id) *busy_id = t->id; break; }   /* (in a service request: held when it ends) */
+        u64 key = t->id << 48 ^ (t->mutex_addr | t->cv_key | t->arb_addr | (t->wait_count ? t->wait_handles : 0) | (u64)(t->sleeping | t->parked) | (u64)t->requesting << 1);
+        if (match) { if (k >= *n || keys[k] != key) { ok = 0; if (busy_id) *busy_id = t->id; } }
+        else if (k < max) keys[k] = key;
+        k++;
+    }
+    if (ok && match && k != *n) ok = 0;
+    if (!ok) { InterlockedExchange(&kfrozen, 0); LeaveCriticalSection(&klock); return 0; }
+    if (!match) *n = k < max ? k : max;
+    return 1;
+}
+u64 kernel_tlr_end(void) { return tlr_next; }   /* (net_rbtest.c) the thread-local regions in use: KERNEL_BASE up to here */
+void kernel_thaw(void) { InterlockedExchange(&kfrozen, 0); LeaveCriticalSection(&klock); }
+
+/* (net_rbtest.c, with kernel_freeze's lock held) Every guest thread but this one and those in `allow` (guest ids) kept
+ * in its wait until kernel_release: woken, it waits again. How many. */
+u32 kernel_hold(const u64 *allow, u32 nallow) {
+    DWORD self = GetCurrentThreadId();
+    u32 n = 0;
+    for (u32 i = 0; i < nthreads; i++) {
+        KThread *t = threads[i];
+        if (!t->started || t->exited || !t->host || GetThreadId(t->host) == self) continue;
+        int ok = 0;
+        for (u32 k = 0; k < nallow; k++) ok |= allow[k] == t->id;
+        if (!ok) { t->held = 1; n++; }
+    }
+    return n;
+}
+void kernel_release(void) {
+    EnterCriticalSection(&klock);
+    for (u32 i = 0; i < nthreads; i++) if (threads[i]->held) { threads[i]->held = 0; WakeConditionVariable(&threads[i]->woken); }
+    LeaveCriticalSection(&klock);
+}
+
 /* (net_rbprobe.c) The host thread running guest thread `id` (NULL if none, or the kernel's lock busy). */
 HANDLE kernel_thread_host(u64 id) {
     if (!TryEnterCriticalSection(&klock)) return NULL;
@@ -697,7 +770,7 @@ void kernel_dump_threads(void) {
         if (!t || !t->started || t->exited || !t->host) continue;
         const char *state = t->mutex_addr ? "waiting for a mutex" : t->cv_key ? "waiting on a condition" :
                             t->arb_addr ? "waiting on an address" : "running or in a system call";
-        fprintf(stderr, "  thread %llu (priority %d): %s\n", t->id, t->priority, state);
+        fprintf(stderr, "  thread %llu (priority %d): %s%s%s%s\n", t->id, t->priority, state, t->held ? ", held" : "", t->requesting ? ", in a service request" : "", t->sleeping ? ", sleeping" : "");
         rt_backtrace_thread(t->host, 6);
     }
     LeaveCriticalSection(&klock);

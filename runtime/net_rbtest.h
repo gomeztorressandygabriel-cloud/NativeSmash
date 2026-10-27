@@ -12,4 +12,5 @@ static inline int rbt_on(void) {
 }
 
 void rbt_pad(u64 out, u32 size);   /* (hle_hid.c) a pad state the game just read: recorded, or replayed */
-u64 rbt_ticks(u64 now);            /* (kernel.c) the system tick the game reads: recorded, or replayed */
+u64 rbt_ticks(u64 now);
+int rbt_random(u8 *out, u64 n);     /* (hle_offline.c) the secure random bytes the game asks for: recorded, or replayed (1: done) */            /* (kernel.c) the system tick the game reads: recorded, or replayed */

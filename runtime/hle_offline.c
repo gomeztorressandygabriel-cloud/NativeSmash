@@ -11,6 +11,7 @@
 #include <stdlib.h>
 
 #include "host.h"
+#include "net_rbtest.h"
 
 #define R_UNAVAILABLE RESULT(124, 300)
 #define OK { c->x[0] = 0; }
@@ -33,6 +34,7 @@ HLE(_ZN2nn8settingseqERKNS0_8LanguageERKNS0_12LanguageCodeE) { c->x[0] = ld64(c-
 /* ---- nn::crypto: the secure random source ----------------------------------------- */
 HLE(_ZN2nn6crypto36GenerateCryptographicallyRandomBytesEPvm) {
     u8 *p = P(u8, c->x[0]);
+    if (rbt_on() && rbt_random(p, c->x[1])) return;   /* (the rewind test: the same bytes again when replaying) */
     for (u64 i = 0; i < c->x[1]; i++) {
         unsigned int r;
         rand_s(&r);

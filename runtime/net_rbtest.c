@@ -48,6 +48,7 @@
  * (docs/ROLLBACK.md): 7103667300 reads the pads, 71037246a0 simulates (and calls itself: only the
  * outermost call, from the main loop, is a frame), both called by the main loop 7103746e90. */
 #define _CRT_SECURE_NO_WARNINGS
+#define _CRT_RAND_S   /* (rand_s, for the secure random bytes recorded) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,7 +94,7 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #endif
 
 #define PAGE 0x1000ull
-#define MAX_HOT 16384              /* pages saved at most: 64 MB */
+#define MAX_HOT 32768              /* pages saved at most: 128 MB (a heavy stage writes more than 64 MB in 120 frames) */
 #define MAX_REGIONS 4096
 #define DISCOVER_FRAMES 120
 #define CENSUS_FRAMES 10           /* (Windows) frames the census of who writes the pages lasts */
@@ -114,6 +115,8 @@ typedef struct RecFrame {
     u32 pad_size[MAX_PADS], npad;
     u64 ticks[MAX_TICKS];
     u32 nticks;
+    u8 rnd[4096];                  /* the secure random bytes asked for, by any thread, in order */
+    u32 nrnd;
 } RecFrame;
 
 enum { IDLE, DISCOVER, CENSUS, RECORD, DONE };
@@ -208,12 +211,79 @@ static void mark_sim(u64 page, void *user) {
     sim_bits[i >> 3] |= (u8)(1u << (i & 7));
 }
 
+/* SSBU_RB_FREEZE=1: rewind everything, as an emulator does - every other guest thread held in its wait while the pages
+ * are saved and put back (kernel_freeze), and no page left out for another thread writing it (no census). The threads
+ * must be idle at the same waits at the put-back as at the save. */
+static int freeze_mode = -1;
+static u64 freeze_keys[256];
+static u32 nfreeze_keys;
+static u64 freeze_waited_ns, freeze_tries;
+/* (freeze mode) the threads' thread-local regions too (nn::os's TLS slots are there: a per-thread value the game flips every
+ * frame was not rewound), saved and put back with the pages */
+#define TLR_MAX (1024 * 0x1000)
+static u8 *tlr_snap, *tlr_now;
+static u64 tlr_size;
+static void tlr_copy(u8 *to, int out) {   /* out: from the game into `to`; else from `to` back into the game */
+    if (out) { tlr_size = kernel_tlr_end() - KERNEL_BASE; if (tlr_size > TLR_MAX) tlr_size = TLR_MAX; memcpy(to, P(void, KERNEL_BASE), tlr_size); }
+    else memcpy(P(void, KERNEL_BASE), to, tlr_size);
+}
+static int freeze_on(void) {
+    if (freeze_mode < 0) freeze_mode = getenv("SSBU_RB_FREEZE") && atoi(getenv("SSBU_RB_FREEZE")) != 0;
+    return freeze_mode;
+}
+/* Every other guest thread held (1), within ms; match: at the waits of the save. 0: not in time (nothing held). */
+static int freeze_all(int match, u32 ms, u64 *busy) {
+    u64 t0 = rt_now_ns();
+    freeze_tries = 0;
+    do {
+        freeze_tries++;
+        if (kernel_freeze(freeze_keys, &nfreeze_keys, 256, match, busy)) { freeze_waited_ns = rt_now_ns() - t0; return 1; }
+        SwitchToThread();
+    } while (rt_now_ns() - t0 < (u64)ms * 1000000);
+    freeze_waited_ns = rt_now_ns() - t0;
+    return 0;
+}
+
+/* While replaying (freeze mode), every guest thread but the replaying one and the simulation's helpers (SSBU_RB_HELPERS,
+ * guest ids; 3,4,12,13: the job workers and the two helpers the census found) stays in its wait: a thread at its own pace
+ * (sound, effects) running meanwhile changes pages the replays then disagree on. A watchdog lets them go after 3 s (the
+ * simulation waiting for one of them would otherwise never end). */
+static volatile LONG hold_wanted, holding, held_count;
+static volatile u64 hold_since_ns;
+static u64 helper_ids[16];
+static u32 nhelpers;
+static DWORD WINAPI hold_watchdog(void *unused) {
+    (void)unused;
+    for (;;) {
+        Sleep(100);
+        if (holding && rt_now_ns() - hold_since_ns > 3000000000ull) {
+            fprintf(stderr, "[rbtest] the held threads let go after 3 s: the simulation waited for one of them; the threads then:\n");
+            kernel_dump_threads();
+            InterlockedExchange(&holding, 0);
+            kernel_release();
+        }
+    }
+    return 0;
+}
+static void hold_others(void) {   /* (frozen) */
+    if (!nhelpers) {
+        const char *h = getenv("SSBU_RB_HELPERS");
+        const char *s = h && *h ? h : "3,4,12,13";
+        while (*s && nhelpers < 16) { helper_ids[nhelpers++] = strtoull(s, (char **)&s, 10); while (*s == ',' || *s == ' ') s++; }
+        CloseHandle(CreateThread(NULL, 0, hold_watchdog, NULL, 0, NULL));
+    }
+    held_count = (LONG)kernel_hold(helper_ids, nhelpers);
+    hold_since_ns = rt_now_ns();
+    InterlockedExchange(&holding, 1);
+}
+
 static int is_foreign(u64 page) {
     u64 i = (page - ALIAS_BASE) / PAGE;
     return page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE && foreign[i >> 3] >> (i & 7) & 1;
 }
 
 static void mark_foreign(u64 page) {
+    if (freeze_on()) return;   /* (everything is rewound) */
     if (page < ALIAS_BASE || page >= ALIAS_BASE + ALIAS_SIZE || is_foreign(page)) return;
     u64 i = (page - ALIAS_BASE) / PAGE;
     foreign[i >> 3] |= (u8)(1u << (i & 7));
@@ -274,9 +344,31 @@ u64 rbt_ticks(u64 now) {
     return now;
 }
 
+static u32 rnd_cursor;
+static u64 rnd_replayed, rnd_missing, rnd_recorded;
+static SRWLOCK rnd_lock = SRWLOCK_INIT;
+int rbt_random(u8 *out, u64 n) {
+    if (hook == HOOK_OFF) return 0;
+    AcquireSRWLockExclusive(&rnd_lock);
+    RecFrame *f = &rec[cur];
+    int done = 0;
+    if (hook == HOOK_RECORD) {
+        for (u64 i = 0; i < n; i++) { unsigned int r; rand_s(&r); out[i] = (u8)r; if (f->nrnd < sizeof f->rnd) f->rnd[f->nrnd++] = (u8)r; }
+        rnd_recorded += n;
+        done = 1;
+    } else if (rnd_cursor + n <= f->nrnd) {
+        memcpy(out, f->rnd + rnd_cursor, n);
+        rnd_cursor += (u32)n;
+        rnd_replayed += n;
+        done = 1;
+    } else rnd_missing += n;
+    ReleaseSRWLockExclusive(&rnd_lock);
+    return done;
+}
+
 static void start_frame(u32 k) {   /* the hooks now record into (or replay from) frame k */
     cur = k;
-    pad_cursor = tick_cursor = 0;
+    pad_cursor = tick_cursor = rnd_cursor = 0;
 }
 
 /* ---- the rounds ----------------------------------------------------------------------- */
@@ -307,9 +399,20 @@ static void save(Cpu *c) {
     u64 t0 = rt_now_ns();
     read_regions();
     u32 saved = 0;
+    u64 busy = 0;
+    int frozen = freeze_on() && freeze_all(0, 500, &busy);
+    if (freeze_on() && !frozen) fprintf(stderr, "[rbtest] round %u: the other threads could not all be held at once in 500 ms (%llu tries; guest thread %llu busy): saved anyway\n",
+                                        round_i + 1, (unsigned long long)freeze_tries, (unsigned long long)busy);
+    u64 frozen_ns = freeze_waited_ns, frozen_tries = freeze_tries;
     for (u32 i = 0; i < nhot; i++) {
         snap_ok[i] = (u8)committed(hot[i]);
         if (snap_ok[i]) { memcpy(snap + (u64)i * PAGE, P(void, hot[i]), PAGE); saved++; }
+    }
+    if (freeze_on()) { if (!tlr_snap) tlr_snap = malloc(TLR_MAX); if (!tlr_now) tlr_now = malloc(TLR_MAX); if (tlr_snap) tlr_copy(tlr_snap, 1); }
+    if (frozen) {
+        kernel_thaw();
+        fprintf(stderr, "[rbtest] round %u: saved with the other %u threads held (held after %.1f ms, %llu tries)\n", round_i + 1, nfreeze_keys,
+                frozen_ns / 1e6, (unsigned long long)frozen_tries);
     }
     window_seen = 0;
     watch_now(&window_seen, NULL);   /* (the window's writes are counted from here) */
@@ -332,8 +435,21 @@ static void save(Cpu *c) {
 
 /* Copy saved pages back: the save at the start of the window (snap) or the game's state at its end (snap_now). */
 static void put_back(const u8 *from) {
+    u64 busy = 0;
+    int frozen = freeze_on() && freeze_all(1, 1000, &busy);
+    if (freeze_on() && !frozen) {   /* (at other waits, or one busy: held as they are, if that can be) */
+        fprintf(stderr, "[rbtest] put-back: the other threads not idle at the save's waits in 1 s (guest thread %llu): held where they are\n", (unsigned long long)busy);
+        u32 n = 0;
+        static u64 keys[256];
+        u64 t0 = rt_now_ns();
+        while (!(frozen = kernel_freeze(keys, &n, 256, 0, &busy)) && rt_now_ns() - t0 < 1000000000ull) SwitchToThread();
+        if (!frozen) fprintf(stderr, "[rbtest] put-back: not held at all (guest thread %llu busy): put back anyway\n", (unsigned long long)busy);
+    }
     for (u32 i = 0; i < nhot; i++)
         if (snap_ok[i] && committed(hot[i]) && !is_foreign(hot[i])) memcpy(P(void, hot[i]), from + (u64)i * PAGE, PAGE);
+    if (freeze_on() && tlr_snap && tlr_now) tlr_copy(from == snap ? tlr_snap : tlr_now, 0);
+    if (frozen && hold_wanted && !holding) hold_others();
+    if (frozen) kernel_thaw();
 }
 
 /* The recorded frames again, from the start of the window: the simulation of frame 0, then each next
@@ -344,18 +460,20 @@ static double replay(Cpu *c) {
     Cpu now = *c;
     hook = HOOK_PLAY;
     for (u32 k = 0; k < n_frames; k++) {
-        if (k) {
+        if (k && rec[k].have_input) {   /* (a frame the game simulated without reading the pads first: none to replay) */
             start_frame(k);
             *c = rec[k].input_cpu;
             f_7103667300_orig(c);
-        }
+        } else if (k) start_frame(k);
         else start_frame(0);   /* (a frame's list holds its input step's reads, then its simulation's: go on from there) */
         *c = rec[k].sim_cpu;
         f_71037246a0_orig(c);
     }
     start_frame(n_frames);
-    *c = rec[n_frames].input_cpu;
-    f_7103667300_orig(c);
+    if (rec[n_frames].have_input) {
+        *c = rec[n_frames].input_cpu;
+        f_7103667300_orig(c);
+    } else fprintf(stderr, "[rbtest] replay: frame %u had no pad read before its simulation: none replayed\n", n_frames);
     hook = HOOK_OFF;
     *c = now;
     return (rt_now_ns() - t0) / 1e6;
@@ -668,7 +786,7 @@ static void trace_end(void) {
         if (other && !is_foreign(suspect[k])) { mark_foreign(suspect[k]); nshared += own; }
     }
 }
-static int census_possible(void) { return 1; }
+static int census_possible(void) { return !freeze_on(); }   /* (rewinding everything: no census) */
 #else
 static int census_possible(void) { return 0; }
 static void census_begin(void) {}
@@ -714,7 +832,16 @@ static double watched_replay(Cpu *c, int which, u64 *sums, u64 *replay_seen) {
     u32 before = stage(0);
     double ms = replay(c);
     u32 during = stage(0);
+    /* (freeze mode: hashed once every thread is idle again - the simulation's helpers may still be finishing the jobs
+     * it gave them) */
+    u64 busy = 0;
+    int frozen = freeze_on() && freeze_all(0, 1000, &busy);
+    if (freeze_on() && !frozen) fprintf(stderr, "[rbtest] replay %d: the threads not idle in 1 s to hash (guest thread %llu busy): hashed anyway\n", which, (unsigned long long)busy);
     hash_pages(sums);
+    if (which == 1)
+        for (u32 i = 0; i < nhot; i++)
+            if (sums[i]) memcpy(snap_one + (u64)i * PAGE, P(void, hot[i]), PAGE);
+    if (frozen) kernel_thaw();
     u32 after = stage(0);
     trace_end();
     fprintf(stderr, "[rbtest] round %u, replay %d: fibers restored %d (running, skipped: %u; started since, dropped: %u); of %u suspect pages, not as saved after the put-back: %u; changed before the replay: %u, during it: %u, after it: %u; pages left out (other threads write them): %u, %u of them written by the replaying thread too\n",
@@ -737,12 +864,14 @@ static void check_and_replay(Cpu *c) {
     hash_pages(sum_real);
     for (u32 i = 0; i < nhot; i++)
         if (snap_ok[i] && committed(hot[i])) memcpy(snap_now + (u64)i * PAGE, P(void, hot[i]), PAGE);
+    if (freeze_on() && tlr_now) tlr_copy(tlr_now, 1);
     u32 running = 0, skipped, dropped;
     int fib_now = fibers_save(1, &running);
     fprintf(stderr, "[rbtest] round %u: the state now kept (fibers %d, running %u); rewinding and replaying twice\n", round_i + 1, fib_now, running);
     fflush(stderr);
 
     /* replay 1, from the save */
+    if (freeze_on()) hold_wanted = 1;
     nguest = 0;
     kernel_thread_each(note_guest, NULL);
     u64 replay_seen = 0;
@@ -752,8 +881,6 @@ static void check_and_replay(Cpu *c) {
     if (watch_now(&replay_seen, count_escaped) < 0) escaped = ~0ull;
     u64 escaped_replay = escaped;
     escaped = escaped_before;
-    for (u32 i = 0; i < nhot; i++)
-        if (sum_one[i]) memcpy(snap_one + (u64)i * PAGE, P(void, hot[i]), PAGE);
     u64 pads1 = pad_replayed, pads_missing1 = pad_missing, ticks1 = tick_replayed, ticks_missing1 = tick_missing;
 
     /* replay 2, from the save again */
@@ -761,12 +888,21 @@ static void check_and_replay(Cpu *c) {
 
     /* the game's state back as it was */
     put_back(snap_now);
+    if (holding) {
+        InterlockedExchange(&holding, 0);
+        kernel_release();
+        fprintf(stderr, "[rbtest] round %u: %ld other threads were held while replaying\n", round_i + 1, (long)held_count);
+    }
+    hold_wanted = 0;
     int fib_back = fibers_restore(1, &skipped, &dropped);
 
     char line[1024];
     snprintf(line, sizeof line, "[rbtest] round %u (%u frames): replayed in %.1f and %.1f ms (%.2f ms a frame); pads replayed %llu (missing %llu), ticks replayed %llu (missing %llu); pages written outside the saved ones while replaying: %lld",
              round_i + 1, n_frames, ms1, ms2, ms2 / n_frames, (unsigned long long)pads1, (unsigned long long)pads_missing1,
              (unsigned long long)ticks1, (unsigned long long)ticks_missing1, escaped_replay == ~0ull ? -1ll : (long long)escaped_replay);
+    snprintf(line + strlen(line), sizeof line - strlen(line), "; random bytes recorded %llu, replayed %llu (missing %llu)", (unsigned long long)rnd_recorded,
+             (unsigned long long)rnd_replayed, (unsigned long long)rnd_missing);
+    rnd_recorded = rnd_replayed = rnd_missing = 0;
     fprintf(stderr, "%s\n", line);
     compare("replay 1 vs replay 2 (the same frames twice from the same save)", sum_one, sum_two, line, sizeof line);
     fprintf(stderr, "[rbtest] round %u RESULT %s\n", round_i + 1, line);
@@ -775,7 +911,7 @@ static void check_and_replay(Cpu *c) {
     show_words(sum_one, sum_two);
     fprintf(stderr, "[rbtest] round %u: the game's state given back (fibers %d)\n", round_i + 1, fib_back);
     /* and who writes the suspect pages in the game's own next frame (ended at its simulation's start) */
-    pick_suspects(sum_one, sum_two);
+    pick_suspects(sum_one, sum_two);   /* (freeze mode: traced to see who writes them, but nothing is left out) */
     if (round_i + 1 < ROUNDS) trace_begin(3);
 
     phase = IDLE;

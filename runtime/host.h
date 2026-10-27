@@ -75,6 +75,11 @@ int fibers_save(int which, u32 *running);              /* (hle_fiber.c, the roll
 int fibers_restore(int which, u32 *skipped, u32 *dropped);   /* ... and put back (as often as asked): how many; -1: not possible here */
 enum { KT_RUNNING, KT_WAITING, KT_SLEEPING, KT_REQUESTING };
 int kernel_thread_each(void (*each)(void *user, u64 id, int priority, int core, int state), void *user);   /* every guest thread alive and what it does (0: the kernel's lock is busy) */
+int kernel_freeze(u64 *keys, u32 *n, u32 max, int match, u64 *busy_id);   /* (the rewind test) every other guest thread held in a wait (1: the kernel's lock kept until kernel_thaw) */
+void kernel_thaw(void);
+u64 kernel_tlr_end(void);   /* the thread-local regions in use end here (they start at KERNEL_BASE) */
+u32 kernel_hold(const u64 *allow, u32 nallow);   /* (the rewind test, frozen) the other guest threads kept in their waits, but for allow */
+void kernel_release(void);
 u32 kernel_memory_regions(u64 *base, u64 *size, u32 max);   /* the guest's heap and stack regions (0: the kernel's lock is busy) */
 HANDLE kernel_thread_host(u64 id);                     /* the host thread running a guest thread (NULL: none, or the kernel's lock busy) */
 

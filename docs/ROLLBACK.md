@@ -601,6 +601,33 @@ del combate** (luchadores, escenario, objetos, el generador aleatorio de la part
 memoria por páginas. Mientras tanto el proyecto sigue con el **paso A** ([NETPLAY.md](NETPLAY.md)): VS en red con poco retraso, que no
 necesita rebobinar.
 
+### 2026-10-27: congelar todos los hilos y rebobinar todo junto (`SSBU_RB_FREEZE=1`)
+
+Como hace un emulador con la consola entera: en vez de separar páginas por hilo, se rebobina **todo** lo que el juego escribe, con los
+demás hilos quietos.
+
+- **Congelar** (`kernel_freeze` en `kernel.c`): un hilo del juego que espera en el kernel necesita el candado del kernel para seguir;
+  el hilo principal lo toma cuando todos los demás están esperando (o durmiendo en `SleepThread`, o dentro de una petición al sistema:
+  al salir de esas dos se quedan en una compuerta). Los 23 hilos quedan quietos en ~1 ms.
+- **Retener mientras se repite** (`kernel_hold` / `kernel_release`): durante la repetición solo corren el hilo principal y los
+  ayudantes de la simulación (`SSBU_RB_HELPERS`, por defecto 3, 4, 12 y 13); los demás, aunque los despierten, vuelven a esperar.
+  Con un vigilante: si en 3 s no acaba, los suelta y apunta dónde estaba cada hilo.
+- **Comparar con todo quieto**: los ayudantes pueden seguir terminando tareas del cuadro después de que la simulación vuelve.
+- **Las zonas por hilo del kernel (TLS)** se guardan y se devuelven también: un valor por hilo que el juego cambia cada cuadro no se
+  rebobinaba.
+- La lectura de mandos: un cuadro que se simula sin leer los mandos antes ya no tumba la repetición.
+- El azar del sistema (`GenerateCryptographicallyRandomBytes`) se graba y se repite, aunque el juego no lo pidió en ningún cuadro.
+
+**Resultado** (combate contra la CPU, rondas de 1, 1, 1, 5 y 10 cuadros): **las 5 rondas completas, sin caídas y sin que el juego note
+nada después**. Repetir cuesta **0,4–2 ms por cuadro** (10 cuadros en 4–15 ms). Las dos repeticiones del mismo cuadro difieren en
+**0 a 4 páginas** de la simulación (sin congelar eran ~70), y ninguna página escrita queda sin guardar. Una de las rondas salió
+idéntica.
+
+**Lo que falta:** en las demás rondas, un arreglo de vectores (paso 0x70, escrito por el hilo principal desde `main+0x36b5350` ←
+`main+0x4a9280` ← `main+0x4a6820` ← `main+0x616580` ← `main+0x3ad190`) sale 0 en la primera repetición y con valor en la segunda:
+algo que no está en la memoria del juego cambia durante la primera. Sospechosos: las 6 fibras que corren en el momento del guardado
+(no se guardan), estado del runtime (servicios emulados) o valores que el hilo gráfico del PC escribe en la memoria del juego.
+
 ### 2026-10-26: ¿vive el combate en zonas de memoria propias? No
 
 Prueba: un combate automático contra la CPU (ventana de 256x144, `SSBU_RB_TEST=1`), con dos sondas nuevas en `net_rbtest.c`:

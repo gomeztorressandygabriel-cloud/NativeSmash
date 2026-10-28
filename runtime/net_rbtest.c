@@ -1250,11 +1250,19 @@ static void ring_wake_now(u32 i) {   /* (cow_lock held) active again without a w
     if (bit) *bit &= (u8)~mask;   /* (after: a write meanwhile still finds its bit, waits for the lock and goes through) */
 }
 
+static int net_map_changed;   /* (netplay) the memory map changed since the saves began: they must start again */
 static void ring_check_regions(void) {   /* the alias area's mapping changed: which saved pages can be copied */
     read_regions();
     u64 sig = nalias;
     for (u32 r = 0; r < nalias; r++) sig = sig * 31 + alias_base[r] * 7 + alias_size[r];
+    if (rbt_net()) for (u32 r = 0; r < nregions; r++) sig = sig * 31 + region_base[r] * 5 + region_size[r];
     if (sig == ring_region_sig) return;
+    if (rbt_net() && ring_region_sig) {   /* (netplay: memory mapped or unmapped since the saves began - its writes went unseen: no save can be
+                                           * gone back to, and the saves start again) */
+        if (!net_map_changed) fprintf(stderr, "[rbtest] netplay: the game's memory map changed: the saves start again\n");
+        net_map_changed = 1;
+        memset(ring_frame_of, 0, sizeof ring_frame_of);
+    }
     ring_region_sig = sig;
     for (u32 i = 0; i < nhot; i++) hot_ok[i] = hot[i] < ALIAS_BASE || hot[i] >= ALIAS_BASE + ALIAS_SIZE || committed(hot[i]);
 }
@@ -1271,6 +1279,7 @@ static int ring_begin(void) {
     u64 busy = 0;
     int frozen = freeze_all(0, 500, &busy);
     nhot = 0;
+    memset(hot_bits, 0, ALIAS_SIZE / PAGE / 8);   /* (a ring started again: every page is found anew - one written while it was off must be saved) */
     memset(ring_frame_of, 0, sizeof ring_frame_of);
     memset(map_key, 0, sizeof map_key);
     memset(hot_watched, 0, sizeof hot_watched);
@@ -1284,6 +1293,7 @@ static int ring_begin(void) {
     cow_begin();   /* (nothing saved yet: everything read-only) */
     if (frozen) kernel_thaw();
     ring_region_sig = 0;
+    net_map_changed = 0;
     ring_frame_no = 0;
     fprintf(stderr, "[rbtest] saving every frame: a ring of %d saves; rollbacks of", ring_n);
     for (u32 i = 0; i < ROUNDS; i++) fprintf(stderr, " %u", round_frames[i] < (u32)ring_n ? round_frames[i] : (u32)ring_n - 1);
@@ -1292,6 +1302,11 @@ static int ring_begin(void) {
     fflush(stderr);
     return 1;
 }
+
+static int net_too_costly;
+static u64 net_again_ns;   /* (netplay) the saves start again no sooner than this, after rbt_net_stop */
+static void net_cost_note(u64 took_ns, int held);
+static u64 net_saves_since_begin, net_cost_ns, net_cost_unheld, net_cost_n;
 
 static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main loop plays again - its record is kept */
     u64 t0 = rt_now_ns(), busy = 0;
@@ -1350,6 +1365,7 @@ static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main 
     hook = replaying ? HOOK_PLAY : HOOK_RECORD;
     u64 took = rt_now_ns() - t0;
     ring_saves++;
+    net_cost_note(took, frozen);
     ring_save_ns += took; if (took > ring_save_max_ns) ring_save_max_ns = took;
     ring_hold_ns += held; if (held > ring_hold_max_ns) ring_hold_max_ns = held;
     if (ring_saves % 120 == 0) {
@@ -1783,7 +1799,34 @@ static void ring_rollback(Cpu *c) {
 }
 
 /* ---- netplay's side (net_lockstep.c) ---- */
-int rbt_net_ready(void) { return rbt_net() && phase == RING && ring_saves > (u64)ring_n; }
+/* (netplay) The per-frame saves go on only where they are cheap: over 12 ms a save on average, or more pages written than the saves
+ * keep, or the other threads hardly ever all held (menus, loading screens), netplay is asked to stop guessing (rbt_net_ready 0);
+ * once every guess is settled it stops the saves (rbt_net_stop), and they start again 10 s later. */
+static void net_cost_note(u64 took_ns, int held) {
+    if (!rbt_net()) return;
+    net_saves_since_begin++;
+    net_cost_ns += took_ns; net_cost_unheld += !held; net_cost_n++;
+    if (net_cost_n < 60) return;
+    double avg_ms = net_cost_ns / 60 / 1e6;
+    int bad = avg_ms > 12.0 || nhot >= MAX_HOT || net_cost_unheld > 20;
+    if (bad && !net_too_costly)
+        fprintf(stderr, "[rbtest] netplay: saving every frame costs too much here (%.1f ms a save, %u pages, %llu of 60 not all held): rollback to stop\n",
+                avg_ms, nhot, (unsigned long long)net_cost_unheld);
+    net_too_costly = bad;
+    net_cost_ns = net_cost_unheld = net_cost_n = 0;
+}
+int rbt_net_ready(void) { return rbt_net() && phase == RING && net_saves_since_begin > (u64)ring_n && !net_too_costly && !net_map_changed; }
+void rbt_net_stop(void) {   /* (netplay, every guess settled) the saves stop; again in 10 s */
+    if (phase != RING || natural_until || plan_at || !(net_too_costly || net_map_changed)) return;
+    ring_on = 0;
+    cow_end();
+    hook = HOOK_OFF;
+    phase = IDLE;
+    u32 again_s = net_map_changed && !net_too_costly ? 2 : 10;   /* (only the memory map changed: soon) */
+    net_again_ns = rt_now_ns() + again_s * 1000000000ull;
+    net_too_costly = 0;
+    fprintf(stderr, "[rbtest] netplay: the per-frame saves stopped; again in %u s\n", again_s);
+}
 u64 rbt_net_ring_frame(u32 lks_frame) {   /* (each input step) the save it comes after - noted with the netplay frame for going back */
     static u64 noted_for = ~0ull;
     int s = (int)(ring_frame_no % (u64)ring_n);
@@ -1813,7 +1856,8 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
     if (phase == IDLE) {
         static u32 net_from = ~0u;
         if (net_from == ~0u) net_from = getenv("SSBU_NETPLAY_ROLLBACK_FROM") ? (u32)atoi(getenv("SSBU_NETPLAY_ROLLBACK_FROM")) : 600;
-        if (rbt_net() ? !lks_on() || lks_frame() < net_from : rt_now_ns() < next_round_ns) return;
+        if (rbt_net() ? !lks_on() || lks_frame() < net_from || rt_now_ns() < net_again_ns : rt_now_ns() < next_round_ns) return;
+        net_saves_since_begin = 0;
         if (!ring_begin()) { fprintf(stderr, "[rbtest] saving every frame: out of memory: off\n"); phase = DONE; return; }
         phase = RING;
         next_round_ns = rbt_net() ? ~0ull : rt_now_ns() + ring_gap_ns;

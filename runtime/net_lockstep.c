@@ -924,7 +924,7 @@ static LksInput fake_pad(u32 f) {
     return in;
 }
 static void fake_deliver(void) {   /* (each input step) player 2's pads up to some frames ago, as P_INPUT gives them */
-    u32 lag = rb_on ? fake_lag + (frame / 7) % 3 : 0, upto = frame > lag ? frame - lag : 0;   /* (before rollback is on: at once - lockstep would wait for ever) */
+    u32 lag = rb_on && rbt_net_ready() ? fake_lag + (frame / 7) % 3 : 0, upto = frame > lag ? frame - lag : 0;   /* (before rollback is on: at once - lockstep would wait for ever) */
     while (have[1] <= upto) {
         u32 f = have[1];
         in_of[1][f % RING] = fake_pad(f);
@@ -1159,7 +1159,13 @@ void lks_input_step(void) {
         u64 waited_from = rt_now_ns(), next_send = waited_from + 10000000ull;
         int waited = 0;
         if (fake) fake_deliver();
-        if (!rb_on && rbt_net_ready()) { rb_on = 1; fprintf(stderr, "[netplay] rollback on from frame %u: the other players' pads that have not come are guessed\n", frame); }
+        int may_guess = rbt_net_ready();   /* (off while the per-frame saves cost too much - menus, loading: waited for, as without rollback) */
+        if (!rb_on && may_guess) { rb_on = 1; fprintf(stderr, "[netplay] rollback on from frame %u: the other players' pads that have not come are guessed\n", frame); }
+        if (!may_guess && mispredict_from == ~0u && lks_confirmed() >= frame) {   /* (every guess before this frame settled: the saves can stop) */
+            if (rb_on) fprintf(stderr, "[netplay] rollback off from frame %u (saving costs too much here): the pads are waited for until it comes back\n", frame);
+            rb_on = 0;
+            rbt_net_stop();   /* (only if saving costs too much, or must start again) */
+        }
         if (rb_on) {
             ring_of[frame % RING] = rbt_net_ring_frame(frame);
             if (mispredict_from != ~0u) {   /* (a guess was wrong: back to before that frame, the next frame) */
@@ -1170,7 +1176,7 @@ void lks_input_step(void) {
                     rbt_net_cancel();
                 }
             }
-            for (int i = 0; i < nplayers; i++) {   /* (the pads not come yet, guessed: that player's last ones) */
+            for (int i = 0; i < nplayers && may_guess; i++) {   /* (the pads not come yet, guessed: that player's last ones) */
                 if (i == me || have[i] > frame || frame >= have[i] + MAX_GUESS) continue;
                 LksInput guess = have[i] ? in_of[i][(have[i] - 1) % RING] : (LksInput){0};
                 in_of[i][frame % RING] = guess;
@@ -1185,6 +1191,7 @@ void lks_input_step(void) {
             if (ready) break;
             waited = 1;
             poll_net(2);
+            if (fake) fake_deliver();
             if (stopped) { stop("[netplay] netplay off"); return; }
             u64 now = rt_now_ns();
             if (now >= next_send) { send_inputs(); if (mode == M_HOST && frame < 300) send_start(); next_send = now + 10000000ull; }

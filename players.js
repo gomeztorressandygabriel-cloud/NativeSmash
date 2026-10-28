@@ -4,6 +4,12 @@
 window.NS = (function () {
   var URL_ = 'https://vsaogrjmlwzwvdtffyow.supabase.co';
   var KEY = 'sb_publishable_ia8FosvjKAWFkLkMf4lXVA_uJmPZFg4';
+  /* the community: the official WhatsApp group, and the Discord server's invitation (empty: its buttons stay hidden) */
+  var LINKS = { whatsapp: 'https://chat.whatsapp.com/CuV6VkBEa8Y6yVvsEcREY2', discord: '' };
+  function showLinks() {
+    document.querySelectorAll('[data-whatsapp]').forEach(function (a) { a.href = LINKS.whatsapp; a.hidden = !LINKS.whatsapp; });
+    document.querySelectorAll('[data-discord]').forEach(function (a) { a.href = LINKS.discord || '#'; a.hidden = !LINKS.discord; });
+  }
   var client = window.supabase ? window.supabase.createClient(URL_, KEY, { auth: { persistSession: true, detectSessionInUrl: true } }) : null;
 
   function lang() { return document.documentElement.lang === 'en' ? 'en' : 'es'; }
@@ -48,5 +54,5 @@ window.NS = (function () {
 
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
-  return { client: client, url: URL_, key: KEY, lang: lang, initLang: initLang, showOnline: showOnline, TIERS: TIERS, tier: tier, esc: esc };
+  return { links: LINKS, showLinks: showLinks, client: client, url: URL_, key: KEY, lang: lang, initLang: initLang, showOnline: showOnline, TIERS: TIERS, tier: tier, esc: esc };
 })();

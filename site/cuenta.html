@@ -40,6 +40,16 @@
   .stats span { color: var(--muted); font-size: 13px; }
   .me p { color: var(--muted); font-size: 14.5px; margin: 0 0 18px; }
   .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .linkish { all: unset; cursor: pointer; display: block; text-align: center; margin-top: 14px; color: #c9d0ff; font-size: 14px; }
+  .linkish:hover { text-decoration: underline; }
+  .small { color: var(--muted); font-size: 14.5px; margin: 0 0 4px; }
+  .swatches { display: flex; gap: 8px; justify-content: center; margin: -2px 0 16px; }
+  .swatches button { all: unset; cursor: pointer; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(255,255,255,.18); }
+  .swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px #fff; }
+  .rename { margin: 0 0 18px; text-align: left; }
+  .rename summary { cursor: pointer; color: #c9d0ff; font-size: 14px; text-align: center; list-style: none; }
+  .rename form { display: flex; gap: 10px; margin-top: 12px; }
+  .rename form .btn { width: auto; margin: 0; padding: 10px 18px; font-size: 15px; }
   @media (max-width: 820px) { .split { grid-template-columns: 1fr; gap: 30px; } .card { padding: 22px; } }
 </style>
 </head>
@@ -103,12 +113,29 @@
           <label for="inPass"><span data-l="es">Contraseña</span><span data-l="en">Password</span></label>
           <input id="inPass" type="password" autocomplete="current-password" required>
           <button class="btn" type="submit"><span data-l="es">Entrar</span><span data-l="en">Sign in</span></button>
+          <button class="linkish" type="button" id="toForgot"><span data-l="es">¿Olvidaste tu contraseña?</span><span data-l="en">Forgot your password?</span></button>
+        </form>
+        <form id="forgot" novalidate hidden>
+          <p class="small"><span data-l="es">Escribe el correo de tu cuenta y te enviaremos un enlace para poner una contraseña nueva.</span>
+            <span data-l="en">Type your account's email and we will send you a link to set a new password.</span></p>
+          <label for="fgMail"><span data-l="es">Correo</span><span data-l="en">Email</span></label>
+          <input id="fgMail" type="email" autocomplete="email" required>
+          <button class="btn" type="submit"><span data-l="es">Enviarme el enlace</span><span data-l="en">Send me the link</span></button>
+          <button class="linkish" type="button" id="backIn"><span data-l="es">Volver a entrar</span><span data-l="en">Back to sign in</span></button>
+        </form>
+        <form id="newpw" novalidate hidden>
+          <p class="small"><span data-l="es">Escribe tu contraseña nueva.</span><span data-l="en">Type your new password.</span></p>
+          <label for="npPass"><span data-l="es">Contraseña nueva</span><span data-l="en">New password</span></label>
+          <input id="npPass" type="password" autocomplete="new-password" minlength="8" required>
+          <div class="hint"><span data-l="es">Al menos 8 caracteres.</span><span data-l="en">At least 8 characters.</span></div>
+          <button class="btn" type="submit"><span data-l="es">Guardar la contraseña</span><span data-l="en">Save the password</span></button>
         </form>
         <div class="msg" id="msg" role="status"></div>
       </div>
 
       <div class="me" id="me" hidden>
         <div class="avatar" id="meInitial">?</div>
+        <div class="swatches" id="swatches" aria-label="Color"></div>
         <h2 id="meName"></h2>
         <div class="badge" id="meTier"></div>
         <div class="stats">
@@ -118,8 +145,16 @@
         </div>
         <p><span data-l="es">Abre el launcher, ve a En línea y entra con este correo para ver a los jugadores conectados.</span>
            <span data-l="en">Open the launcher, go to Online and sign in with this email to see the players online.</span></p>
+        <details class="rename">
+          <summary><span data-l="es">Cambiar mi nombre de jugador</span><span data-l="en">Change my player name</span></summary>
+          <form id="rename" novalidate>
+            <input id="rnName" maxlength="20" autocomplete="off">
+            <button class="btn soft" type="submit"><span data-l="es">Guardar</span><span data-l="en">Save</span></button>
+          </form>
+        </details>
         <div class="row">
-          <a class="btn" href="ranking.html"><span data-l="es">Ver el ranking</span><span data-l="en">See the ranking</span></a>
+          <a class="btn" id="myProfile" href="perfil.html"><span data-l="es">Ver mi perfil</span><span data-l="en">See my profile</span></a>
+          <a class="btn soft" href="ranking.html"><span data-l="es">Ranking</span><span data-l="en">Ranking</span></a>
           <button class="btn soft" type="button" id="out"><span data-l="es">Cerrar sesión</span><span data-l="en">Sign out</span></button>
         </div>
       </div>
@@ -151,7 +186,10 @@
       check: { es: 'Cuenta creada. Te hemos enviado un correo: abre el enlace para confirmarla y después entra aquí o en el launcher.', en: 'Account made. We sent you an email: open its link to confirm it, then sign in here or in the launcher.' },
       wrong: { es: 'Correo o contraseña incorrectos, o la cuenta aún no está confirmada (mira tu correo).', en: 'Wrong email or password, or the account is not confirmed yet (check your email).' },
       down: { es: 'No se pudo hablar con el servidor. Inténtalo en un momento.', en: 'The server could not be reached. Try again in a moment.' },
-      wait: { es: 'Un momento…', en: 'One moment…' }
+      wait: { es: 'Un momento…', en: 'One moment…' },
+      sent: { es: 'Listo: si ese correo tiene cuenta, te llegará un enlace para poner una contraseña nueva. Mira también en spam.', en: 'Done: if that email has an account, a link to set a new password is on its way. Check spam too.' },
+      pwSaved: { es: 'Contraseña guardada. Ya puedes entrar con ella aquí y en el launcher.', en: 'Password saved. You can sign in with it here and in the launcher.' },
+      renamed: { es: 'Nombre cambiado.', en: 'Name changed.' }
     };
     function t(k) { return T[k][NS.lang()]; }
     function say(text, ok) { var m = $('msg'); m.textContent = text; m.className = 'msg show ' + (ok ? 'ok' : 'bad'); }
@@ -159,7 +197,7 @@
 
     function tab(up) {
       $('tabUp').setAttribute('aria-selected', up); $('tabIn').setAttribute('aria-selected', !up);
-      $('up').hidden = !up; $('in').hidden = up; quiet();
+      $('up').hidden = !up; $('in').hidden = up; $('forgot').hidden = true; $('newpw').hidden = true; quiet();
     }
     $('tabUp').onclick = function () { tab(true); };
     $('tabIn').onclick = function () { tab(false); };
@@ -213,27 +251,79 @@
       }).catch(function () { busy(form, false); say(t('down')); });
     });
 
+    function only(id) { ['up', 'in', 'forgot', 'newpw'].forEach(function (f) { $(f).hidden = f !== id; }); $('tabUp').setAttribute('aria-selected', id === 'up'); $('tabIn').setAttribute('aria-selected', id === 'in' || id === 'forgot'); quiet(); }
+    $('toForgot').onclick = function () { only('forgot'); $('fgMail').value = $('inMail').value; };
+    $('backIn').onclick = function () { tab(false); };
+    $('forgot').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var mail = $('fgMail').value.trim(), form = this;
+      if (!mail) return say(t('fill'));
+      busy(form, true);
+      sb.auth.resetPasswordForEmail(mail, { redirectTo: location.href.split('#')[0] }).then(function (res) {
+        busy(form, false);
+        if (res.error) return say(res.error.message);
+        say(t('sent'), true);
+      }).catch(function () { busy(form, false); say(t('down')); });
+    });
+    $('newpw').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var pass = $('npPass').value, form = this;
+      if (pass.length < 8) return say(t('short'));
+      busy(form, true);
+      sb.auth.updateUser({ password: pass }).then(function (res) {
+        busy(form, false);
+        if (res.error) return say(res.error.message);
+        say(t('pwSaved'), true);
+        setTimeout(show, 1200);
+      }).catch(function () { busy(form, false); say(t('down')); });
+    });
+    var COLORS = ['#7C6CFF', '#A66BFF', '#3DB6DC', '#3DDC97', '#E0A43D', '#E5617A', '#5FD6C9', '#F28FD0'];
+    function paint(color) {
+      $('meInitial').style.background = color || '';
+      $('swatches').querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.c === color ? 'true' : 'false'); });
+    }
+    $('swatches').innerHTML = COLORS.map(function (c) { return '<button type="button" data-c="' + c + '" style="background:' + c + '" aria-label="' + c + '"></button>'; }).join('');
+    $('swatches').addEventListener('click', function (e) {
+      var c = e.target.dataset && e.target.dataset.c; if (!c) return;
+      paint(c); sb.rpc('set_avatar', { color: c });
+    });
+    $('rename').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var name = $('rnName').value.trim();
+      if (!/^[A-Za-z0-9_.-]{3,20}$/.test(name)) return say(t('nameBad'));
+      sb.rpc('set_username', { name: name }).then(function (r) {
+        if (r.error) return say(/taken/.test(r.error.message) ? t('nameTaken') : r.error.message);
+        say(t('renamed'), true); show();
+      });
+    });
     $('out').onclick = function () { sb.auth.signOut().then(function () { $('me').hidden = true; $('forms').hidden = false; tab(false); }); };
 
     /* signed in: the player's card */
     function show() {
       sb.auth.getUser().then(function (u) {
         if (!u.data || !u.data.user) return;
-        return sb.from('profiles').select('username, rating, wins, losses').eq('id', u.data.user.id).single().then(function (p) {
+        return sb.from('profiles').select('username, rating, wins, losses, avatar').eq('id', u.data.user.id).single().then(function (p) {
           if (p.error || !p.data) return;
           var d = p.data, tr = NS.tier(d.rating);
           $('meName').textContent = d.username;
           $('meInitial').textContent = d.username.charAt(0).toUpperCase();
           $('meRating').textContent = d.rating; $('meWins').textContent = d.wins; $('meLosses').textContent = d.losses;
           var b = $('meTier'); b.style.setProperty('--tier', tr.color); b.textContent = tr[NS.lang()];
+          $('rnName').value = d.username; paint(d.avatar);
+          $('myProfile').href = 'perfil.html?u=' + encodeURIComponent(d.username);
           $('forms').hidden = true; $('me').hidden = false;
         });
       });
     }
     document.addEventListener('ns-lang', function () { if (!$('me').hidden) show(); });
     if (location.hash.indexOf('type=signup') >= 0 || location.hash.indexOf('access_token') >= 0) tab(false);
-    sb.auth.getSession().then(function (s) { if (s.data && s.data.session) show(); });
-    sb.auth.onAuthStateChange(function (ev, session) { if (session && ev === 'SIGNED_IN') show(); });
+    sb.auth.getSession().then(function (s) { if (s.data && s.data.session && location.hash.indexOf('type=recovery') < 0) show(); });
+    var recovering = location.hash.indexOf('type=recovery') >= 0;
+    if (location.hash === '#olvide') only('forgot');
+    sb.auth.onAuthStateChange(function (ev, session) {
+      if (ev === 'PASSWORD_RECOVERY') { recovering = true; $('me').hidden = true; $('forms').hidden = false; only('newpw'); return; }
+      if (session && ev === 'SIGNED_IN' && !recovering) show();
+    });
   })();
 </script>
 </body>

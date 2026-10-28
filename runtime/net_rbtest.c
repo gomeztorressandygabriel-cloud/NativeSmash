@@ -1600,6 +1600,30 @@ static int natural_same(const Cpu *then, const Cpu *c, int strict) {
     return 1;
 }
 
+static u64 net_older_saves;
+/* (netplay, the save asked for not safe: a thread at its own pace - sound - seldom where it was then) The newest older save every
+ * thread is where it was at: going back further, the frames after it are played again too. 1: found, and every thread held (as a
+ * match would have left them); 0: none, nothing held. */
+static int net_older_save(const Cpu *c, u64 now, u64 *from, int *s_from, u32 *d) {
+    u64 busy = 0;
+    if (!freeze_all(0, 5, &busy)) return 0;
+    for (u64 k = *from; k + 1 > 0 && now - k <= (u64)ring_n - 2; k--) {
+        int sk = (int)(k % (u64)ring_n);
+        if (ring_frame_of[sk] != k + 1 || lks_after_ring[sk] != k + 1 || ring_nkeys[sk] != nfreeze_keys) continue;
+        if (ring_natural && !natural_same(&rec[sk].sim_cpu, c, 0)) continue;
+        if (memcmp(ring_keys[sk], freeze_keys, nfreeze_keys * sizeof *freeze_keys)) continue;
+        if (k != *from) {
+            plan_from = *from = k; *s_from = sk; *d = (u32)(now - k);
+            net_rewind_to = lks_after_frame[sk];
+            plan_n = plan_fib_n = 0;
+            net_older_saves++;
+        }
+        return 1;
+    }
+    kernel_thaw();
+    return 0;
+}
+static const char *net_wait_why = "";   /* (netplay) why the rollback asked for has not happened yet */
 static void ring_rollback(Cpu *c) {
     if (ring_natural && !natural_same(&rec[plan_from % (u64)ring_n].sim_cpu, c, 0)) {
         /* (the main loop calls the simulation from more than one place - twice in a pass to catch up: back to the nearest save it
@@ -1619,7 +1643,7 @@ static void ring_rollback(Cpu *c) {
     u32 d = (u32)(now - from);
     int s_now = (int)(now % (u64)ring_n), s_from = (int)(from % (u64)ring_n);
     if (d > (u32)ring_n - 1 || ring_frame_of[s_from] != from + 1) { plan_at = 0; return; }   /* (gone from the ring, or not all held then: planned again) */
-    if (ring_frame_of[s_now] != now + 1) return;   /* (not all held now: the next frame) */
+    if (ring_frame_of[s_now] != now + 1) { net_wait_why = "the threads not all held at this frame's save"; return; }   /* (not all held now: the next frame) */
     if (!ring_natural)   /* (the main loop's own replay reads the pads where it reads them) */
         for (u64 k = from; k < now; k++) if (!rec[k % (u64)ring_n].have_input) return;   /* (a frame without its input step: the next one) */
     {   /* every other thread at the same place as at that save (wait, fiber, registers) - else not safe: the next frame */
@@ -1627,7 +1651,9 @@ static void ring_rollback(Cpu *c) {
         u64 busy = 0;
         memcpy(freeze_keys, ring_keys[s_from], ring_nkeys[s_from] * sizeof *freeze_keys);
         nfreeze_keys = ring_nkeys[s_from];
-        if (!freeze_all(1, 5, &busy)) {
+        int safe = freeze_all(1, 5, &busy);
+        if (!safe && rbt_net()) safe = net_older_save(c, now, &from, &s_from, &d);
+        if (!safe) {
             static int shown;
             if (shown < 6 && freeze_all(0, 50, &busy)) {   /* (what differs in the helpers' registers) */
                 shown++;
@@ -1654,6 +1680,11 @@ static void ring_rollback(Cpu *c) {
                             show_wait("then", ring_waits[s_from] + 6 * j);
                         }
                 kernel_thaw();
+            }
+            {
+                static char why[96];
+                snprintf(why, sizeof why, "a thread not at the same place as at that save (the last: guest thread %llu)", (unsigned long long)busy);
+                net_wait_why = why;
             }
             if (++tries < 600) return;
             fprintf(stderr, "[rbtest] rollback %u: never safe in 600 frames (a thread never at the same place as %u frames before; the last: guest thread %llu): skipped\n",
@@ -1688,6 +1719,7 @@ static void ring_rollback(Cpu *c) {
             }
             ipc_note = 0;
             ring_busy_since = 0;
+            net_wait_why = "the main loop not where it was at that save";
             return;   /* (the next frame) */
         }
         fprintf(stderr, "[rbtest] rollback %u: going back %u frames, from frame %llu; the main loop plays them again with the right buttons\n", round_i + 1, d,
@@ -1864,6 +1896,7 @@ u64 rbt_net_ring_frame(u32 lks_frame) {   /* (each input step) the save it comes
  * thread held); 1: done or under way (a rollback replaying, or one waiting: asked again next frame until it is done) */
 int rbt_net_rollback(u64 ring_from, u32 g) {
     if (phase != RING || natural_until || plan_at) return 1;
+    net_wait_why = "";
     if (ring_frame_no - ring_from > (u64)ring_n - 2 || ring_frame_of[ring_from % (u64)ring_n] != ring_from + 1) return 0;
     plan_from = ring_from;
     plan_at = ring_frame_no + 1;
@@ -1871,7 +1904,12 @@ int rbt_net_rollback(u64 ring_from, u32 g) {
     net_rewind_to = g;
     return 1;
 }
-void rbt_net_cancel(void) { if (!natural_until) plan_at = 0; }
+void rbt_net_cancel(void) {
+    if (*net_wait_why) fprintf(stderr, "[rbtest] netplay: the rollback waited for: %s; older saves gone back to so far: %llu\n", net_wait_why,
+                               (unsigned long long)net_older_saves);
+    net_wait_why = "";
+    if (!natural_until) plan_at = 0;
+}
 
 static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the main thread) */
     ring_last_sim_ns = rt_now_ns();

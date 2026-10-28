@@ -314,10 +314,28 @@ static u32 address_space(u32 nr, u64 a, u32 request) {
     return NV_OK;
 }
 
+/* Freed handles, used again: never given back, a long session ran out of them (an hour and a half of Local Wireless). A freed one
+ * waits behind FREED_LAG others - a handle still in use somewhere (freed twice, or by a queued present) is not handed out soon - and
+ * keeps its memory's address until then (gpu_memory_overlaps: queued GPU work may still read it). */
+#define FREED_LAG 4096
+static u32 freed_ring[NVMAP_MAX], freed_head, freed_tail;
+static u8 freed_now[NVMAP_MAX];
+static u32 freed_count(void) { return freed_tail - freed_head; }
+static void freed_put(u32 h) {
+    if (freed_now[h] || freed_count() >= NVMAP_MAX) return;
+    freed_now[h] = 1;
+    freed_ring[freed_tail++ % NVMAP_MAX] = h;
+}
+static u32 freed_take(void) {
+    u32 h = freed_ring[freed_head++ % NVMAP_MAX];
+    freed_now[h] = 0;
+    return h;
+}
+
 static u32 nvmap(u32 nr, u64 a, u32 request) {
     switch (nr) {
     case 0x01: {                                                          /* Create */
-        u32 h = next_handle++;
+        u32 h = freed_count() > FREED_LAG ? freed_take() : next_handle++;
         if (h >= NVMAP_MAX) rt_fatal("nvdrv: out of nvmap handles");
         gpu_maps[h] = (NvMap){ld32(a), 0, 0x1000, 0};
         st32(a + 4, h);
@@ -338,6 +356,7 @@ static u32 nvmap(u32 nr, u64 a, u32 request) {
         st64(a + 8, gpu_maps[h].addr);
         st32(a + 16, (u32)gpu_maps[h].size);
         st32(a + 20, 0);
+        freed_put(h);
         return NV_OK;
     }
     case 0x09: {                                                          /* Param */

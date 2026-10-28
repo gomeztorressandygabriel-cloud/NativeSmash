@@ -1167,6 +1167,18 @@ static u32 *map_slot(u64 page, int add) {
  * the PC's progress, not the game's: not saved, put back or compared - a rewind would make the game wait for GPU work done. One
  * the game writes too is the game's. */
 static u8 hot_host[MAX_HOT];
+/* (the alias area's pages ever the runtime's: kept when the saves start again - a fence page the game wrote first after a new start
+ * was saved and put back as the game's, a fence read as pending again, and the main loop waited for it for ever) */
+static u8 *host_bits;
+static int host_page(u64 page) {
+    u64 b = (page - ALIAS_BASE) / PAGE;
+    return host_bits && page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE && host_bits[b >> 3] >> (b & 7) & 1;
+}
+static void host_page_note(u64 page) {
+    if (!host_bits) host_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
+    u64 b = (page - ALIAS_BASE) / PAGE;
+    if (host_bits && page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) host_bits[b >> 3] |= (u8)(1u << (b & 7));
+}
 static u64 ring_host_turned;   /* (runtime pages the game then wrote: the game's from then on) */
 static DWORD guest_tids[256];
 static volatile LONG nguest_tids;
@@ -1188,7 +1200,7 @@ static void ring_wake(u32 i, int by) {   /* (cow_lock held) a watched page activ
     /* (a page the runtime's threads write - the GPU's semaphores and fences - is theirs for good, even if the game writes it too:
      * put back, a fence the GPU had signalled since read as pending again, and the GPU never signals it twice - the graphics
      * driver's window code then waited for it for ever) */
-    if (by == 0 && !hot_host[i]) { hot_host[i] = 1; ring_host_turned++; }
+    if (by == 0 && !hot_host[i]) { hot_host[i] = 1; ring_host_turned++; host_page_note(hot[i]); }
     ring_woken++;
 }
 
@@ -1202,7 +1214,8 @@ static void ring_promote(u64 page) {   /* (the write handler, cow_lock held; the
     hot_ok[i] = 1;
     hot_watched[i] = 0;
     hot_writer[i] = GetCurrentThreadId();
-    hot_host[i] = !is_guest_tid(hot_writer[i]);
+    hot_host[i] = !is_guest_tid(hot_writer[i]) || host_page(page);
+    if (hot_host[i]) host_page_note(page);
     *map_slot(page, 1) = i;
     if (page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) { u64 b = (page - ALIAS_BASE) / PAGE; hot_bits[b >> 3] |= (u8)(1u << (b & 7)); }
     nhot = i + 1;

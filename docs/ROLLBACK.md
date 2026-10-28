@@ -1182,3 +1182,20 @@ re-simulados por cuadro jugado; todos convergieron al estado de referencia):
 | 200 ms | 5 % | 13 | 1,04 | 0,4 | 15 377 |
 
 (Los µs por cuadro son del juego sintético, irrelevantes para el juego real: solo muestran que el núcleo en sí cuesta muy poco.)
+
+## Netplay rollback, 2026-10-28 night
+
+- **Saving on and off.** In netplay the per-frame saves stop where they cost too much (over 12 ms a save on average, more pages
+  written than the saves keep, or the other threads seldom all held: menus and loading screens) and start again 10 s later.
+  Rollback stops guessing first and the saves stop only once every guess is settled; meanwhile the pads are waited for, as in
+  the plain VS netplay. A ring started again clears `hot_bits`, so every page is found anew.
+- **Memory mapped while saving.** Pages the game maps after the copy on write began were never read-only, so their writes went
+  unseen; a rollback after a mapping put back a game whose new memory was not as it had been (it crashed reading 0 in
+  lua2cpp_common). `rbt_mapped` (called by kernel.c's MapMemory and MapPhysicalMemory) makes them read-only at once. Unmapped
+  memory stays committed and cleared while rewinding, and its saved pages are still copied and put back (`hot_ok` asks
+  Windows, not only the kernel's region list), because a rewind to before the unmapping puts back a game that still uses it.
+- **Older saves.** A thread at its own pace (guest thread 19, sound) was seldom where it had been at the save asked for, so
+  most rollbacks waited until the guess was too old (43 of 66 wrong guesses never undone). Now the newest older save that every
+  thread matches is gone back to (`net_older_save`): 1 of 241 failed in the fake-rival test.
+- **nvmap handles** are used again after being freed, behind 4096 others: an hour and a half of Local Wireless ran out of
+  the 65535.

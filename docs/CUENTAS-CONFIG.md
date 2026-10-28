@@ -28,6 +28,8 @@ Con Google es igual, en <https://console.cloud.google.com> (**APIs y servicios �
 
 ## 3. Los correos en español
 
+**Antes hace falta el paso 1**: Supabase no deja cambiar el texto de los correos mientras se usa su correo de serie.
+
 Los textos están en `server/supabase/emails/`. En Supabase: **Authentication → Emails → Templates**. En cada plantilla, pon el asunto y pega el archivo:
 
 | Plantilla de Supabase | Asunto | Archivo |

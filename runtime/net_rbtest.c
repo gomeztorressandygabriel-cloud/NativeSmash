@@ -54,6 +54,7 @@
 #include <string.h>
 
 #include "net_rbtest.h"
+#include "gpu.h"
 #include "net_lockstep.h"
 
 volatile int rbt_state = -1;
@@ -85,6 +86,26 @@ HLE_WRAP(71092e7600) {
     if (rbt_on()) fprintf(stderr, "[rbtest] allocator %ld: %#llx, %#llx-%#llx (%.1f MB), made from main+%#llx\n", (long)i, (unsigned long long)self,
                           (unsigned long long)base, (unsigned long long)(base + size), size / 1048576.0, (unsigned long long)(caller - 0x7100000000ull));
 }
+/* (the NvWsi code's wait for a fence in memory - a word reaching a value: the main loop hung in it after a rollback) The last wait's
+ * object, shown when a rollback is stuck. */
+static volatile u64 fence_wait_obj, fence_wait_ns;
+static volatile int fence_waiting;   /* (the main loop in that wait now) */
+static u64 fence_unstuck;
+/* signature: d101c3ff a9016ffc a90267fa a9035ff8 a90457f6 a9054ff4 a9067bfd 910183fd b9400808 f9400013 aa0103f4 aa0003f5 7100151f 54.....8 .0.....9 91....29 */
+HLE_WRAP(7109427010) {
+    if (rbt_on()) { fence_wait_obj = c->x[0]; fence_wait_ns = rt_now_ns(); fence_waiting = 1; }
+    f_7109427010_orig(c);
+    fence_waiting = 0;
+}
+#define GPU_REL 2048
+static void gpu_sems_as_at(u64 mark);
+static struct { u64 addr, ns, job; u32 payload; } gpu_rel[GPU_REL];   /* (the GPU's last semaphore releases, in the order run) */
+static volatile LONG ngpu_rel;
+static int guest_readable(u64 a) {
+    MEMORY_BASIC_INFORMATION mi;
+    return a >= 0x6000000000ull && a < 0x7800000000ull && VirtualQuery(P(void, a), &mi, sizeof mi) && mi.State == MEM_COMMIT;
+}
+
 static int alloc_of(u64 page) {
     LONG n = nallocs < MAX_ALLOCS ? nallocs : MAX_ALLOCS;
     for (LONG i = 0; i < n; i++) if (page >= allocs[i].base && page < allocs[i].base + allocs[i].size) return (int)i;
@@ -1084,6 +1105,7 @@ static u8 *ring_tlr[RING_MAX];
 static u64 ring_tlr_size[RING_MAX];
 static u8 ring_events[RING_MAX][4096];
 static int ring_vi[RING_MAX][64];   /* (the display queue's slots then) */
+static u64 ring_gpu_mark[RING_MAX];   /* (the GPU's submissions queued by then) */
 static const u64 ring_reg_ids[4] = {3, 4, 12, 13};   /* (the helpers whose registers each save keeps, to say what differs) */
 static u64 ring_regs[RING_MAX][4][32];
 static u64 ring_waits[RING_MAX][64 * 6];
@@ -1108,6 +1130,15 @@ static u64 plan_from, plan_at;
  * takes, the drawing too) with the recorded buttons, then on from there */
 static int ring_natural;
 static u64 natural_until, natural_t0;
+/* (netplay) A frame whose simulation took over HEAVY_SIM_NS - a battle's start or end, a loading screen: about 1 ms a frame in a
+ * battle, 15-20 then - and the next HEAVY_FRAMES: no guessing, so no rollback. A rollback there hung: the game's other threads
+ * were halfway through the GPU work of the frames it took back, and the main loop then waited for ever for a fence of work never
+ * sent. */
+#define HEAVY_SIM_NS 6000000ull
+#define HEAVY_FRAMES 60
+static u64 net_heavy_until;
+static u64 net_heavy_count;
+static u64 natural_putback_ns, natural_save_ns, natural_saves, natural_sim_ns, natural_check_ns;   /* (a rollback's cost: putting the save back; the saves while replaying) */
 static int natural_started;
 static u32 net_rewind_to;                  /* (netplay) the frame netplay goes back to, with the save's */
 static u64 lks_after_ring[RING_MAX];       /* (netplay) per save: its frame number + 1, and the netplay frame whose input step follows it */
@@ -1174,6 +1205,20 @@ static int host_page(u64 page) {
     u64 b = (page - ALIAS_BASE) / PAGE;
     return host_bits && page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE && host_bits[b >> 3] >> (b & 7) & 1;
 }
+static u8 *sem_bits;   /* (the alias area's pages the GPU released semaphores in: the game's, put back and set as the save left them) */
+static int sem_page(u64 page) {
+    u64 b = (page - ALIAS_BASE) / PAGE;
+    return sem_bits && page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE && sem_bits[b >> 3] >> (b & 7) & 1;
+}
+static void sem_page_note(u64 page) {
+    if (!sem_bits) sem_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
+    u64 b = (page - ALIAS_BASE) / PAGE;
+    if (sem_bits && page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) sem_bits[b >> 3] |= (u8)(1u << (b & 7));
+}
+static void host_page_forget(u64 page) {
+    u64 b = (page - ALIAS_BASE) / PAGE;
+    if (host_bits && page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) host_bits[b >> 3] &= (u8)~(1u << (b & 7));
+}
 static void host_page_note(u64 page) {
     if (!host_bits) host_bits = calloc(ALIAS_SIZE / PAGE / 8, 1);
     u64 b = (page - ALIAS_BASE) / PAGE;
@@ -1200,7 +1245,7 @@ static void ring_wake(u32 i, int by) {   /* (cow_lock held) a watched page activ
     /* (a page the runtime's threads write - the GPU's semaphores and fences - is theirs for good, even if the game writes it too:
      * put back, a fence the GPU had signalled since read as pending again, and the GPU never signals it twice - the graphics
      * driver's window code then waited for it for ever) */
-    if (by == 0 && !hot_host[i]) { hot_host[i] = 1; ring_host_turned++; host_page_note(hot[i]); }
+    if (by == 0 && !hot_host[i] && !sem_page(hot[i])) { hot_host[i] = 1; ring_host_turned++; host_page_note(hot[i]); }
     ring_woken++;
 }
 
@@ -1214,7 +1259,7 @@ static void ring_promote(u64 page) {   /* (the write handler, cow_lock held; the
     hot_ok[i] = 1;
     hot_watched[i] = 0;
     hot_writer[i] = GetCurrentThreadId();
-    hot_host[i] = !is_guest_tid(hot_writer[i]) || host_page(page);
+    hot_host[i] = (!is_guest_tid(hot_writer[i]) || host_page(page)) && !sem_page(page);
     if (hot_host[i]) host_page_note(page);
     *map_slot(page, 1) = i;
     if (page >= ALIAS_BASE && page < ALIAS_BASE + ALIAS_SIZE) { u64 b = (page - ALIAS_BASE) / PAGE; hot_bits[b >> 3] |= (u8)(1u << (b & 7)); }
@@ -1330,6 +1375,7 @@ static int ring_begin(void) {
     if (frozen) kernel_thaw();
     ring_region_sig = 0;
     net_map_changed = 0;
+    net_heavy_until = 0;
     ring_frame_no = 0;
     fprintf(stderr, "[rbtest] saving every frame: a ring of %d saves; rollbacks of", ring_n);
     for (u32 i = 0; i < ROUNDS; i++) fprintf(stderr, " %u", round_frames[i] < (u32)ring_n ? round_frames[i] : (u32)ring_n - 1);
@@ -1376,6 +1422,7 @@ static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main 
     if (frozen) {
         kernel_events(ring_events[s], 1);
         vi_queue_save(ring_vi[s]);
+        ring_gpu_mark[s] = gpu_queue_mark();
         ring_nwaits[s] = kernel_waits(ring_waits[s], 64);
         for (int h = 0; h < 4; h++) if (!kernel_regs(ring_reg_ids[h], ring_regs[s][h])) memset(ring_regs[s][h], 0, sizeof ring_regs[s][h]);
         if (ring_saves % 60 == 0) {   /* (threads the game made since: theirs too) */
@@ -1572,6 +1619,29 @@ static DWORD WINAPI ring_watchdog(void *unused) {
         Sleep(500);
         u64 since = ring_busy_since;
         if (!since && ring_last_sim_ns && ring_rollbacks_done) since = ring_last_sim_ns;   /* (also: no frame for 5 s after a rollback) */
+        /* (netplay, after rollbacks) The main loop waiting over 1 s for a fence of the GPU's - a word in memory reaching a value - while
+         * the GPU has nothing left to run: the work that would release it was lost to a rollback (about one in 500: the game's other
+         * threads halfway through a frame's GPU work). That work only draws a frame, so the word is given its value - the frame may
+         * be drawn wrong - instead of the game standing still for ever. The word: the one the GPU last released values just below. */
+        if (0) {
+            u64 o = fence_wait_obj;
+            if (guest_readable(o) && ld32(o + 8) == 2) {
+                u32 want = ld32(o + 0x14);
+                LONG n = ngpu_rel;
+                for (LONG i = n - 1; i >= 0 && i >= n - 64; i--) {
+                    u64 a = gpu_rel[i % GPU_REL].addr;
+                    u32 have = guest_readable(a) ? ld32(a) : want;
+                    if ((i32)(want - gpu_rel[i % GPU_REL].payload) > 0 && (i32)(want - gpu_rel[i % GPU_REL].payload) < 64 && (i32)(want - have) > 0) {
+                        st32(a, want);
+                        fence_unstuck++;
+                        fprintf(stderr, "[rbtest] netplay: the main loop waited %.1f s for GPU fence %#x at %#llx (it had %#x) with the GPU idle: the work for it was lost to a rollback - given (%llu so far)" "\n",
+                                (rt_now_ns() - fence_wait_ns) / 1e9, want, (unsigned long long)a, have, (unsigned long long)fence_unstuck);
+                        fflush(stderr);
+                        break;
+                    }
+                }
+            }
+        }
         if (!since || told || rt_now_ns() - since < 5000000000ull) continue;
         told = 1;
         fprintf(stderr, "[rbtest] rollback stuck for 5 s: the main thread is at\n");
@@ -1584,6 +1654,39 @@ static DWORD WINAPI ring_watchdog(void *unused) {
             fprintf(stderr, "; at the last save:");
             for (int i = 0; i < 8; i++) fprintf(stderr, " %d", ring_vi[(ring_frame_no + (u64)ring_n - 1) % (u64)ring_n][i]);
             fputc(10, stderr);
+        }
+        if (fence_wait_obj && guest_readable(fence_wait_obj)) {   /* (the object's words, and 32 bytes at each that points into the game's memory) */
+            u64 o = fence_wait_obj;
+            fprintf(stderr, "[rbtest] the last fence waited for (%.1f s ago): object %#llx:", (rt_now_ns() - fence_wait_ns) / 1e9, (unsigned long long)o);
+            for (int w = 0; w < 6; w++) fprintf(stderr, " %#llx", (unsigned long long)ld64(o + 8 * w));
+            fputc(10, stderr);
+            for (int w = 0; w < 6; w++) {
+                u64 p = ld64(o + 8 * w);
+                if (!guest_readable(p)) continue;
+                u64 pg = p & ~(u64)(PAGE - 1);
+                u32 *k = map_slot(pg, 0);
+                fprintf(stderr, "[rbtest]   at %#llx (%s%s%s):", (unsigned long long)p, k ? "saved every frame" : "not saved every frame",
+                        k && hot_host[*k] ? ", the runtime's" : "", host_page(pg) ? ", noted the GPU's" : "");
+                for (int b = 0; b < 8; b++) fprintf(stderr, " %08x", ld32(p + 4 * b));
+                fputc(10, stderr);
+                for (int b = 0; b < 2; b++) {   /* (and one level further) */
+                    u64 q = ld64(p + 8 * b);
+                    if (!guest_readable(q)) continue;
+                    u64 qg = q & ~(u64)(PAGE - 1);
+                    u32 *kq = map_slot(qg, 0);
+                    fprintf(stderr, "[rbtest]     at %#llx (%s%s%s):", (unsigned long long)q, kq ? "saved every frame" : "not saved every frame",
+                            kq && hot_host[*kq] ? ", the runtime's" : "", host_page(qg) ? ", noted the GPU's" : "");
+                    for (int d = 0; d < 8; d++) fprintf(stderr, " %08x", ld32(q + 4 * d));
+                    fputc(10, stderr);
+                }
+            }
+        }
+        {   /* the GPU's last semaphore releases: where, what, now there */
+            LONG n = ngpu_rel;
+            fprintf(stderr, "[rbtest] the GPU's last semaphore releases (%ld in all):" "\n", (long)n);
+            for (LONG i = n > 24 ? n - 24 : 0; i < n; i++)
+                fprintf(stderr, "[rbtest]   %#llx: %#x (now %#x), %.2f s ago" "\n", (unsigned long long)gpu_rel[i % GPU_REL].addr, gpu_rel[i % GPU_REL].payload,
+                        guest_readable(gpu_rel[i % GPU_REL].addr) ? ld32(gpu_rel[i % GPU_REL].addr) : 0, (rt_now_ns() - gpu_rel[i % GPU_REL].ns) / 1e9);
         }
         fprintf(stderr, "[rbtest] and the guest threads (if the kernel's lock is free):\n");
         kernel_thread_states(watchdog_line);
@@ -1739,7 +1842,12 @@ static void ring_rollback(Cpu *c) {
                 (unsigned long long)now);
         fflush(stderr);
         hold_wanted = 1;
+        u64 tp = rt_now_ns();
+        gpu_queue_drain();   /* (everything queued run: its releases logged) */
         ring_put_back(s_from);
+        gpu_sems_as_at(ring_gpu_mark[s_from]);
+        natural_putback_ns = rt_now_ns() - tp;
+        natural_save_ns = natural_saves = natural_sim_ns = natural_check_ns = 0;
         if (plan_n) {
             static u64 back[MAX_HOT];
             ring_hash(back);
@@ -1883,7 +1991,7 @@ static void net_cost_note(u64 took_ns, int held) {
     net_too_costly = bad;
     net_cost_ns = net_cost_unheld = net_cost_n = 0;
 }
-int rbt_net_ready(void) { return rbt_net() && phase == RING && net_saves_since_begin > (u64)ring_n && !net_too_costly && !net_map_changed; }
+int rbt_net_ready(void) { return rbt_net() && phase == RING && net_saves_since_begin > (u64)ring_n && !net_too_costly && !net_map_changed && ring_frame_no >= net_heavy_until; }
 void rbt_net_stop(void) {   /* (netplay, every guess settled) the saves stop; again in 10 s */
     if (phase != RING || natural_until || plan_at || !(net_too_costly || net_map_changed)) return;
     ring_on = 0;
@@ -1917,6 +2025,40 @@ int rbt_net_rollback(u64 ring_from, u32 g) {
     net_rewind_to = g;
     return 1;
 }
+/* (gpu.c, the GPU thread) The GPU released a semaphore at guest address g - a fence. Its page is the runtime's for good: put back by a
+ * rollback, the fence read as pending again and the NvWsi code waited for it for ever (the main loop spinning in NvOsGetTimeUS). A
+ * fence page the game wrote first and the GPU then wrote while it was writable was not seen as the runtime's before. */
+void rbt_gpu_page(u64 g, u32 payload, u64 job) {
+    u64 page = g & ~(u64)(PAGE - 1);
+    { LONG n = InterlockedIncrement(&ngpu_rel) - 1; gpu_rel[n % GPU_REL].addr = g; gpu_rel[n % GPU_REL].payload = payload; gpu_rel[n % GPU_REL].job = job;
+      gpu_rel[n % GPU_REL].ns = rt_now_ns(); }
+    if (sem_page(page)) return;
+    AcquireSRWLockExclusive(&cow_lock);
+    sem_page_note(page);
+    host_page_forget(page);
+    u32 *k = map_slot(page, 0);
+    if (k && hot_host[*k]) hot_host[*k] = 0;
+    ReleaseSRWLockExclusive(&cow_lock);
+}
+/* (a rollback, after its put-back) The GPU's semaphores as the work queued before that save left them: the save's pages hold them as
+ * they were when it was taken, but work queued before it and run after it released them later - put back as pending, a fence that
+ * work had signalled was waited for for ever; and the releases of work queued after it are undone with the rest (left as they were,
+ * the game's own count of its fences no longer matched them: it waited for one no work would release). The GPU has run everything
+ * queued (drained first). */
+static void gpu_sems_as_at(u64 mark) {
+    LONG n = ngpu_rel;
+    static u64 done_addr[256];
+    u32 ndone = 0;
+    for (LONG i = n - 1; i >= 0 && i >= n - GPU_REL && ndone < 256; i--) {   /* (newest first: each word's last release before the mark) */
+        u64 a = gpu_rel[i % GPU_REL].addr;
+        u32 d = 0;
+        while (d < ndone && done_addr[d] != a) d++;
+        if (d < ndone || gpu_rel[i % GPU_REL].job >= mark) continue;
+        done_addr[ndone++] = a;
+        if (guest_readable(a)) st32(a, gpu_rel[i % GPU_REL].payload);
+    }
+}
+int rbt_net_replaying(void) { return natural_until != 0; }
 void rbt_net_cancel(void) {
     if (*net_wait_why) fprintf(stderr, "[rbtest] netplay: the rollback waited for: %s; older saves gone back to so far: %llu\n", net_wait_why,
                                (unsigned long long)net_older_saves);
@@ -1945,6 +2087,11 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
             fprintf(stderr, "[rbtest] rollback %u: while replaying, the main loop took another way at frame %llu (%llu of %llu frames replayed): live from here\n",
                     round_i + 1, (unsigned long long)ring_frame_no, (unsigned long long)(ring_frame_no - natural_from_no),
                     (unsigned long long)(natural_until - natural_from_no));
+            {
+                const Cpu *was = &rec[ring_frame_no % (u64)ring_n].sim_cpu;
+                fprintf(stderr, "[rbtest]   then: sp %#llx x30 %#llx; now: sp %#llx x30 %#llx\n", (unsigned long long)was->sp, (unsigned long long)was->x[30],
+                        (unsigned long long)c->sp, (unsigned long long)c->x[30]);
+            }
             natural_off_path++;
             natural_until = ring_frame_no;
         }
@@ -1957,11 +2104,15 @@ static void ring_frame(Cpu *c) {   /* (at a frame's simulation start, on the mai
                 hook = HOOK_PLAY;
                 return;
             }
+            u64 ts = rt_now_ns();
             ring_save(c, 1);
+            natural_save_ns += rt_now_ns() - ts;
+            natural_saves++;
             return;
         }
-        fprintf(stderr, "[rbtest] rollback %u: back at frame %llu, live again; the frames played again in %.1f ms; pads replayed %llu (missing %llu), ticks %llu (missing %llu), random bytes %llu (missing %llu)\n",
-                round_i + 1, (unsigned long long)ring_frame_no, (rt_now_ns() - natural_t0) / 1e6, (unsigned long long)pad_replayed, (unsigned long long)pad_missing,
+        fprintf(stderr, "[rbtest] rollback %u: back at frame %llu, live again; the frames played again in %.1f ms (putting the save back %.1f ms, %llu saves meanwhile %.1f ms, the simulation %.1f ms, netplay's check %.1f ms); pads replayed %llu (missing %llu), ticks %llu (missing %llu), random bytes %llu (missing %llu)\n",
+                round_i + 1, (unsigned long long)ring_frame_no, (rt_now_ns() - natural_t0) / 1e6, natural_putback_ns / 1e6,
+                (unsigned long long)natural_saves, natural_save_ns / 1e6, natural_sim_ns / 1e6, natural_check_ns / 1e6, (unsigned long long)pad_replayed, (unsigned long long)pad_missing,
                 (unsigned long long)tick_replayed, (unsigned long long)tick_missing, (unsigned long long)rnd_replayed, (unsigned long long)rnd_missing);
         fflush(stderr);
         natural_until = 0;
@@ -2217,6 +2368,7 @@ HLE_WRAP(7103667300) {
 /* The game simulates a frame (71037246a0, called by the main loop once a frame, and by itself). */
 /* signature: d10243ff a9036ffc a90467fa a9055ff8 a90657f6 a9074ff4 a9087bfd 910203fd b9403008 aa0003f3 7100051f 54.....0 7100091f 54.....1 aa1303f4 f8438e80 */
 HLE_WRAP(71037246a0) {
+    if (lks_on() && !depth && lks_extra_sim()) return;   /* (netplay: one simulation an input step) */
     if (lks_on() && !rbt_on() && !depth) {   /* (netplay's check: what the frame's simulation writes) */
         depth++;
         lks_sim_begin();
@@ -2229,9 +2381,18 @@ HLE_WRAP(71037246a0) {
     depth++;
     frame(c);
     if (rbt_net() && lks_on()) {   /* (netplay with rollback: its check of what the frame writes, around the simulation) */
+        u64 t0 = rt_now_ns();
         lks_sim_begin();
+        u64 t1 = rt_now_ns();
         f_71037246a0_orig(c);
+        u64 t2 = rt_now_ns();
         lks_sim_end();
+        if (natural_until) { natural_sim_ns += t2 - t1; natural_check_ns += rt_now_ns() - t2 + t1 - t0; }
+        else if (t2 - t1 > HEAVY_SIM_NS) {
+            if (ring_frame_no >= net_heavy_until && ++net_heavy_count <= 20)
+                fprintf(stderr, "[rbtest] netplay: a heavy frame (%.1f ms of simulation): no guessing for %d frames" "\n", (t2 - t1) / 1e6, HEAVY_FRAMES);
+            net_heavy_until = ring_frame_no + HEAVY_FRAMES;
+        }
         depth--;
         return;
     }

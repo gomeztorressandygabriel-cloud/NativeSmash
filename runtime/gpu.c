@@ -17,6 +17,7 @@
 #include <stdio.h>
 
 #include "gpu_backend.h"
+#include "net_rbtest.h"
 
 enum { CLASS_FIFO = 0xB06F, CLASS_3D = 0xB197, CLASS_COMPUTE = 0xB1C0, CLASS_DMA = 0xB0B5, CLASS_I2M = 0xA140,
        CLASS_2D = 0x902D };
@@ -49,6 +50,7 @@ static u64 timestamp(void) { return rt_now_ns() * 384 / 625; }   /* GPU timer ti
  * before it wrote (copies, the timestamp), which a weakly ordered host (arm64) would otherwise
  * let it see later. */
 static void release(u64 va, u32 payload, int four_words) {
+    if (rbt_on()) { u64 g = gpu_va_to_guest(va); if (g) rbt_gpu_page(g, payload, gpu_threaded() ? gpu_queue_done() : ~0ull); }   /* (net_rbtest.c) */
     if (four_words) {
         write64(va + 8, timestamp());
         write32(va + 4, 0);

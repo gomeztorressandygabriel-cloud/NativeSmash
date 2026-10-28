@@ -1078,6 +1078,7 @@ static void stop(const char *why) {
 }
 
 /* (auto delay) every second: the frames the pads need to travel to the farthest player, with room for its jitter */
+#define ROLLBACK_COVER 3   /* (auto delay with rollback: frames of the latency left to the guesses) */
 static void adapt_delay(void) {
     if (!delay_auto || frame % 60) return;
     double ping = 0, jit = 0;
@@ -1085,6 +1086,9 @@ static void adapt_delay(void) {
     if (ping <= 0) return;
     int need = (int)((ping / 2 + 2 * jit + 3.0) / 16.67) + 1;
     if (stalls > 6) need++;   /* (it still waited often: one more) */
+    /* (with rollback: the delay covers only what is beyond ROLLBACK_COVER frames - those are guessed and put right - so each correction
+     * plays few frames again, the way Slippi and GGPO split it; never below 1) */
+    if (rb_on) need -= ROLLBACK_COVER;
     need = need < 1 ? 1 : need > 8 ? 8 : need;
     if (need > delay) { delay++; delay_quiet = 0; fprintf(stderr, "[netplay] delay up to %d (ping %.0f ms, jitter %.0f ms)\n", delay, ping, jit); }
     else if (need < delay) { if (++delay_quiet >= 5) { delay--; delay_quiet = 0; fprintf(stderr, "[netplay] delay down to %d (ping %.0f ms, jitter %.0f ms)\n", delay, ping, jit); } }
@@ -1213,14 +1217,38 @@ void lks_input_step(void) {
     }
 }
 
+static int sim_unwatched;   /* (this frame's simulation not watched: netplay compares only every HASH_EVERY frames) */
+static u64 extra_sims;   /* (simulations beyond one an input step: the main loop catching up) */
+/* (net_rbtest.c, before each simulation) 1: skip it - a second one in this input step. The main loop catches up when it is behind
+ * the display (counting the refreshes it missed), and a slow PC then simulated more frames than the other: the games parted; and a
+ * rollback, replaying faster than live, caught up differently and left the frames it had saved (it hung). Netplay simulates one
+ * frame an input step, the same on every PC. */
+int lks_extra_sim(void) {
+    if (!active() || !on_main() || (mode != M_HOST && mode != M_JOIN) || !sim_ran) return 0;
+    if (++extra_sims <= 5 || extra_sims % 1000 == 0)
+        fprintf(stderr, "[netplay] frame %u: a second simulation in one input step (the main loop catching up): skipped (%llu so far)\n", frame, (unsigned long long)extra_sims);
+    return 1;
+}
 void lks_sim_begin(void) {
     if (!active() || !on_main()) return;
+    /* (watching what a frame writes cost about 5 ms of every frame, and of every frame a rollback plays again: netplay only looks
+     * at it on the frames whose hashes it sends) */
+    sim_unwatched = (mode == M_HOST || mode == M_JOIN) && frame % HASH_EVERY != 0;
+    if (sim_unwatched) { sim_open = 0; return; }
     read_regions();
     sim_seen = 0;
     sim_open = watch(&sim_seen, NULL) >= 0;
 }
 
 void lks_sim_end(void) {
+    if (active() && on_main() && sim_unwatched) {
+        sim_unwatched = 0;
+        ncur = 0;
+        if (sim_open) { sim_open = 0; watch(&sim_seen, NULL); }
+        sim_ran = 1;
+        if (++sim_frames == 1) fprintf(stderr, "[netplay] frame %u: the first frame the simulation ran\n", frame);
+        return;
+    }
     if (!active() || !on_main() || !sim_open) return;
     sim_open = 0;
     ncur = 0;

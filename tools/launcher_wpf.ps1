@@ -671,7 +671,7 @@ $vsMode = if ($vsWords.Count -and $vsWords[0] -in @('host', 'join')) { $vsWords[
 $vsPeer = if ($vsMode -eq 'join' -and $vsWords.Count -gt 1) { $vsWords[1] } else { '' }
 function New-RoomCode { $abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; -join (1..6 | ForEach-Object { $abc[(Get-Random -Maximum $abc.Length)] }) }
 $script:vsCode = if ($vsMode -eq 'host' -and $vsWords.Count -gt 2 -and $vsWords[2] -match '^[A-Za-z0-9]{4,12}$') { $vsWords[2].ToUpper() } else { New-RoomCode }
-$vsDelay = if ($vsMode -eq 'host' -and $vsWords.Count -gt 1) { $vsWords[1] } elseif ($vsMode -eq 'join' -and $vsWords.Count -gt 2) { $vsWords[2] } else { '2' }
+$vsDelay = if ($vsMode -eq 'host' -and $vsWords.Count -gt 1) { $vsWords[1] } elseif ($vsMode -eq 'join' -and $vsWords.Count -gt 2) { $vsWords[2] } else { 'auto' }
 if ($vsDelay -notmatch '^([0-8]|auto)$') { $vsDelay = 'auto' }
 $vsPlayers = if ($vsMode -eq 'host' -and $vsWords.Count -gt 3 -and $vsWords[3] -match '^[2-4]$') { $vsWords[3] } else { '2' }
 New-Chips (Find 'VsChips') @(@{ Value = 'off'; Text = (T 'vsOff') }, @{ Value = 'host'; Text = (T 'vsHost') }, @{ Value = 'join'; Text = (T 'vsJoin') }) $vsMode

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranking · NativeSmash</title>
+<meta name="description" content="El ranking de NativeSmash: los mejores jugadores de Smash Ultimate en PC, por divisiones.">
+<meta name="theme-color" content="#0b0d1c">
+<link rel="stylesheet" href="pages.css">
+<style>
+  .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .tiers { display: flex; flex-wrap: wrap; gap: 8px; margin: 28px 0 26px; }
+  .tier { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-size: 13px; color: #dfe3ff;
+    background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 1px var(--edge); }
+  .tier i { width: 10px; height: 10px; border-radius: 3px; transform: rotate(45deg); background: var(--c); box-shadow: 0 0 10px var(--c); }
+  .tier small { color: var(--muted); }
+  .podium { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+  .podium .card { text-align: center; padding: 22px 16px; position: relative; overflow: hidden; }
+  .podium .card::before { content: ""; position: absolute; inset: -40% -20% auto; height: 120px; background: var(--c); filter: blur(60px); opacity: .25; }
+  .podium .place { font-size: 13px; color: var(--muted); font-weight: 700; letter-spacing: .08em; }
+  .podium .av { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; margin: 10px auto; font-size: 26px; font-weight: 800;
+    background: linear-gradient(135deg, var(--a), var(--b)); position: relative; }
+  .podium b { display: block; font-size: 19px; position: relative; }
+  .podium .pts { color: var(--muted); font-size: 14px; position: relative; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+  th { text-align: left; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 0 16px; }
+  td { padding: 14px 16px; background: var(--veil); }
+  td:first-child { border-radius: 14px 0 0 14px; width: 56px; color: var(--muted); font-weight: 700; }
+  td:last-child { border-radius: 0 14px 14px 0; text-align: right; }
+  th:last-child { text-align: right; }
+  .who { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+  .who span { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; background: linear-gradient(135deg, var(--a), var(--b)); flex: none; }
+  .div { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+  .div i { width: 9px; height: 9px; border-radius: 3px; transform: rotate(45deg); background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .muted { color: var(--muted); }
+  td.empty { text-align: center; border-radius: 14px; color: var(--muted); padding: 40px 10px; }
+  .note { margin-top: 18px; color: var(--muted); font-size: 14px; }
+  @media (max-width: 820px) { .podium { grid-template-columns: 1fr; } .hide-sm { display: none; } td, th { padding-left: 10px; padding-right: 10px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 19V5l10 14V5"/></svg></span>NativeSmash</a>
+    <nav>
+      <a class="link" href="index.html"><span data-l="es">Inicio</span><span data-l="en">Home</span></a>
+      <a class="link keep" href="ranking.html" aria-current="page"><span data-l="es">Ranking</span><span data-l="en">Ranking</span></a>
+      <a class="link keep" href="cuenta.html"><span data-l="es">Mi cuenta</span><span data-l="en">My account</span></a>
+      <div class="lang" role="group" aria-label="Idioma / Language">
+        <button type="button" data-set="es" aria-pressed="true">ES</button>
+        <button type="button" data-set="en" aria-pressed="false">EN</button>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <span class="pill live" data-online-box hidden><span data-online>0</span>&nbsp;<span data-l="es">jugadores en línea ahora</span><span data-l="en">players online now</span></span>
+        <h1><span class="grad">Ranking</span></h1>
+        <p class="lead"><span data-l="es">Los mejores jugadores de NativeSmash. Todos empiezan en 1000 puntos (Plata) y suben o bajan con sus partidas.</span>
+          <span data-l="en">NativeSmash's best players. Everyone starts at 1000 points (Silver) and goes up or down with their matches.</span></p>
+      </div>
+      <a class="btn" href="cuenta.html"><span data-l="es">Crear mi cuenta</span><span data-l="en">Make my account</span></a>
+    </div>
+    <div class="tiers" id="tiers"></div>
+    <div class="podium" id="podium" hidden></div>
+    <table>
+      <thead><tr><th>#</th><th><span data-l="es">Jugador</span><span data-l="en">Player</span></th><th><span data-l="es">División</span><span data-l="en">Division</span></th>
+        <th class="hide-sm"><span data-l="es">V / D</span><span data-l="en">W / L</span></th><th><span data-l="es">Puntos</span><span data-l="en">Points</span></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="empty"><span data-l="es">Cargando…</span><span data-l="en">Loading…</span></td></tr></tbody>
+    </table>
+    <p class="note"><span data-l="es">Las partidas puntuadas llegan pronto: el launcher subirá el resultado de cada partida en línea y de ahí saldrán los puntos.</span>
+      <span data-l="en">Ranked matches are coming soon: the launcher will upload each online match's result, and the points will come from it.</span></p>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span data-l="es">NativeSmash es un proyecto de la comunidad. No incluye ningún archivo del juego, ni claves, ni firmware.</span>
+    <span data-l="en">NativeSmash is a community project. It includes no game file, key or firmware.</span>
+    · <a href="index.html"><span data-l="es">Volver al inicio</span><span data-l="en">Back home</span></a>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="players.js"></script>
+<script>
+  (function () {
+    NS.initLang();
+    NS.showOnline();
+    var data = null;
+    function draw() {
+      var l = NS.lang(), e = NS.esc;
+      document.getElementById('tiers').innerHTML = NS.TIERS.slice().reverse().map(function (t) {
+        return '<span class="tier" style="--c:' + t.color + '"><i></i>' + e(t[l]) + (t.min > -1e8 ? ' <small>' + t.min + '+</small>' : '') + '</span>';
+      }).join('');
+      if (!data) return;
+      var rows = document.getElementById('rows');
+      if (!data.length) {
+        rows.innerHTML = '<tr><td colspan="5" class="empty">' + (l === 'es' ? 'Todavía no hay jugadores. ¡Sé el primero!' : 'No players yet. Be the first!') + '</td></tr>';
+        return;
+      }
+      rows.innerHTML = data.map(function (p, i) {
+        var t = NS.tier(p.rating);
+        return '<tr><td>' + (i + 1) + '</td><td><div class="who"><span>' + e(p.username.charAt(0).toUpperCase()) + '</span>' + e(p.username) + '</div></td>' +
+          '<td><span class="div" style="--c:' + t.color + '"><i></i>' + e(t[l]) + '</span></td>' +
+          '<td class="hide-sm muted">' + p.wins + ' / ' + p.losses + '</td><td><b>' + p.rating + '</b></td></tr>';
+      }).join('');
+      var pod = document.getElementById('podium'), top = data.slice(0, 3);
+      var played = data.some(function (p) { return p.wins + p.losses > 0; });
+      pod.hidden = !played || top.length < 3;
+      pod.innerHTML = top.map(function (p, i) {
+        var t = NS.tier(p.rating);
+        return '<div class="card" style="--c:' + t.color + '"><div class="place">#' + (i + 1) + '</div><div class="av">' + e(p.username.charAt(0).toUpperCase()) + '</div>' +
+          '<b>' + e(p.username) + '</b><div class="pts">' + p.rating + ' · ' + e(t[l]) + '</div></div>';
+      }).join('');
+    }
+    document.addEventListener('ns-lang', draw);
+    draw();
+    if (/[?&]demo/.test(location.search)) {   /* (a picture of the page with made-up players: ranking.html?demo) */
+      data = [['BloodyRD', 1720, 41, 9], ['Zeuss', 1585, 33, 14], ['KingGMZ', 1460, 28, 15], ['Aomine', 1330, 22, 16], ['Sennin', 1240, 19, 17],
+              ['Lunetax', 1150, 15, 15], ['CigNus', 1030, 9, 10], ['JaimeHR', 960, 6, 11], ['Alex', 870, 3, 12]]
+        .map(function (r) { return { username: r[0], rating: r[1], wins: r[2], losses: r[3] }; });
+      return draw();
+    }
+    NS.client.from('profiles').select('username, rating, wins, losses').order('rating', { ascending: false }).order('wins', { ascending: false }).order('created_at').limit(100)
+      .then(function (r) { data = r.error ? [] : r.data; draw(); });
+  })();
+</script>
+</body>
+</html>

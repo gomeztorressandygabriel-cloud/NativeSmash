@@ -1064,6 +1064,53 @@ int lks_probe(void) {
 }
 
 static int active(void) { return started && !stopped; }
+
+/* ---- the match's result, for the ranking (SSBU_MATCH_RESULT: the file the launcher reads after the game) ----
+ * When a battle ends - the game's fighter manager in its results mode - each player's stocks left and falls are read and a line is
+ * added to the file: "result <frame> <entries> <stocks of P1> <falls of P1> <stocks of P2> <falls of P2> ...". Every PC simulates the
+ * same battle, so both write the same line: the launcher of each tells the players server who won, and the two answers agree. The
+ * game's own functions, read rather than called (13.0.3; app::lua_bind, main's symbols):
+ *   lib::Singleton<app::FighterManager>::instance_  0x71052b94f8: the manager; its first word, the manager's data
+ *   FighterManager__is_result_mode_impl  ld8 [data + 0xE9]      FighterManager__entry_count_impl  ld32 [data + 0xA0]
+ *   FighterManager__get_fighter_information_impl (entry < 8)  ld64 [data + 0x20 + 8 * entry] + 0xF0: the fighter's information
+ *   FighterInformation__stock_count_impl  ld32 [ld64 [info + 8] + 0xD8]
+ *   FighterInformation__dead_count_impl (all)  the sum of ld32 [ld64 [info + 8] + 0xCC, 0xD0, 0xD4] */
+static int guest_ok(u64 a) { return a >= 0x6000000000ull && a < 0x7800000000ull; }
+static u64 g64(u64 a) { return guest_ok(a) ? *P(u64, a) : 0; }
+static u32 g32(u64 a) { return guest_ok(a) ? *P(u32, a) : 0; }
+static void match_watch(void) {
+    static const char *path;
+    static int was_result = -1;
+    if (!path) { path = getenv("SSBU_MATCH_RESULT"); if (!path) path = ""; }
+    if (!*path || frame % 10) return;
+    u64 mgr = g64(0x71052b94f8ull), data = mgr ? g64(mgr) : 0;
+    if (!data) { was_result = 0; return; }
+    int result = *P(u8, data + 0xE9) != 0;
+    if (getenv("SSBU_MATCH_TRACE") && frame % 600 == 0) {   /* (a check: what is read, now and then) */
+        u32 n = g32(data + 0xA0);
+        fprintf(stderr, "[netplay] match watch at frame %u: result mode %d, %u entries:", frame, result, n);
+        for (u32 e = 0; e < n && e < 8; e++) {
+            u64 fe = g64(data + 0x20 + 8ull * e), d = fe ? g64(fe + 0xF0 + 8) : 0;
+            fprintf(stderr, " [%u] stocks %u falls %u", e, d ? g32(d + 0xD8) : 0, d ? g32(d + 0xCC) + g32(d + 0xD0) + g32(d + 0xD4) : 0);
+        }
+        fputc(10, stderr);
+    }
+    if (result && was_result == 0) {   /* (a battle just ended) */
+        u32 n = g32(data + 0xA0);
+        if (n > 8) n = 8;
+        char line[256];
+        int k = snprintf(line, sizeof line, "result %u %u", frame, n);
+        for (u32 e = 0; e < n && k < (int)sizeof line - 32; e++) {
+            u64 fe = g64(data + 0x20 + 8ull * e), info = fe ? fe + 0xF0 : 0, d = info ? g64(info + 8) : 0;
+            u32 stocks = d ? g32(d + 0xD8) : 0, falls = d ? g32(d + 0xCC) + g32(d + 0xD0) + g32(d + 0xD4) : 0;
+            k += snprintf(line + k, sizeof line - k, " %u %u", stocks, falls);
+        }
+        FILE *f = fopen(path, "a");
+        if (f) { fprintf(f, "%s\n", line); fclose(f); }
+        fprintf(stderr, "[netplay] the battle ended: %s\n", line);
+    }
+    was_result = result;
+}
 static int on_main(void) { return main_thread && GetCurrentThreadId() == main_thread; }
 
 static void stop(const char *why) {
@@ -1128,6 +1175,7 @@ void lks_input_step(void) {
             if (first_bad == ~0u) { first_bad = frame; fprintf(stderr, "[lockstep] frame %u: the recording simulated this frame, this run did not\n", frame); }
         }
         frame++;
+        if (mode == M_HOST || mode == M_JOIN) match_watch();
         if (mode == M_RECORD && frame >= frames_max) { stop("[lockstep] recorded enough frames: lockstep off"); return; }
     }
     if (!on_main()) return;

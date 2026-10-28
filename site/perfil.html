@@ -58,6 +58,7 @@
   <div class="wrap">
     <span data-l="es">NativeSmash es un proyecto de la comunidad. No incluye ningún archivo del juego, ni claves, ni firmware.</span>
     <span data-l="en">NativeSmash is a community project. It includes no game file, key or firmware.</span>
+    · <a data-whatsapp href="https://chat.whatsapp.com/CuV6VkBEa8Y6yVvsEcREY2" target="_blank" rel="noopener">WhatsApp</a> <a data-discord hidden href="#" target="_blank" rel="noopener">· Discord</a>
     · <a href="ranking.html"><span data-l="es">Volver al ranking</span><span data-l="en">Back to the ranking</span></a>
   </div>
 </footer>
@@ -66,7 +67,7 @@
 <script src="players.js"></script>
 <script>
   (function () {
-    NS.initLang();
+    NS.initLang(); NS.showLinks();
     var name = new URLSearchParams(location.search).get('u') || '';
     var prof = null, games = [];
     var W = {

@@ -122,13 +122,6 @@ $Words = @{
     friendRemove = @('Quitar', 'Remove')
     noSuchPlayer = @('No hay ningún jugador con ese nombre.', 'There is no player with that name.')
     searchingFor = @('Buscando partida… {0}  ·  {1} buscando ahora', 'Looking for a match… {0}  ·  {1} looking now')
-    resultTitle = @('¿Cómo fue la partida contra {0}?', 'How did the match against {0} go?')
-    resultHelp = @('Tu respuesta y la de tu rival suben o bajan vuestros puntos del ranking. Si no coinciden, la partida no cuenta.', 'Your answer and your opponent''s move your ranking points. If they do not match, the match does not count.')
-    resWin = @('Gané', 'I won'); resLoss = @('Perdí', 'I lost'); resNone = @('No terminamos', 'We did not finish')
-    resDone = @('¡Hecho! Los puntos ya están actualizados.', 'Done! The points are updated.')
-    resWaiting = @('Guardado. Los puntos se actualizan cuando tu rival responda también.', 'Saved. The points update when your opponent answers too.')
-    resDisputed = @('Vuestras respuestas no coinciden: esta partida no cuenta.', 'Your answers do not match: this match does not count.')
-    resVoid = @('Anotado: la partida no cuenta.', 'Noted: the match does not count.')
     needSignIn = @('Inicia sesión arriba para invitar o buscar partida.', 'Sign in above to invite or find a match.')
     advShow = @('Conectar con un código', 'Connect with a code'); advHide = @('Ocultar la conexión con código', 'Hide the code connection')
     vsOff = @('Apagado', 'Off'); vsHost = @('Crear sala (jugador 1)', 'Make a room (player 1)'); vsJoin = @('Unirme a una sala (jugador 2)', 'Join a room (player 2)')
@@ -467,21 +460,6 @@ $xaml = @'
         </Border>
 
         <!-- pages -->
-        <!-- after a match the server arranged: how it went (the ranking's points) -->
-        <Border x:Name="ResultPanel" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="20" CornerRadius="26" Background="#E60B0D1C">
-          <Border Style="{StaticResource Card}" Background="#FF171B36" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560" Padding="34,30">
-            <StackPanel>
-              <TextBlock x:Name="ResultTitle" Style="{StaticResource CardTitle}" FontSize="24" TextWrapping="Wrap"/>
-              <TextBlock x:Name="ResultHelp" Style="{StaticResource Help}" FontSize="14" Margin="0,10,0,0"/>
-              <WrapPanel Margin="0,24,0,0">
-                <Button x:Name="ResWinBtn" Style="{StaticResource AccentBtn}"/>
-                <Button x:Name="ResLossBtn" Style="{StaticResource Soft}" Margin="0,0,12,0"/>
-                <Button x:Name="ResNoneBtn" Style="{StaticResource Soft}" Margin="0"/>
-              </WrapPanel>
-              <TextBlock x:Name="ResultNote" Style="{StaticResource Help}" Foreground="#FFB9C2FF" Margin="0,16,0,0" TextWrapping="Wrap"/>
-            </StackPanel>
-          </Border>
-        </Border>
         <Grid Grid.Column="1" x:Name="Pages" Margin="46,40,46,34">
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-22,-26,0" Panel.ZIndex="5">
             <Button x:Name="MinBtn" Style="{StaticResource WinBtn}" Content="&#xE921;" ToolTip="Minimizar"/>
@@ -760,7 +738,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('AccTitle', 'accTitle'), @('AccHelp', 'accHelp'), @('EmailLabel', 'emailLabel'), @('PassLabel', 'passLabel'), @('SignInBtn', 'signIn'), @('SignUpBtn', 'signUp'), @('SignOutBtn', 'signOut'), @('ForgotBtn', 'forgot'), @('CancelInviteBtn', 'cancelInvite'), @('FriendsLabel', 'friendsLabel'), @('FriendsEmpty', 'friendsEmpty'), @('FriendAddBtn', 'friendAdd'), @('ResultHelp', 'resultHelp'), @('ResWinBtn', 'resWin'), @('ResLossBtn', 'resLoss'), @('ResNoneBtn', 'resNone'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('AccTitle', 'accTitle'), @('AccHelp', 'accHelp'), @('EmailLabel', 'emailLabel'), @('PassLabel', 'passLabel'), @('SignInBtn', 'signIn'), @('SignUpBtn', 'signUp'), @('SignOutBtn', 'signOut'), @('ForgotBtn', 'forgot'), @('CancelInviteBtn', 'cancelInvite'), @('FriendsLabel', 'friendsLabel'), @('FriendsEmpty', 'friendsEmpty'), @('FriendAddBtn', 'friendAdd'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -1027,25 +1005,26 @@ function Ring-Invite([string]$From) {
     try { if (-not $win.IsActive) { [void][NativeSmash.Flash]::FlashWindow((New-Object Windows.Interop.WindowInteropHelper $win).Handle, $true) } } catch { }
     Say-Net ((T 'invitedYou') -f $From)
 }
-function Show-Result($N) {
-    # after a match the server arranged: the launcher, hidden while the game ran, comes back to ask how it went
-    $script:resultMatch = $N.Id
-    (Find 'ResultTitle').Text = (T 'resultTitle') -f $N.Opponent
-    (Find 'ResultNote').Text = ''
-    foreach ($b in 'ResWinBtn', 'ResLossBtn', 'ResNoneBtn') { (Find $b).IsEnabled = $true }
-    (Find 'ResultPanel').Visibility = 'Visible'
-    $win.BeginAnimation([Windows.Window]::OpacityProperty, $null); $win.Opacity = 1
-    $win.Show(); $win.WindowState = 'Normal'; [void]$win.Activate()
+function Get-MatchResult {
+    # the first battle the game saw end: win, loss, or none (no battle ended - the game closed before - or a draw). More stocks left
+    # wins; the same stocks (a timed battle), fewer falls
+    $line = $null
+    try { if ($script:matchFile -and (Test-Path -LiteralPath $script:matchFile)) { $line = Get-Content -LiteralPath $script:matchFile | Where-Object { $_ -match '^result ' } | Select-Object -First 1 } } catch { }
+    if (-not $line) { return 'none' }
+    $w = @($line -split '\s+')   # result <frame> <entries> <stocks P1> <falls P1> <stocks P2> <falls P2> ...
+    if ([int]$w[2] -lt 2 -or $w.Count -lt 7) { return 'none' }
+    $me = [int]$script:myEntry; $them = 1 - $me
+    $ms = [int]$w[3 + 2 * $me]; $mf = [int]$w[4 + 2 * $me]; $ts = [int]$w[3 + 2 * $them]; $tf = [int]$w[4 + 2 * $them]
+    if ($ms -ne $ts) { if ($ms -gt $ts) { return 'win' } else { return 'loss' } }
+    if ($mf -ne $tf) { if ($mf -lt $tf) { return 'win' } else { return 'loss' } }
+    return 'none'
 }
-foreach ($pair in @(@('ResWinBtn', 'win'), @('ResLossBtn', 'loss'), @('ResNoneBtn', 'none'))) {
-    $btn_ = Find $pair[0]; $btn_.Tag = $pair[1]
-    $btn_.Add_Click({
-        foreach ($b in 'ResWinBtn', 'ResLossBtn', 'ResNoneBtn') { (Find $b).IsEnabled = $false }
-        Request-Players @{ Op = 'report'; Id = $script:resultMatch; Result = [string]$this.Tag }
-    })
+function Send-Result($N) {
+    # after a match the server arranged: who won, read from the game, goes to the server by itself (no question)
+    Request-Players @{ Op = 'report'; Id = $N.Id; Result = (Get-MatchResult) }
 }
-# While the game runs the launcher stays signed in, hidden, as "playing": the others see it, and when the game closes it asks how the
-# match went (if the server arranged one), then goes.
+# While the game runs the launcher stays signed in, hidden, as "playing": the others see it, and when the game closes it tells the
+# server who won (if the server arranged the match: read from the game, Get-MatchResult), then goes.
 function Watch-Game {
     Request-Players @{ Op = 'state'; State = 'playing' }
     $script:gameWatch = New-Object Windows.Threading.DispatcherTimer
@@ -1090,12 +1069,11 @@ $playersTimer.Add_Tick({
             'inviteCancelled' { Say-Net ((T 'inviteCancelled') -f $n.Name); (Find 'CancelInviteBtn').Visibility = 'Collapsed' }
             'friendSent' { Say-Net ((T 'friendSent') -f $n.Name); (Find 'FriendBox').Text = '' }
             'friendNow' { Say-Net ((T 'friendNow') -f $n.Name); (Find 'FriendBox').Text = '' }
-            'openMatch' { Show-Result $n }
+            'openMatch' { Send-Result $n }
             'noMatch' { if ($script:afterGame) { $win.Close() } }
             'reported' {
-                (Find 'ResultNote').Text = switch ($n.Result) { 'done' { T 'resDone' } 'disputed' { T 'resDisputed' } 'void' { T 'resVoid' } default { T 'resWaiting' } }
                 $script:closeSoon = New-Object Windows.Threading.DispatcherTimer
-                $script:closeSoon.Interval = [TimeSpan]::FromMilliseconds(2200)
+                $script:closeSoon.Interval = [TimeSpan]::FromMilliseconds(800)
                 $script:closeSoon.Add_Tick({ $script:closeSoon.Stop(); $win.Close() })
                 $script:closeSoon.Start()
             }
@@ -1112,6 +1090,7 @@ $playersTimer.Add_Tick({
                     default { (T 'netError') -f $n.Text }
                 }
                 Say-Net $why
+                if ($script:afterGame) { $win.Close() }   # (after the game, hidden: nothing to wait for)
             }
             'start' { $script:searchSince = $null; (Find 'CancelInviteBtn').Visibility = 'Collapsed'; Start-FromServer $n }
         }
@@ -1521,6 +1500,11 @@ $poll.Add_Tick({
             $me = (Find 'NameBox').Text.Trim()
             if ($me) { $vars.SSBU_NET_NAME = $me }
             if ($vs -eq 'host') { $vars.SSBU_NETPLAY_PLAYERS = Get-Chip (Find 'VsPlayersChips') }
+            # (the battles' results, for the ranking: the game adds a line when one ends - runtime\net_lockstep.c, match_watch)
+            $script:matchFile = Join-Path $env:TEMP 'nativesmash-match.txt'
+            Remove-Item -LiteralPath $script:matchFile -ErrorAction SilentlyContinue
+            $vars.SSBU_MATCH_RESULT = $script:matchFile
+            $script:myEntry = if ($vs -eq 'host') { 0 } else { 1 }
         }
         try {
             # by room code: the host's own save, sent to the others by the game; to an address: the save ZIP, as before

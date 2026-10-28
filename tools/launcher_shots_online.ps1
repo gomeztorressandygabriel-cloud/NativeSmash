@@ -89,9 +89,6 @@ try {
     Scroll-To 'NetcodeLabel'
     Save-Shot '7-buscando.png'
     $NsNet.State = 'launcher'; Show-Account
-    Show-Result @{ Id = 1; Opponent = 'Zeuss' }
-    Pause-Ui 400
-    Save-Shot '8-resultado.png'
 } catch {
     Set-Content -LiteralPath (Join-Path $shotDir 'error.txt') -Value ($_ | Out-String) -Encoding UTF8
 }

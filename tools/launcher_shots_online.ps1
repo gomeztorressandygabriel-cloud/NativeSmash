@@ -45,18 +45,25 @@ try {
     Save-Shot '1-en-linea-arriba.png'
     Scroll-To 'VsCardTitle'
     Save-Shot '2-vs-en-red-sin-servidor.png'
+    $Players.On = $true; Show-Account
+    Pause-Ui 300
+    Scroll-To 'VsCardTitle'
+    Save-Shot '2b-iniciar-sesion.png'
+    $Players.SignedIn = $true; $Players.Name = 'KingGMZ'; Show-Account
 
     $script:onlineTotal = 37
     $script:players = @(
-        @{ Name = 'Zeuss'; State = 'launcher'; Ping = '42 ms' },
-        @{ Name = 'Aomine'; State = 'searching'; Ping = '65 ms' },
-        @{ Name = 'BloodyRD'; State = 'playing'; Ping = '88 ms' },
-        @{ Name = 'Lunetax'; State = 'launcher'; Ping = '120 ms' })
-    $script:invites = @(@{ Name = 'Sennin'; Ping = '51 ms' })
+        @{ Name = 'Zeuss'; State = 'launcher'; Ping = '1240 pts' },
+        @{ Name = 'Aomine'; State = 'searching'; Ping = '1105 pts' },
+        @{ Name = 'BloodyRD'; State = 'playing'; Ping = '1380 pts' },
+        @{ Name = 'Lunetax'; State = 'launcher'; Ping = '990 pts' })
+    $script:invites = @(@{ Name = 'Sennin'; Ping = '' })
     Show-People
     Pause-Ui 400
     Scroll-To 'VsCardTitle'
     Save-Shot '3-vs-en-red-con-jugadores.png'
+    Say-Net ((T 'inviteSent') -f 'Zeuss')
+    Pause-Ui 200
     Scroll-To 'PlayersLabel'
     Save-Shot '4-jugadores-y-codigo.png'
     Show-Advanced $true

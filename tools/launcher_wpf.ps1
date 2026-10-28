@@ -89,6 +89,19 @@ $Words = @{
     playersLabel = @('Jugadores conectados', 'Players online')
     playersEmpty = @('Aquí verás a los jugadores que tengan el launcher o el juego abierto, para invitarles a jugar. Si aceptan, entráis los dos en la misma sala sin pasaros ningún código.', 'Players with the launcher or the game open show here, to invite them to play. When they accept, you both go into the same room without sharing a code.')
     stLauncher = @('En el launcher', 'In the launcher'); stPlaying = @('Jugando', 'Playing'); stSearching = @('Buscando partida', 'Looking for a match')
+    accTitle = @('Inicia sesión para jugar en línea', 'Sign in to play online')
+    accHelp = @('Con tu cuenta de NativeSmash ves quién está conectado, invitas o recibes invitaciones y buscas partida rápida. ¿No tienes? Créala en la web: es gratis.', 'With your NativeSmash account you see who is online, invite or get invited and find quick matches. None yet? Make one on the web page: it is free.')
+    emailLabel = @('Correo', 'Email'); passLabel = @('Contraseña', 'Password')
+    signIn = @('Entrar', 'Sign in'); signUp = @('Crear cuenta', 'Make an account'); signOut = @('Cerrar sesión', 'Sign out')
+    signedAs = @('Conectado como {0}', 'Signed in as {0}')
+    signingIn = @('Entrando…', 'Signing in…'); needBoth = @('Escribe tu correo y tu contraseña.', 'Type your email and your password.')
+    quickCancel = @('Cancelar búsqueda', 'Stop looking')
+    searching = @('Buscando a alguien con quien jugar… Cuando lo encuentre, el juego se abre solo.', 'Looking for someone to play with… When found, the game opens by itself.')
+    inviteSent = @('Invitación enviada a {0}. Si acepta, el juego se abre solo.', 'Invitation sent to {0}. When they accept, the game opens by itself.')
+    inviteOver = @('{0} no aceptó la invitación.', '{0} did not accept the invitation.')
+    starting2 = @('Partida con {0}: abriendo el juego…', 'Match with {0}: opening the game…')
+    netError = @('El servidor de jugadores dijo: {0}', 'The players server said: {0}')
+    needSignIn = @('Inicia sesión arriba para invitar o buscar partida.', 'Sign in above to invite or find a match.')
     advShow = @('Conectar con un código', 'Connect with a code'); advHide = @('Ocultar la conexión con código', 'Hide the code connection')
     vsOff = @('Apagado', 'Off'); vsHost = @('Crear sala (jugador 1)', 'Make a room (player 1)'); vsJoin = @('Unirme a una sala (jugador 2)', 'Join a room (player 2)')
     vsPeer = @('Código de la sala de tu amigo', 'Your friend''s room code')
@@ -310,6 +323,15 @@ $xaml = @'
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
 
+    <Style x:Key="PwField" TargetType="PasswordBox">
+      <Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="CaretBrush" Value="White"/><Setter Property="FontSize" Value="14"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="PasswordBox">
+        <Border x:Name="b" CornerRadius="12" Background="{StaticResource Veil}" BorderBrush="{StaticResource Edge}" BorderThickness="1" Padding="14,10">
+          <ScrollViewer x:Name="PART_ContentHost"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="b" Property="BorderBrush" Value="#FF8E9BFF"/></Trigger>
+        </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
     <Style TargetType="ScrollBar">
       <Setter Property="Width" Value="10"/><Setter Property="Background" Value="Transparent"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
@@ -474,6 +496,31 @@ $xaml = @'
                       <TextBlock x:Name="OnlineCount" Foreground="{StaticResource Ink}" FontSize="12"/></StackPanel></Border>
                 </Grid>
                 <TextBlock x:Name="VsCardHelp" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left"/>
+                <Border x:Name="AccountBox" Visibility="Collapsed" CornerRadius="14" Background="#0DFFFFFF" BorderBrush="{StaticResource Edge}" BorderThickness="1" Padding="18,14,18,16" Margin="0,16,0,0">
+                  <StackPanel>
+                    <StackPanel x:Name="SignedOutPanel">
+                      <TextBlock x:Name="AccTitle" Foreground="{StaticResource Ink}" FontSize="14" FontWeight="SemiBold"/>
+                      <TextBlock x:Name="AccHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left" Margin="0,4,0,0"/>
+                      <WrapPanel Margin="0,12,0,0">
+                        <StackPanel Margin="0,0,12,0"><TextBlock x:Name="EmailLabel" Style="{StaticResource Label}" Margin="0,0,0,6"/>
+                          <TextBox x:Name="EmailBox" Style="{StaticResource Field}" Width="250"/></StackPanel>
+                        <StackPanel Margin="0,0,12,0"><TextBlock x:Name="PassLabel" Style="{StaticResource Label}" Margin="0,0,0,6"/>
+                          <PasswordBox x:Name="PassBox" Style="{StaticResource PwField}" Width="200"/></StackPanel>
+                      </WrapPanel>
+                      <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <Button x:Name="SignInBtn" Style="{StaticResource AccentBtn}"/>
+                        <Button x:Name="SignUpBtn" Style="{StaticResource Soft}" Margin="0"/>
+                      </StackPanel>
+                    </StackPanel>
+                    <Grid x:Name="SignedInPanel" Visibility="Collapsed">
+                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border x:Name="MeAvatar" Width="34" Height="34" CornerRadius="17" Background="{StaticResource Accent}"><TextBlock x:Name="MeInitial" Foreground="White" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                        <TextBlock x:Name="MeText" Foreground="{StaticResource Ink}" FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                      </StackPanel>
+                      <Button x:Name="SignOutBtn" Style="{StaticResource Soft}" HorizontalAlignment="Right" Margin="0"/>
+                    </Grid>
+                  </StackPanel>
+                </Border>
                 <Grid Margin="0,4,0,0">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <StackPanel>
@@ -491,6 +538,7 @@ $xaml = @'
                   <Button x:Name="QuickBtn" Style="{StaticResource AccentBtn}"/>
                   <TextBlock x:Name="QuickHelp" Style="{StaticResource Help}" VerticalAlignment="Center" Margin="4,0,0,0" MaxWidth="380"/>
                 </StackPanel>
+                <TextBlock x:Name="NetStatus" Style="{StaticResource Help}" Foreground="#FFB9C2FF" MaxWidth="600" HorizontalAlignment="Left" Margin="0,12,0,0" Visibility="Collapsed"/>
 
                 <StackPanel x:Name="InvitesBox" Visibility="Collapsed">
                   <TextBlock x:Name="InvitesLabel" Style="{StaticResource Section}"/>
@@ -655,7 +703,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('AccTitle', 'accTitle'), @('AccHelp', 'accHelp'), @('EmailLabel', 'emailLabel'), @('PassLabel', 'passLabel'), @('SignInBtn', 'signIn'), @('SignUpBtn', 'signUp'), @('SignOutBtn', 'signOut'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -820,15 +868,16 @@ function Show-People {
     $list = Find 'PlayersList'; $list.Children.Clear()
     foreach ($p in $script:players) {
         $status = switch ($p.State) { 'playing' { T 'stPlaying' } 'searching' { T 'stSearching' } default { T 'stLauncher' } }
-        $btn = New-RowButton (T 'invite') 'Soft' { Show-Soon }
+        $btn = New-RowButton (T 'invite') 'Soft' { Send-Invite $this.Tag }
+        $btn.Tag = $p
         $btn.Margin = '0'; $btn.IsEnabled = $p.State -ne 'playing'
         [void]$list.Children.Add((New-PersonRow $p.Name $status $p.Ping @($btn)))
     }
     (Find 'PlayersEmpty').Visibility = if ($script:players.Count) { 'Collapsed' } else { 'Visible' }
     $inv = Find 'InvitesList'; $inv.Children.Clear()
     foreach ($i in $script:invites) {
-        $ok = New-RowButton (T 'accept') 'AccentBtn' { Show-Soon }
-        $no = New-RowButton (T 'decline') 'Soft' { Show-Soon }; $no.Margin = '0'
+        $ok = New-RowButton (T 'accept') 'AccentBtn' { Answer-Invite $this.Tag $true }; $ok.Tag = $i
+        $no = New-RowButton (T 'decline') 'Soft' { Answer-Invite $this.Tag $false }; $no.Margin = '0'; $no.Tag = $i
         [void]$inv.Children.Add((New-PersonRow $i.Name ((T 'inviteFrom') -f $i.Name) $i.Ping @($ok, $no)))
     }
     (Find 'InvitesBox').Visibility = if ($script:invites.Count) { 'Visible' } else { 'Collapsed' }
@@ -838,7 +887,79 @@ function Show-Advanced([bool]$Open) {
     (Find 'AdvToggle').Content = if ($Open) { T 'advHide' } else { T 'advShow' }
 }
 (Find 'AdvToggle').Add_Click({ Show-Advanced ((Find 'AdvPanel').Visibility -ne 'Visible') })
-(Find 'QuickBtn').Add_Click({ Show-Soon })
+# ---- the players server (tools\players_client.ps1): signing in, the list, invitations, quick match ----
+. (Join-Path $PSScriptRoot 'players_client.ps1')
+function Say-Net([string]$Text) { $s_ = Find 'NetStatus'; $s_.Text = $Text; $s_.Visibility = if ($Text) { 'Visible' } else { 'Collapsed' } }
+function Show-Account {
+    (Find 'AccountBox').Visibility = if ($Players.On) { 'Visible' } else { 'Collapsed' }
+    (Find 'SignedOutPanel').Visibility = if ($Players.SignedIn) { 'Collapsed' } else { 'Visible' }
+    (Find 'SignedInPanel').Visibility = if ($Players.SignedIn) { 'Visible' } else { 'Collapsed' }
+    (Find 'MeText').Text = (T 'signedAs') -f $Players.Name
+    (Find 'MeInitial').Text = if ($Players.Name) { $Players.Name.Substring(0, 1).ToUpper() } else { '?' }
+    (Find 'QuickBtn').Content = if ($Players.State -eq 'searching') { T 'quickCancel' } else { T 'quick' }
+}
+function Send-Invite($P_) {
+    if (-not $Players.On) { Show-Soon; return }
+    if (-not $Players.SignedIn) { Say-Net (T 'needSignIn'); return }
+    Request-Players @{ Op = 'invite'; To = $P_.Id; Name = $P_.Name; Netcode = (Get-Chip (Find 'NetcodeChips')) }
+}
+function Answer-Invite($I_, [bool]$Yes) {
+    if (-not $Players.On) { Show-Soon; return }
+    Request-Players @{ Op = 'answer'; Id = $I_.Id; Accept = $Yes; Name = $I_.Name }
+}
+function Start-FromServer($N) {
+    # the room the server arranged: this launcher makes it (host) or joins it, with the invitation's netcode, and starts the game
+    [void](Pick-Chip 'NetcodeChips' $(if ($N.Netcode -eq 'normal') { 'normal' } else { 'rollback' }))
+    if ($N.Role -eq 'host') { [void](Pick-Chip 'VsChips' 'host'); $script:vsCode = $N.Code; [void](Pick-Chip 'VsPlayersChips' '2') }
+    else { [void](Pick-Chip 'VsChips' 'join'); (Find 'VsPeerBox').Text = $N.Code }
+    Show-VsChoice
+    Say-Net ((T 'starting2') -f $N.With)
+    (Find 'PlayBtn').RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Primitives.ButtonBase]::ClickEvent))
+}
+function Pick-Chip([string]$Panel, [string]$Value) { foreach ($ch in (Find $Panel).Children) { if ([string]$ch.Tag -eq $Value) { $ch.IsChecked = $true; return $ch } } }
+(Find 'QuickBtn').Add_Click({
+    if (-not $Players.On) { Show-Soon; return }
+    if (-not $Players.SignedIn) { Say-Net (T 'needSignIn'); return }
+    if ($Players.State -eq 'searching') { Request-Players @{ Op = 'quickCancel' } } else { Request-Players @{ Op = 'quick'; Netcode = (Get-Chip (Find 'NetcodeChips')) } }
+})
+(Find 'SignInBtn').Add_Click({
+    $mail = (Find 'EmailBox').Text.Trim(); $pw = (Find 'PassBox').Password
+    if (-not $mail -or -not $pw) { Say-Net (T 'needBoth'); return }
+    Say-Net (T 'signingIn')
+    Request-Players @{ Op = 'signIn'; Email = $mail; Password = $pw }
+    (Find 'PassBox').Password = ''
+})
+(Find 'SignUpBtn').Add_Click({ $u = if ($PlayersConfig -and $PlayersConfig.signup) { [string]$PlayersConfig.signup } else { '' }; if ($u -match '^https://') { Start-Process $u } })
+(Find 'SignOutBtn').Add_Click({ Request-Players @{ Op = 'signOut' } })
+$script:playersSeen = -1
+$playersTimer = New-Object Windows.Threading.DispatcherTimer
+$playersTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+$playersTimer.Add_Tick({
+    if ($Players.Stamp -ne $script:playersSeen) {
+        $script:playersSeen = $Players.Stamp
+        $script:onlineTotal = $Players.Online
+        $script:players = @($Players.List | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; State = $_.State; Ping = $(if ($null -ne $_.Rating) { "$($_.Rating) pts" } else { '' }) } })
+        $script:invites = @($Players.Invites | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; Netcode = $_.Netcode; Ping = '' } })
+        Show-People
+    }
+    $n = $null
+    while ($Players.News.TryDequeue([ref]$n)) {
+        switch ($n.Kind) {
+            'signedIn' { Say-Net '' }
+            'signedOut' { Say-Net '' }
+            'searching' { Say-Net (T 'searching') }
+            'quickStopped' { Say-Net '' }
+            'inviteSent' { Say-Net ((T 'inviteSent') -f $n.Name) }
+            'inviteOver' { Say-Net ((T 'inviteOver') -f $n.Name) }
+            'error' { Say-Net ((T 'netError') -f $n.Text) }
+            'start' { Start-FromServer $n }
+        }
+        Show-Account
+    }
+})
+$win.Add_Closed({ $playersTimer.Stop(); Stop-PlayersClient })
+if (-not $env:NATIVESMASH_SHOTS) { Start-PlayersClient ([string](Get-LineValue (Join-Path $Root 'VERSION'))); $playersTimer.Start() }
+Show-Account
 Show-Advanced ($vsMode -ne 'off')
 Show-People
 (Find 'VsCopy').Add_Click({

@@ -5,7 +5,7 @@ window.NS = (function () {
   var URL_ = 'https://vsaogrjmlwzwvdtffyow.supabase.co';
   var KEY = 'sb_publishable_ia8FosvjKAWFkLkMf4lXVA_uJmPZFg4';
   /* the community: the official WhatsApp group, and the Discord server's invitation (empty: its buttons stay hidden) */
-  var LINKS = { whatsapp: 'https://chat.whatsapp.com/CuV6VkBEa8Y6yVvsEcREY2', discord: '' };
+  var LINKS = { whatsapp: 'https://chat.whatsapp.com/CuV6VkBEa8Y6yVvsEcREY2', discord: 'https://discord.gg/HdE6YB2c7' };
   function showLinks() {
     document.querySelectorAll('[data-whatsapp]').forEach(function (a) { a.href = LINKS.whatsapp; a.hidden = !LINKS.whatsapp; });
     document.querySelectorAll('[data-discord]').forEach(function (a) { a.href = LINKS.discord || '#'; a.hidden = !LINKS.discord; });

@@ -20,7 +20,8 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/pkgyYGf3YB"><img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the community on Discord"></a>
+  <a href="https://discord.gg/HdE6YB2c7"><img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the community on Discord"></a>
+  <a href="https://chat.whatsapp.com/CuV6VkBEa8Y6yVvsEcREY2"><img src="https://img.shields.io/badge/WhatsApp-Grupo%20oficial-25D366?style=for-the-badge&logo=whatsapp&logoColor=white" alt="Grupo oficial de WhatsApp"></a>
 </p>
 
 ---
@@ -244,7 +245,7 @@ Those are the defaults. Change any of them on the launcher's **Controls** page (
 
 Everyone needs the **same game version**, and each PC uses its own save. The [multiplayer guide](docs/MULTIPLAYER.md) walks through each way and what to do when a room doesn't show up; if a match lags or stutters, see [online tuning](docs/ONLINE-TUNING.md) (afinado en línea).
 
-Looking for people to play with? Ask on the [Discord server](https://discord.gg/pkgyYGf3YB).
+Looking for people to play with? Ask on the [Discord server](https://discord.gg/HdE6YB2c7).
 
 ## All guides
 
@@ -301,9 +302,9 @@ The **[technical guide](docs/TECHNICAL.md)** explains each part: the CPU model, 
 
 ## Community
 
-<a href="https://discord.gg/pkgyYGf3YB"><img src="https://img.shields.io/badge/Discord-recomps.wtf-5865F2?logo=discord&logoColor=white" alt="Discord: recomps.wtf"></a>
+<a href="https://discord.gg/HdE6YB2c7"><img src="https://img.shields.io/badge/Discord-recomps.wtf-5865F2?logo=discord&logoColor=white" alt="Discord: recomps.wtf"></a>
 
-Join the **[recomps.wtf Discord server](https://discord.gg/pkgyYGf3YB)** to:
+Join the **[recomps.wtf Discord server](https://discord.gg/HdE6YB2c7)** to:
 
 - get help with setting up and building;
 - find people to play with online;
@@ -312,7 +313,7 @@ Join the **[recomps.wtf Discord server](https://discord.gg/pkgyYGf3YB)** to:
 
 ## Getting help
 
-When something goes wrong, first look at [If something goes wrong](docs/BUILDING.md#if-something-goes-wrong) in the setup guide. For a quick question, ask on [Discord](https://discord.gg/pkgyYGf3YB). To report a problem, open an issue and include:
+When something goes wrong, first look at [If something goes wrong](docs/BUILDING.md#if-something-goes-wrong) in the setup guide. For a quick question, ask on [Discord](https://discord.gg/HdE6YB2c7). To report a problem, open an issue and include:
 
 - the game version, your Windows version, and your graphics card and driver version;
 - which NativeSmash you have (the date you downloaded it, or the output of `git rev-parse --short HEAD`);

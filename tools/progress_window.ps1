@@ -29,7 +29,7 @@ function Get-ProgressWords {
             details = 'Show details'; hide = 'Hide details'; left = 'left'; calc = 'working out the time left'
             doneHead = 'All done!'; doneNote = 'NativeSmash is ready. Open it from the shortcut on your desktop, or press Play now.'; doneNoteShaders = ' Shaders keep being prepared in the background; you can play meanwhile.'
             errHead = 'Something went wrong'; errNote = 'Nothing is lost: open the installer again and it carries on where it stopped. The details below say why.'
-            play = 'Play now'; close = 'Close'; log = 'Open the log'
+            play = 'Play now'; close = 'Close'; log = 'Open the log'; updatedNote = 'Updated. Opening NativeSmash...'
             confirm = 'Stop the installation? You can open it again later and it carries on where it stopped.'; confirmTitle = 'NativeSmash'
             ending = 'Almost there'
         }
@@ -44,7 +44,7 @@ function Get-ProgressWords {
                    10 = 'Preparando los shaders en segundo plano.' }
         phases = @('Preparación', 'Descargar herramientas', 'Tus archivos del juego', 'Construir el juego', 'Terminar')
         details = 'Ver detalles'; hide = 'Ocultar detalles'; left = 'faltan'; calc = 'calculando el tiempo que falta'
-        doneHead = '¡Listo!'; doneNote = 'NativeSmash está instalado. Ábrelo desde el acceso directo del escritorio, o pulsa Jugar ahora.'; doneNoteShaders = ' Los shaders se siguen preparando en segundo plano; puedes jugar mientras.'
+        updatedNote = 'Actualizado. Abriendo NativeSmash...'; doneHead = '¡Listo!'; doneNote = 'NativeSmash está instalado. Ábrelo desde el acceso directo del escritorio, o pulsa Jugar ahora.'; doneNoteShaders = ' Los shaders se siguen preparando en segundo plano; puedes jugar mientras.'
         errHead = 'Algo salió mal'; errNote = 'No se pierde nada: abre el instalador otra vez y sigue donde se quedó. Los detalles de abajo dicen el motivo.'
         play = 'Jugar ahora'; close = 'Cerrar'; log = 'Abrir el registro'
         confirm = '¿Detener la instalación? Puedes abrirla otra vez más tarde y sigue donde se quedó.'; confirmTitle = 'NativeSmash'
@@ -224,6 +224,13 @@ $Script:ProgressUi = {
                 (& $f 'Note').Text = $W.doneNote + $(if ($S.ShadersLater) { $W.doneNoteShaders } else { '' })
                 (& $f 'Detail').Text = ''
                 (& $f 'MainBtn').Content = $W.play; (& $f 'MainBtn').Tag = 'play'
+                if ($S.Update) {   # (an update started from the launcher, which closed: the new one opens by itself, and this window goes)
+                    (& $f 'Note').Text = $W.updatedNote
+                    $script:reopen = New-Object Windows.Threading.DispatcherTimer
+                    $script:reopen.Interval = [TimeSpan]::FromMilliseconds(1800)
+                    $script:reopen.Add_Tick({ $script:reopen.Stop(); (& $f 'MainBtn').RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Primitives.ButtonBase]::ClickEvent)) })
+                    $script:reopen.Start()
+                }
             } else {
                 (& $f 'Head').Text = $W.errHead
                 (& $f 'Note').Text = $W.errNote + $(if ($S.Message -and $S.Message -notmatch 'message above') { "`r`n" + $S.Message } else { '' })
@@ -283,7 +290,8 @@ function Start-ProgressWindow {
     try {
         $log = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
         $sync = [hashtable]::Synchronized(@{ Lang = $Lang; Root = $Root; MainPid = $MainPid; Step = 0; Percent = 0.0; Detail = ''; Eta = ''; State = 'run'; Message = ''
-                                             Visible = $true; Closed = $false; Failed = $null; TickError = $null; Snapshot = $null; ShadersLater = $false; Log = $log })
+                                             Visible = $true; Closed = $false; Failed = $null; TickError = $null; Snapshot = $null; ShadersLater = $false; Log = $log
+                                             Update = ($env:NATIVESMASH_UPDATE -eq '1') })
         $rs = [runspacefactory]::CreateRunspace()
         $rs.ApartmentState = 'STA'; $rs.ThreadOptions = 'ReuseThread'; $rs.Open()
         $ps = [powershell]::Create(); $ps.Runspace = $rs

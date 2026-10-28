@@ -66,19 +66,36 @@ $Words = @{
     directConn = @('Conexiones directas', 'Direct connections')
     report = @('Enviar informes de errores automáticamente', 'Send error reports automatically')
     reportHelp = @('Si el juego se cierra por un error o falla el online, al cerrarse se envía un informe al proyecto para arreglarlo. Sin datos personales: se quitan tu nombre de usuario, el de tu PC, tu nombre online, tu código de sala y tus direcciones de internet. Va a un repositorio privado del proyecto.', 'If the game stops on an error or the online fails, a report goes to the project when it closes, so it can be fixed. No personal data: your user name, your PC''s name, your online name, your room code and your internet addresses are taken out. It goes to a private repository of the project.')
-    netcodeLabel = @('Modo de red (Local Wireless)', 'Netcode (Local Wireless)')
+    netcodeLabel = @('Modo', 'Mode')
     netcodeNormal = @('Normal', 'Normal')
     netcodeRollback = @('Rollback (en pruebas)', 'Rollback (testing)')
-    netcodeHelp = @('Normal: el online de siempre, con el retraso de arriba. Rollback (en pruebas): solo en el VS en red (abajo); el juego adivina los botones del otro en vez de esperarlos y, si se equivoca, rebobina y corrige. Puede ir lento o separarse. En Local Wireless todavía no hace nada. Todos deben elegir el mismo.', 'Normal: the usual online, with the delay above. Rollback (testing): only in the VS netplay (below); the game guesses the other player''s buttons instead of waiting for them and, when wrong, rewinds and corrects. It may run slow or go out of sync. In Local Wireless it does nothing yet. Everyone must pick the same.')
+    netcodeHelp = @('Rollback: el juego adivina los botones del otro en vez de esperarlos y, si se equivoca, corrige al momento; se nota mucho menos el retraso. Normal: espera siempre los botones del otro. Todos los de la partida tienen que elegir el mismo.', 'Rollback: the game guesses the other player''s buttons instead of waiting for them and corrects at once when wrong; the delay shows much less. Normal: it always waits for the other player''s buttons. Everyone in the match must pick the same.')
     delayLabel = @('Retraso de entrada en línea, en cuadros (menos es más rápido; si es muy poco, se traba)', 'Online input delay, in frames (lower is quicker; too low and it stutters)')
     delayAuto = @('Auto (el del juego)', 'Auto (the game''s)')
     delayHelp = @('Cuántos cuadros guarda el juego antes de aplicar tu botón, para esperar al otro jugador. Menos es más rápido, pero si es muy poco para la conexión el juego se traba esperando. Con una buena conexión directa, prueba 2 o 3.', 'How many frames the game holds your button before applying it, to wait for the other player. Lower is quicker, but if it is too low for the connection the game stutters waiting. On a good direct connection, try 2 or 3.')
-    vsTitle = @('VS en red con un amigo (prueba)', 'VS netplay with a friend (test)')
+    vsTitle = @('Si preferís pasaros un código: uno crea la sala y le pasa el código al otro, que se une con él.', 'If you would rather share a code: one makes the room and gives the code to the other, who joins with it.')
+    lwTitle = @('Local Wireless', 'Local Wireless')
+    lwHelp = @('El modo en línea del propio juego: entra en Smash, Local Wireless, y crea o busca una sala con tus amigos.', 'The game''s own online mode: go to Smash, Local Wireless, and make or find a room with your friends.')
+    vsCardTitle = @('VS en red', 'VS netplay')
+    vsCardHelp = @('Combates de Smash entre PCs con rollback: elige el modo y el retraso, y busca partida o invita a un jugador conectado.', 'Smash battles between PCs with rollback: pick the mode and the delay, then find a match or invite a player who is online.')
+    onlineSoon = @('Jugadores en línea: pronto', 'Players online: soon')
+    onlineCount = @('{0} en línea', '{0} online')
+    quick = @('Partida rápida', 'Quick match')
+    quickHelp = @('Te empareja con otro jugador que también esté buscando, con una conexión parecida a la tuya.', 'Matches you with another player who is looking too, with a connection like yours.')
+    quickSoon = @('La partida rápida, la lista de jugadores y las invitaciones llegan con el servidor de jugadores de NativeSmash, que estamos preparando. Mientras tanto, usa "Conectar con un código".', 'Quick match, the players list and invitations come with NativeSmash''s players server, which is on its way. Meanwhile, use "Connect with a code".')
+    invitesLabel = @('Invitaciones', 'Invitations')
+    inviteFrom = @('{0} te invita a jugar', '{0} invites you to play')
+    accept = @('Aceptar', 'Accept'); decline = @('Rechazar', 'Decline'); invite = @('Invitar', 'Invite')
+    playersLabel = @('Jugadores conectados', 'Players online')
+    playersEmpty = @('Aquí verás a los jugadores que tengan el launcher o el juego abierto, para invitarles a jugar. Si aceptan, entráis los dos en la misma sala sin pasaros ningún código.', 'Players with the launcher or the game open show here, to invite them to play. When they accept, you both go into the same room without sharing a code.')
+    stLauncher = @('En el launcher', 'In the launcher'); stPlaying = @('Jugando', 'Playing'); stSearching = @('Buscando partida', 'Looking for a match')
+    advShow = @('Conectar con un código', 'Connect with a code'); advHide = @('Ocultar la conexión con código', 'Hide the code connection')
     vsOff = @('Apagado', 'Off'); vsHost = @('Crear sala (jugador 1)', 'Make a room (player 1)'); vsJoin = @('Unirme a una sala (jugador 2)', 'Join a room (player 2)')
     vsPeer = @('Código de la sala de tu amigo', 'Your friend''s room code')
     vsCode = @('Código de tu sala: {0}   (pásaselo a tu amigo)', 'Your room code: {0}   (give it to your friend)')
     vsCopy = @('Copiar el código', 'Copy the code'); vsNewCode = @('Otro código', 'Another code'); vsCopied = @('Código copiado: pégaselo a tu amigo (WhatsApp, Discord...).', 'Code copied: paste it to your friend (WhatsApp, Discord...).')
-    vsDelay = @('Retraso en cuadros (Auto se ajusta solo a la conexión; si eliges un número y va a tirones, súbelo)', 'Delay in frames (Auto follows the connection; with a number, raise it if it stutters)')
+    vsDelay = @('Retraso (cuadros)', 'Delay (frames)')
+    vsDelayHelp = @('Auto se ajusta solo a vuestra conexión. Si eliges un número y va a tirones, súbelo.', 'Auto follows your connection. With a number, raise it if it stutters.')
     vsPlayers = @('Jugadores (contándote a ti)', 'Players (you included)')
     vsAuto = @('Auto', 'Auto')
     vsMine = @('Tu dirección para tu amigo: {0}', 'Your address for your friend: {0}')
@@ -228,6 +245,9 @@ $xaml = @'
 
     <Style x:Key="Label" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Muted}"/><Setter Property="FontSize" Value="13"/><Setter Property="Margin" Value="0,18,0,8"/></Style>
     <Style x:Key="Help" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Muted}"/><Setter Property="FontSize" Value="13"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Margin" Value="0,8,0,0"/></Style>
+    <Style x:Key="Card" TargetType="Border"><Setter Property="CornerRadius" Value="20"/><Setter Property="Background" Value="#0FFFFFFF"/><Setter Property="BorderBrush" Value="#1FFFFFFF"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="26,22,26,24"/><Setter Property="Margin" Value="0,22,0,0"/></Style>
+    <Style x:Key="CardTitle" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="FontSize" Value="19"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+    <Style x:Key="Section" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="FontSize" Value="14"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,24,0,10"/></Style>
     <Style x:Key="Title" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Ink}"/><Setter Property="FontSize" Value="30"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
 
     <!-- a side menu entry -->
@@ -308,7 +328,8 @@ $xaml = @'
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
         <Border x:Name="b" CornerRadius="12" Padding="18,11" Background="{StaticResource Veil}" BorderBrush="{StaticResource Edge}" BorderThickness="1">
           <ContentPresenter HorizontalAlignment="Center" TextBlock.Foreground="{TemplateBinding Foreground}"/></Border>
-        <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#26FFFFFF"/></Trigger></ControlTemplate.Triggers>
+        <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#26FFFFFF"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger></ControlTemplate.Triggers>
       </ControlTemplate></Setter.Value></Setter>
     </Style>
 
@@ -333,6 +354,16 @@ $xaml = @'
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
 
+    <Style x:Key="AccentBtn" TargetType="Button">
+      <Setter Property="Foreground" Value="White"/><Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="0,0,12,0"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="b" CornerRadius="14" Background="{StaticResource Accent}" Padding="24,12" BorderBrush="#55FFFFFF" BorderThickness="1">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.Foreground="White"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.88"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger>
+        </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
     <Style x:Key="PlayBtn" TargetType="Button">
       <Setter Property="Foreground" Value="White"/><Setter Property="FontSize" Value="20"/><Setter Property="FontWeight" Value="Bold"/><Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
@@ -414,32 +445,78 @@ $xaml = @'
             <TextBlock x:Name="OnlineTitle" Style="{StaticResource Title}"/>
             <TextBlock x:Name="NameLabel" Style="{StaticResource Label}"/>
             <TextBox x:Name="NameBox" Style="{StaticResource Field}" MaxLength="32" Width="360" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="LobbyLabel" Style="{StaticResource Label}"/>
-            <WrapPanel x:Name="LobbyChips"/>
-            <TextBlock x:Name="CodeLabel" Style="{StaticResource Label}"/>
-            <TextBox x:Name="CodeBox" Style="{StaticResource Field}" MaxLength="32" Width="360" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="ServerLabel" Style="{StaticResource Label}"/>
-            <TextBox x:Name="ServerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
-            <CheckBox x:Name="DirectConn" Style="{StaticResource Switch}" Margin="0,26,0,0"/>
-            <TextBlock x:Name="DirectHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="DelayLabel" Style="{StaticResource Label}" Margin="0,26,0,8"/>
-            <WrapPanel x:Name="DelayChips" MaxWidth="660" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="NetcodeLabel" Style="{StaticResource Label}" Margin="0,26,0,8"/>
-            <WrapPanel x:Name="NetcodeChips"/>
-            <TextBlock x:Name="NetcodeHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="VsTitle" Style="{StaticResource Label}" Margin="0,30,0,8" Foreground="{StaticResource Ink}" FontSize="17" FontWeight="SemiBold"/>
-            <WrapPanel x:Name="VsChips"/>
-            <TextBlock x:Name="VsMine" Style="{StaticResource Label}" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="SemiBold" MaxWidth="560" HorizontalAlignment="Left"/>
-            <WrapPanel x:Name="VsCodeRow" Margin="0,6,0,0"><Button x:Name="VsCopy" Style="{StaticResource Soft}"/><Button x:Name="VsNewCode" Style="{StaticResource Soft}"/></WrapPanel>
-            <TextBlock x:Name="VsPeerLabel" Style="{StaticResource Label}"/>
-            <TextBox x:Name="VsPeerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="VsDelayLabel" Style="{StaticResource Label}"/>
-            <WrapPanel x:Name="VsDelayChips"/>
-            <TextBlock x:Name="VsPlayersLabel" Style="{StaticResource Label}"/>
-            <WrapPanel x:Name="VsPlayersChips"/>
-            <WrapPanel x:Name="VsSaveRow" Margin="0,18,0,0"><Button x:Name="VsSaveMake" Style="{StaticResource Soft}"/><Button x:Name="VsSaveUse" Style="{StaticResource Soft}"/></WrapPanel>
-            <TextBlock x:Name="VsSaveState" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="VsHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+
+            <!-- Local Wireless: as it was -->
+            <Border Style="{StaticResource Card}">
+              <StackPanel>
+                <TextBlock x:Name="LwTitle" Style="{StaticResource CardTitle}"/>
+                <TextBlock x:Name="LwHelp" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="LobbyLabel" Style="{StaticResource Label}"/>
+                <WrapPanel x:Name="LobbyChips"/>
+                <TextBlock x:Name="CodeLabel" Style="{StaticResource Label}"/>
+                <TextBox x:Name="CodeBox" Style="{StaticResource Field}" MaxLength="32" Width="360" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="ServerLabel" Style="{StaticResource Label}"/>
+                <TextBox x:Name="ServerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
+                <CheckBox x:Name="DirectConn" Style="{StaticResource Switch}" Margin="0,22,0,0"/>
+                <TextBlock x:Name="DirectHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="DelayLabel" Style="{StaticResource Label}" Margin="0,22,0,8"/>
+                <WrapPanel x:Name="DelayChips" MaxWidth="660" HorizontalAlignment="Left"/>
+              </StackPanel>
+            </Border>
+
+            <!-- the VS netplay: mode, delay, quick match, players, invitations; a code by hand under Advanced -->
+            <Border Style="{StaticResource Card}">
+              <StackPanel>
+                <Grid>
+                  <TextBlock x:Name="VsCardTitle" Style="{StaticResource CardTitle}" VerticalAlignment="Center"/>
+                  <Border HorizontalAlignment="Right" CornerRadius="11" Background="#1A3DDC97" BorderBrush="#553DDC97" BorderThickness="1" Padding="12,4">
+                    <StackPanel Orientation="Horizontal"><Ellipse x:Name="OnlineDot" Width="8" Height="8" Fill="#FF3DDC97" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                      <TextBlock x:Name="OnlineCount" Foreground="{StaticResource Ink}" FontSize="12"/></StackPanel></Border>
+                </Grid>
+                <TextBlock x:Name="VsCardHelp" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left"/>
+                <Grid Margin="0,4,0,0">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock x:Name="NetcodeLabel" Style="{StaticResource Label}"/>
+                    <WrapPanel x:Name="NetcodeChips"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock x:Name="VsDelayLabel" Style="{StaticResource Label}"/>
+                    <WrapPanel x:Name="VsDelayChips"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock x:Name="NetcodeHelp" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left" Margin="0,0,0,0"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
+                  <Button x:Name="QuickBtn" Style="{StaticResource AccentBtn}"/>
+                  <TextBlock x:Name="QuickHelp" Style="{StaticResource Help}" VerticalAlignment="Center" Margin="4,0,0,0" MaxWidth="380"/>
+                </StackPanel>
+
+                <StackPanel x:Name="InvitesBox" Visibility="Collapsed">
+                  <TextBlock x:Name="InvitesLabel" Style="{StaticResource Section}"/>
+                  <StackPanel x:Name="InvitesList"/>
+                </StackPanel>
+
+                <TextBlock x:Name="PlayersLabel" Style="{StaticResource Section}"/>
+                <StackPanel x:Name="PlayersList"/>
+                <TextBlock x:Name="PlayersEmpty" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left" Margin="0,0,0,0"/>
+
+                <Button x:Name="AdvToggle" Style="{StaticResource Soft}" HorizontalAlignment="Left" Margin="0,24,0,0"/>
+                <StackPanel x:Name="AdvPanel" Visibility="Collapsed">
+                  <TextBlock x:Name="VsTitle" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left" Margin="0,4,0,10"/>
+                  <WrapPanel x:Name="VsChips"/>
+                  <TextBlock x:Name="VsMine" Style="{StaticResource Label}" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="SemiBold" MaxWidth="560" HorizontalAlignment="Left"/>
+                  <WrapPanel x:Name="VsCodeRow" Margin="0,6,0,0"><Button x:Name="VsCopy" Style="{StaticResource Soft}"/><Button x:Name="VsNewCode" Style="{StaticResource Soft}"/></WrapPanel>
+                  <TextBlock x:Name="VsPeerLabel" Style="{StaticResource Label}"/>
+                  <TextBox x:Name="VsPeerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
+                  <TextBlock x:Name="VsPlayersLabel" Style="{StaticResource Label}"/>
+                  <WrapPanel x:Name="VsPlayersChips"/>
+                  <WrapPanel x:Name="VsSaveRow" Margin="0,18,0,0"><Button x:Name="VsSaveMake" Style="{StaticResource Soft}"/><Button x:Name="VsSaveUse" Style="{StaticResource Soft}"/></WrapPanel>
+                  <TextBlock x:Name="VsSaveState" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+                  <TextBlock x:Name="VsHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
           </StackPanel>
           </ScrollViewer>
 
@@ -578,7 +655,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -676,6 +753,7 @@ if ($vsDelay -notmatch '^([0-8]|auto)$') { $vsDelay = 'auto' }
 $vsPlayers = if ($vsMode -eq 'host' -and $vsWords.Count -gt 3 -and $vsWords[3] -match '^[2-4]$') { $vsWords[3] } else { '2' }
 New-Chips (Find 'VsChips') @(@{ Value = 'off'; Text = (T 'vsOff') }, @{ Value = 'host'; Text = (T 'vsHost') }, @{ Value = 'join'; Text = (T 'vsJoin') }) $vsMode
 New-Chips (Find 'VsDelayChips') (@(@{ Value = 'auto'; Text = (T 'vsAuto') }) + @(1..8 | ForEach-Object { @{ Value = "$_"; Text = "$_" } })) $vsDelay
+(Find 'VsDelayChips').ToolTip = (T 'vsDelayHelp'); (Find 'VsDelayLabel').ToolTip = (T 'vsDelayHelp')
 New-Chips (Find 'VsPlayersChips') @(2..4 | ForEach-Object { @{ Value = "$_"; Text = "$_" } }) $vsPlayers
 (Find 'VsPeerBox').Text = $vsPeer
 function Show-VsChoice {
@@ -683,7 +761,7 @@ function Show-VsChoice {
     $join = if ($m -eq 'join') { 'Visible' } else { 'Collapsed' }
     (Find 'VsPeerLabel').Visibility = $join; (Find 'VsPeerBox').Visibility = $join
     $on = if ($m -ne 'off') { 'Visible' } else { 'Collapsed' }
-    (Find 'VsDelayLabel').Visibility = $on; (Find 'VsDelayChips').Visibility = $on; (Find 'VsHelp').Visibility = $on
+    (Find 'VsHelp').Visibility = $on
     (Find 'VsMine').Visibility = if ($m -eq 'host') { 'Visible' } else { 'Collapsed' }
     (Find 'VsCodeRow').Visibility = if ($m -eq 'host') { 'Visible' } else { 'Collapsed' }
     (Find 'VsPlayersLabel').Visibility = if ($m -eq 'host') { 'Visible' } else { 'Collapsed' }
@@ -695,6 +773,74 @@ function Show-VsChoice {
     (Find 'VsMine').Text = (T 'vsCode') -f $script:vsCode
 }
 foreach ($c in (Find 'VsChips').Children) { $c.Add_Checked({ Show-VsChoice }) }
+
+# ---- players online and invitations (NativeSmash's players server: on its way; until then the list is empty) ----
+$script:players = @(); $script:invites = @(); $script:onlineTotal = -1
+function New-Avatar([string]$Name) {
+    $hues = @('#FF7C6CFF', '#FFA66BFF', '#FF3DB6DC', '#FF3DDC97', '#FFE0A43D', '#FFE5617A')
+    $b = New-Object Windows.Controls.Border
+    $b.Width = 38; $b.Height = 38; $b.CornerRadius = 19
+    $b.Background = (New-Object Windows.Media.BrushConverter).ConvertFromString($hues[[Math]::Abs($Name.GetHashCode()) % $hues.Count])
+    $t = New-Object Windows.Controls.TextBlock
+    $t.Text = if ($Name) { $Name.Substring(0, 1).ToUpper() } else { '?' }
+    $t.Foreground = [Windows.Media.Brushes]::White; $t.FontSize = 16; $t.FontWeight = 'SemiBold'
+    $t.HorizontalAlignment = 'Center'; $t.VerticalAlignment = 'Center'
+    $b.Child = $t
+    return $b
+}
+function New-PersonRow([string]$Name, [string]$Status, [string]$Ping, $Buttons) {
+    $row = New-Object Windows.Controls.Border
+    $row.CornerRadius = 14; $row.Padding = '12,10,10,10'; $row.Margin = '0,0,0,8'
+    $row.Background = $win.FindResource('Veil'); $row.BorderBrush = $win.FindResource('Edge'); $row.BorderThickness = 1
+    $g = New-Object Windows.Controls.Grid
+    foreach ($w in @('Auto', '*', 'Auto')) { $cd = New-Object Windows.Controls.ColumnDefinition; $cd.Width = (New-Object Windows.GridLengthConverter).ConvertFromString($w); $g.ColumnDefinitions.Add($cd) }
+    $av = New-Avatar $Name; [Windows.Controls.Grid]::SetColumn($av, 0); [void]$g.Children.Add($av)
+    $info = New-Object Windows.Controls.StackPanel; $info.Margin = '14,0,0,0'; $info.VerticalAlignment = 'Center'
+    $n = New-Object Windows.Controls.TextBlock; $n.Text = $Name; $n.Foreground = $win.FindResource('Ink'); $n.FontSize = 15; $n.FontWeight = 'SemiBold'
+    $st = New-Object Windows.Controls.TextBlock; $st.Text = if ($Ping) { "$Status  ·  $Ping" } else { $Status }; $st.Foreground = $win.FindResource('Muted'); $st.FontSize = 12; $st.Margin = '0,2,0,0'
+    [void]$info.Children.Add($n); [void]$info.Children.Add($st)
+    [Windows.Controls.Grid]::SetColumn($info, 1); [void]$g.Children.Add($info)
+    $bp = New-Object Windows.Controls.StackPanel; $bp.Orientation = 'Horizontal'; $bp.VerticalAlignment = 'Center'
+    foreach ($bt in $Buttons) { $bt.Margin = '8,0,0,0'; [void]$bp.Children.Add($bt) }
+    [Windows.Controls.Grid]::SetColumn($bp, 2); [void]$g.Children.Add($bp)
+    $row.Child = $g
+    return $row
+}
+function New-RowButton([string]$Text, [string]$Style, [scriptblock]$OnClick) {
+    $b = New-Object Windows.Controls.Button
+    $b.Content = $Text; $b.Style = $win.FindResource($Style)
+    if ($Style -eq 'AccentBtn') { $b.Padding = '0'; $b.FontSize = 13 }
+    $b.Add_Click($OnClick)
+    return $b
+}
+function Show-Soon { [void][Windows.MessageBox]::Show($win, (T 'quickSoon'), 'NativeSmash', 'OK', 'Information') }
+function Show-People {
+    (Find 'OnlineCount').Text = if ($script:onlineTotal -ge 0) { (T 'onlineCount') -f $script:onlineTotal } else { T 'onlineSoon' }
+    (Find 'OnlineDot').Opacity = if ($script:onlineTotal -ge 0) { 1 } else { 0.35 }
+    $list = Find 'PlayersList'; $list.Children.Clear()
+    foreach ($p in $script:players) {
+        $status = switch ($p.State) { 'playing' { T 'stPlaying' } 'searching' { T 'stSearching' } default { T 'stLauncher' } }
+        $btn = New-RowButton (T 'invite') 'Soft' { Show-Soon }
+        $btn.Margin = '0'; $btn.IsEnabled = $p.State -ne 'playing'
+        [void]$list.Children.Add((New-PersonRow $p.Name $status $p.Ping @($btn)))
+    }
+    (Find 'PlayersEmpty').Visibility = if ($script:players.Count) { 'Collapsed' } else { 'Visible' }
+    $inv = Find 'InvitesList'; $inv.Children.Clear()
+    foreach ($i in $script:invites) {
+        $ok = New-RowButton (T 'accept') 'AccentBtn' { Show-Soon }
+        $no = New-RowButton (T 'decline') 'Soft' { Show-Soon }; $no.Margin = '0'
+        [void]$inv.Children.Add((New-PersonRow $i.Name ((T 'inviteFrom') -f $i.Name) $i.Ping @($ok, $no)))
+    }
+    (Find 'InvitesBox').Visibility = if ($script:invites.Count) { 'Visible' } else { 'Collapsed' }
+}
+function Show-Advanced([bool]$Open) {
+    (Find 'AdvPanel').Visibility = if ($Open) { 'Visible' } else { 'Collapsed' }
+    (Find 'AdvToggle').Content = if ($Open) { T 'advHide' } else { T 'advShow' }
+}
+(Find 'AdvToggle').Add_Click({ Show-Advanced ((Find 'AdvPanel').Visibility -ne 'Visible') })
+(Find 'QuickBtn').Add_Click({ Show-Soon })
+Show-Advanced ($vsMode -ne 'off')
+Show-People
 (Find 'VsCopy').Add_Click({
     try { [Windows.Clipboard]::SetText($script:vsCode); (Find 'VsSaveState').Text = T 'vsCopied'; $script:vsSaveNote = $true } catch { }
 })
@@ -1036,7 +1182,7 @@ $script:updTimer.Add_Tick({
 function Invoke-Update {
     if ([Windows.MessageBox]::Show($win, (T 'updConfirm'), 'NativeSmash', 'YesNo', 'Question') -ne 'Yes') { return }
     $bat = @('Install NativeSmash.bat', 'Install NativeSmash.bat') | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-    if ($bat) { Start-NativeSmashInstaller $bat; $win.Close() } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
+    if ($bat) { $env:NATIVESMASH_UPDATE = '1'; Start-NativeSmashInstaller $bat; $win.Close() } else { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" }
 }
 (Find 'UpdCheckBtn').Add_Click({ Start-UpdateCheck })
 (Find 'UpdNowBtn').Add_Click({ Invoke-Update })
@@ -1141,6 +1287,6 @@ $win.Add_ContentRendered({
         $script:clickTimer.Start()
     }
 })
-if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot 'launcher_shots.ps1') }) }   # (pictures for players: tools\launcher_shots.ps1)
+if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot $(if ($env:NATIVESMASH_SHOTS_KIND -eq 'online') { 'launcher_shots_online.ps1' } else { 'launcher_shots.ps1' })) }) }   # (pictures for players: tools\launcher_shots.ps1)
 [void]$win.ShowDialog()
 exit 0

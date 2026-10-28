@@ -107,6 +107,28 @@ $Words = @{
     inviteGone = @('Esa invitación ya no está (pasó más de un minuto).', 'That invitation is gone (over a minute passed).')
     tooMany = @('Demasiadas invitaciones seguidas: espera un momento.', 'Too many invitations in a row: wait a moment.')
     noServer = @('No se pudo hablar con el servidor de jugadores. ¿Tienes internet?', 'The players server could not be reached. Are you online?')
+    forgot = @('¿Olvidaste tu contraseña?', 'Forgot your password?')
+    cancelInvite = @('Cancelar invitación', 'Cancel the invitation')
+    inviteCancelled = @('Invitación a {0} cancelada.', 'Invitation to {0} cancelled.')
+    invitedYou = @('¡{0} te invita a jugar!', '{0} invites you to play!')
+    friendsLabel = @('Amigos', 'Friends')
+    friendsEmpty = @('Todavía no tienes amigos añadidos. Escribe el nombre de un jugador para enviarle una solicitud.', 'No friends added yet. Type a player''s name to send them a request.')
+    friendAdd = @('Añadir amigo', 'Add friend')
+    friendSent = @('Solicitud de amistad enviada a {0}.', 'Friend request sent to {0}.')
+    friendNow = @('{0} y tú ya sois amigos.', 'You and {0} are friends now.')
+    friendIncoming = @('Quiere ser tu amigo', 'Wants to be your friend')
+    friendOutgoing = @('Solicitud enviada', 'Request sent')
+    friendOffline = @('Desconectado', 'Offline')
+    friendRemove = @('Quitar', 'Remove')
+    noSuchPlayer = @('No hay ningún jugador con ese nombre.', 'There is no player with that name.')
+    searchingFor = @('Buscando partida… {0}  ·  {1} buscando ahora', 'Looking for a match… {0}  ·  {1} looking now')
+    resultTitle = @('¿Cómo fue la partida contra {0}?', 'How did the match against {0} go?')
+    resultHelp = @('Tu respuesta y la de tu rival suben o bajan vuestros puntos del ranking. Si no coinciden, la partida no cuenta.', 'Your answer and your opponent''s move your ranking points. If they do not match, the match does not count.')
+    resWin = @('Gané', 'I won'); resLoss = @('Perdí', 'I lost'); resNone = @('No terminamos', 'We did not finish')
+    resDone = @('¡Hecho! Los puntos ya están actualizados.', 'Done! The points are updated.')
+    resWaiting = @('Guardado. Los puntos se actualizan cuando tu rival responda también.', 'Saved. The points update when your opponent answers too.')
+    resDisputed = @('Vuestras respuestas no coinciden: esta partida no cuenta.', 'Your answers do not match: this match does not count.')
+    resVoid = @('Anotado: la partida no cuenta.', 'Noted: the match does not count.')
     needSignIn = @('Inicia sesión arriba para invitar o buscar partida.', 'Sign in above to invite or find a match.')
     advShow = @('Conectar con un código', 'Connect with a code'); advHide = @('Ocultar la conexión con código', 'Hide the code connection')
     vsOff = @('Apagado', 'Off'); vsHost = @('Crear sala (jugador 1)', 'Make a room (player 1)'); vsJoin = @('Unirme a una sala (jugador 2)', 'Join a room (player 2)')
@@ -445,6 +467,21 @@ $xaml = @'
         </Border>
 
         <!-- pages -->
+        <!-- after a match the server arranged: how it went (the ranking's points) -->
+        <Border x:Name="ResultPanel" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="20" CornerRadius="26" Background="#E60B0D1C">
+          <Border Style="{StaticResource Card}" Background="#FF171B36" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560" Padding="34,30">
+            <StackPanel>
+              <TextBlock x:Name="ResultTitle" Style="{StaticResource CardTitle}" FontSize="24" TextWrapping="Wrap"/>
+              <TextBlock x:Name="ResultHelp" Style="{StaticResource Help}" FontSize="14" Margin="0,10,0,0"/>
+              <WrapPanel Margin="0,24,0,0">
+                <Button x:Name="ResWinBtn" Style="{StaticResource AccentBtn}"/>
+                <Button x:Name="ResLossBtn" Style="{StaticResource Soft}" Margin="0,0,12,0"/>
+                <Button x:Name="ResNoneBtn" Style="{StaticResource Soft}" Margin="0"/>
+              </WrapPanel>
+              <TextBlock x:Name="ResultNote" Style="{StaticResource Help}" Foreground="#FFB9C2FF" Margin="0,16,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+        </Border>
         <Grid Grid.Column="1" x:Name="Pages" Margin="46,40,46,34">
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-22,-26,0" Panel.ZIndex="5">
             <Button x:Name="MinBtn" Style="{StaticResource WinBtn}" Content="&#xE921;" ToolTip="Minimizar"/>
@@ -516,6 +553,7 @@ $xaml = @'
                       <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                         <Button x:Name="SignInBtn" Style="{StaticResource AccentBtn}"/>
                         <Button x:Name="SignUpBtn" Style="{StaticResource Soft}" Margin="0"/>
+                        <Button x:Name="ForgotBtn" Style="{StaticResource Soft}" Margin="10,0,0,0" Background="Transparent" BorderThickness="0"/>
                       </StackPanel>
                     </StackPanel>
                     <Grid x:Name="SignedInPanel" Visibility="Collapsed">
@@ -527,7 +565,10 @@ $xaml = @'
                     </Grid>
                   </StackPanel>
                 </Border>
-                <TextBlock x:Name="NetStatus" Style="{StaticResource Help}" Foreground="#FFB9C2FF" MaxWidth="600" HorizontalAlignment="Left" Margin="0,12,0,0" Visibility="Collapsed"/>
+                <WrapPanel Margin="0,10,0,0">
+                  <TextBlock x:Name="NetStatus" Style="{StaticResource Help}" Foreground="#FFB9C2FF" MaxWidth="520" VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed"/>
+                  <Button x:Name="CancelInviteBtn" Style="{StaticResource Soft}" Visibility="Collapsed" Margin="0"/>
+                </WrapPanel>
                 <Grid Margin="0,4,0,0">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <StackPanel>
@@ -549,6 +590,16 @@ $xaml = @'
                 <StackPanel x:Name="InvitesBox" Visibility="Collapsed">
                   <TextBlock x:Name="InvitesLabel" Style="{StaticResource Section}"/>
                   <StackPanel x:Name="InvitesList"/>
+                </StackPanel>
+
+                <StackPanel x:Name="FriendsBox" Visibility="Collapsed">
+                  <TextBlock x:Name="FriendsLabel" Style="{StaticResource Section}"/>
+                  <StackPanel x:Name="FriendsList"/>
+                  <TextBlock x:Name="FriendsEmpty" Style="{StaticResource Help}" MaxWidth="600" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBox x:Name="FriendBox" Style="{StaticResource Field}" Width="250" MaxLength="20"/>
+                    <Button x:Name="FriendAddBtn" Style="{StaticResource Soft}" Margin="10,0,0,0"/>
+                  </StackPanel>
                 </StackPanel>
 
                 <TextBlock x:Name="PlayersLabel" Style="{StaticResource Section}"/>
@@ -709,7 +760,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('AccTitle', 'accTitle'), @('AccHelp', 'accHelp'), @('EmailLabel', 'emailLabel'), @('PassLabel', 'passLabel'), @('SignInBtn', 'signIn'), @('SignUpBtn', 'signUp'), @('SignOutBtn', 'signOut'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('AccTitle', 'accTitle'), @('AccHelp', 'accHelp'), @('EmailLabel', 'emailLabel'), @('PassLabel', 'passLabel'), @('SignInBtn', 'signIn'), @('SignUpBtn', 'signUp'), @('SignOutBtn', 'signOut'), @('ForgotBtn', 'forgot'), @('CancelInviteBtn', 'cancelInvite'), @('FriendsLabel', 'friendsLabel'), @('FriendsEmpty', 'friendsEmpty'), @('FriendAddBtn', 'friendAdd'), @('ResultHelp', 'resultHelp'), @('ResWinBtn', 'resWin'), @('ResLossBtn', 'resLoss'), @('ResNoneBtn', 'resNone'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -829,7 +880,7 @@ function Show-VsChoice {
 foreach ($c in (Find 'VsChips').Children) { $c.Add_Checked({ Show-VsChoice }) }
 
 # ---- players online and invitations (NativeSmash's players server: on its way; until then the list is empty) ----
-$script:players = @(); $script:invites = @(); $script:onlineTotal = -1
+$script:players = @(); $script:invites = @(); $script:friends = @(); $script:onlineTotal = -1
 function New-Avatar([string]$Name) {
     $hues = @('#FF7C6CFF', '#FFA66BFF', '#FF3DB6DC', '#FF3DDC97', '#FFE0A43D', '#FFE5617A')
     $b = New-Object Windows.Controls.Border
@@ -887,6 +938,32 @@ function Show-People {
         [void]$inv.Children.Add((New-PersonRow $i.Name ((T 'inviteFrom') -f $i.Name) $i.Ping @($ok, $no)))
     }
     (Find 'InvitesBox').Visibility = if ($script:invites.Count) { 'Visible' } else { 'Collapsed' }
+    $fl = Find 'FriendsList'; $fl.Children.Clear()
+    foreach ($f in $script:friends) {
+        $buttons = @()
+        switch ($f.Relation) {
+            'friend' {
+                $status = if ($f.State) { switch ($f.State) { 'playing' { T 'stPlaying' } 'searching' { T 'stSearching' } default { T 'stLauncher' } } } else { T 'friendOffline' }
+                $b1 = New-RowButton (T 'invite') 'Soft' { Send-Invite $this.Tag }; $b1.Tag = $f; $b1.IsEnabled = ($f.State -and $f.State -ne 'playing')
+                $b2 = New-RowButton (T 'friendRemove') 'Soft' { Request-Players @{ Op = 'friendRemove'; Name = $this.Tag.Name } }; $b2.Tag = $f; $b2.Margin = '0'
+                $buttons = @($b1, $b2)
+            }
+            'incoming' {
+                $status = T 'friendIncoming'
+                $b1 = New-RowButton (T 'accept') 'AccentBtn' { Request-Players @{ Op = 'friendAnswer'; Name = $this.Tag.Name; Accept = $true } }; $b1.Tag = $f
+                $b2 = New-RowButton (T 'decline') 'Soft' { Request-Players @{ Op = 'friendAnswer'; Name = $this.Tag.Name; Accept = $false } }; $b2.Tag = $f; $b2.Margin = '0'
+                $buttons = @($b1, $b2)
+            }
+            default {
+                $status = T 'friendOutgoing'
+                $b2 = New-RowButton (T 'friendRemove') 'Soft' { Request-Players @{ Op = 'friendRemove'; Name = $this.Tag.Name } }; $b2.Tag = $f; $b2.Margin = '0'
+                $buttons = @($b2)
+            }
+        }
+        [void]$fl.Children.Add((New-PersonRow $f.Name $status $(if ($null -ne $f.Rating) { "$($f.Rating) pts" } else { '' }) $buttons))
+    }
+    (Find 'FriendsEmpty').Visibility = if ($script:friends.Count) { 'Collapsed' } else { 'Visible' }
+    (Find 'FriendsBox').Visibility = if ($NsNet -and $NsNet.SignedIn) { 'Visible' } else { 'Collapsed' }
 }
 function Show-Advanced([bool]$Open) {
     (Find 'AdvPanel').Visibility = if ($Open) { 'Visible' } else { 'Collapsed' }
@@ -937,6 +1014,51 @@ function Pick-Chip([string]$Panel, [string]$Value) { foreach ($ch in (Find $Pane
 })
 (Find 'SignUpBtn').Add_Click({ $u = if ($PlayersConfig -and $PlayersConfig.signup) { [string]$PlayersConfig.signup } else { '' }; if ($u -match '^https://') { Start-Process $u } })
 (Find 'SignOutBtn').Add_Click({ Request-Players @{ Op = 'signOut' } })
+(Find 'ForgotBtn').Add_Click({ $u = if ($PlayersConfig -and $PlayersConfig.signup) { [string]$PlayersConfig.signup } else { '' }; if ($u -match '^https://') { Start-Process ($u + '#olvide') } })
+(Find 'CancelInviteBtn').Add_Click({ Request-Players @{ Op = 'cancelInvite' } })
+(Find 'FriendAddBtn').Add_Click({ $nm = (Find 'FriendBox').Text.Trim(); if ($nm) { Request-Players @{ Op = 'friendAdd'; Name = $nm } } })
+(Find 'FriendBox').Add_KeyDown({ param($s_, $e_) if ($e_.Key -eq 'Return') { $nm = (Find 'FriendBox').Text.Trim(); if ($nm) { Request-Players @{ Op = 'friendAdd'; Name = $nm } } } })
+try {
+    Add-Type -Namespace NativeSmash -Name Flash -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool FlashWindow(System.IntPtr hwnd, bool invert);' -ErrorAction Stop
+} catch { }
+function Ring-Invite([string]$From) {
+    # a new invitation: a sound, the taskbar button flashing when the launcher is behind other windows, and the news in the status line
+    try { [System.Media.SystemSounds]::Asterisk.Play() } catch { }
+    try { if (-not $win.IsActive) { [void][NativeSmash.Flash]::FlashWindow((New-Object Windows.Interop.WindowInteropHelper $win).Handle, $true) } } catch { }
+    Say-Net ((T 'invitedYou') -f $From)
+}
+function Show-Result($N) {
+    # after a match the server arranged: the launcher, hidden while the game ran, comes back to ask how it went
+    $script:resultMatch = $N.Id
+    (Find 'ResultTitle').Text = (T 'resultTitle') -f $N.Opponent
+    (Find 'ResultNote').Text = ''
+    foreach ($b in 'ResWinBtn', 'ResLossBtn', 'ResNoneBtn') { (Find $b).IsEnabled = $true }
+    (Find 'ResultPanel').Visibility = 'Visible'
+    $win.BeginAnimation([Windows.Window]::OpacityProperty, $null); $win.Opacity = 1
+    $win.Show(); $win.WindowState = 'Normal'; [void]$win.Activate()
+}
+foreach ($pair in @(@('ResWinBtn', 'win'), @('ResLossBtn', 'loss'), @('ResNoneBtn', 'none'))) {
+    $btn_ = Find $pair[0]; $btn_.Tag = $pair[1]
+    $btn_.Add_Click({
+        foreach ($b in 'ResWinBtn', 'ResLossBtn', 'ResNoneBtn') { (Find $b).IsEnabled = $false }
+        Request-Players @{ Op = 'report'; Id = $script:resultMatch; Result = [string]$this.Tag }
+    })
+}
+# While the game runs the launcher stays signed in, hidden, as "playing": the others see it, and when the game closes it asks how the
+# match went (if the server arranged one), then goes.
+function Watch-Game {
+    Request-Players @{ Op = 'state'; State = 'playing' }
+    $script:gameWatch = New-Object Windows.Threading.DispatcherTimer
+    $script:gameWatch.Interval = [TimeSpan]::FromSeconds(2)
+    $script:gameWatch.Add_Tick({
+        if (Get-Process -Name 'ssbu' -ErrorAction SilentlyContinue) { return }
+        $script:gameWatch.Stop()
+        $script:afterGame = $true
+        Request-Players @{ Op = 'state'; State = 'launcher' }
+        Request-Players @{ Op = 'openMatch' }
+    })
+    $script:gameWatch.Start()
+}
 $script:playersSeen = -1
 $playersTimer = New-Object Windows.Threading.DispatcherTimer
 $playersTimer.Interval = [TimeSpan]::FromMilliseconds(500)
@@ -945,18 +1067,38 @@ $playersTimer.Add_Tick({
         $script:playersSeen = $NsNet.Stamp
         $script:onlineTotal = $NsNet.Online
         $script:players = @($NsNet.List | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; State = $_.State; Ping = $(if ($null -ne $_.Rating) { "$($_.Rating) pts" } else { '' }) } })
+        $old = @($script:invites | ForEach-Object { $_.Id })
         $script:invites = @($NsNet.Invites | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; Netcode = $_.Netcode; Ping = '' } })
+        $script:friends = @($NsNet.Friends)
         Show-People
+        $new = @($script:invites | Where-Object { $old -notcontains $_.Id })
+        if ($new.Count) { Ring-Invite $new[0].Name }
+    }
+    if ($NsNet.State -eq 'searching' -and $script:searchSince) {
+        $t = [DateTime]::Now - $script:searchSince
+        Say-Net ((T 'searchingFor') -f ('{0}:{1:00}' -f [int][Math]::Floor($t.TotalMinutes), $t.Seconds), $NsNet.Searching)
     }
     $n = $null
     while ($NsNet.News.TryDequeue([ref]$n)) {
         switch ($n.Kind) {
             'signedIn' { Say-Net '' }
             'signedOut' { Say-Net '' }
-            'searching' { Say-Net (T 'searching') }
-            'quickStopped' { Say-Net '' }
-            'inviteSent' { Say-Net ((T 'inviteSent') -f $n.Name) }
-            'inviteOver' { Say-Net ((T 'inviteOver') -f $n.Name) }
+            'searching' { $script:searchSince = [DateTime]::Now; Say-Net (T 'searching') }
+            'quickStopped' { $script:searchSince = $null; Say-Net '' }
+            'inviteSent' { Say-Net ((T 'inviteSent') -f $n.Name); (Find 'CancelInviteBtn').Visibility = 'Visible' }
+            'inviteOver' { Say-Net ((T 'inviteOver') -f $n.Name); (Find 'CancelInviteBtn').Visibility = 'Collapsed' }
+            'inviteCancelled' { Say-Net ((T 'inviteCancelled') -f $n.Name); (Find 'CancelInviteBtn').Visibility = 'Collapsed' }
+            'friendSent' { Say-Net ((T 'friendSent') -f $n.Name); (Find 'FriendBox').Text = '' }
+            'friendNow' { Say-Net ((T 'friendNow') -f $n.Name); (Find 'FriendBox').Text = '' }
+            'openMatch' { Show-Result $n }
+            'noMatch' { if ($script:afterGame) { $win.Close() } }
+            'reported' {
+                (Find 'ResultNote').Text = switch ($n.Result) { 'done' { T 'resDone' } 'disputed' { T 'resDisputed' } 'void' { T 'resVoid' } default { T 'resWaiting' } }
+                $script:closeSoon = New-Object Windows.Threading.DispatcherTimer
+                $script:closeSoon.Interval = [TimeSpan]::FromMilliseconds(2200)
+                $script:closeSoon.Add_Tick({ $script:closeSoon.Stop(); $win.Close() })
+                $script:closeSoon.Start()
+            }
             'error' {
                 $why = switch -Regex ([string]$n.Text) {
                     'Invalid login credentials' { T 'badLogin' }
@@ -964,12 +1106,14 @@ $playersTimer.Add_Tick({
                     'not online' { T 'notOnline' }
                     'no longer there' { T 'inviteGone' }
                     'too many' { T 'tooMany' }
+                    'no such player' { T 'noSuchPlayer' }
+                    'not yourself' { T 'noSuchPlayer' }
                     'Unable to connect|No es posible conectar|remote name|nombre remoto|timed out|tiempo de espera' { T 'noServer' }
                     default { (T 'netError') -f $n.Text }
                 }
                 Say-Net $why
             }
-            'start' { Start-FromServer $n }
+            'start' { $script:searchSince = $null; (Find 'CancelInviteBtn').Visibility = 'Collapsed'; Start-FromServer $n }
         }
         Show-Account
     }
@@ -1345,7 +1489,7 @@ $poll.Add_Tick({
             $script:hold.Stop()
             $out = New-Object Windows.Media.Animation.DoubleAnimation(1, 0, [TimeSpan]::FromMilliseconds(900))
             $out.EasingFunction = New-Object Windows.Media.Animation.CubicEase
-            $out.Add_Completed({ $win.Close() })
+            $out.Add_Completed({ if ($NsNet.On -and $NsNet.SignedIn) { $win.Hide(); Watch-Game } else { $win.Close() } })
             $win.BeginAnimation([Windows.Window]::OpacityProperty, $out)
         })
         $script:hold.Start()

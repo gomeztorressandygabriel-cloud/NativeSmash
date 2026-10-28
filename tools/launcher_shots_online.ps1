@@ -70,6 +70,28 @@ try {
     Pause-Ui 300
     Scroll-To 'AdvToggle'
     Save-Shot '5-conectar-con-codigo.png'
+    Show-Advanced $false
+    $script:friends = @(
+        @{ Name = 'Zeuss'; Relation = 'friend'; State = 'launcher'; Rating = 1240 },
+        @{ Name = 'Aomine'; Relation = 'friend'; State = ''; Rating = 1105 },
+        @{ Name = 'CigNus'; Relation = 'incoming'; State = ''; Rating = 1000 },
+        @{ Name = 'JaimeHR'; Relation = 'outgoing'; State = ''; Rating = 990 })
+    Show-People
+    Say-Net ((T 'inviteSent') -f 'Zeuss'); (Find 'CancelInviteBtn').Visibility = 'Visible'
+    Pause-Ui 300
+    Scroll-To 'FriendsLabel'
+    Save-Shot '6-amigos.png'
+    $script:searchSince = [DateTime]::Now.AddSeconds(-23); $NsNet.State = 'searching'; $NsNet.Searching = 3; Show-Account
+    (Find 'CancelInviteBtn').Visibility = 'Collapsed'
+    $t = [DateTime]::Now - $script:searchSince
+    Say-Net ((T 'searchingFor') -f ('{0}:{1:00}' -f [int][Math]::Floor($t.TotalMinutes), $t.Seconds), $NsNet.Searching)
+    Pause-Ui 300
+    Scroll-To 'NetcodeLabel'
+    Save-Shot '7-buscando.png'
+    $NsNet.State = 'launcher'; Show-Account
+    Show-Result @{ Id = 1; Opponent = 'Zeuss' }
+    Pause-Ui 400
+    Save-Shot '8-resultado.png'
 } catch {
     Set-Content -LiteralPath (Join-Path $shotDir 'error.txt') -Value ($_ | Out-String) -Encoding UTF8
 }

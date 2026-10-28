@@ -18,7 +18,7 @@ $NsNet = [hashtable]::Synchronized(@{
     Version = ''
     SignedIn = $false; Name = ''; UserId = ''
     State = 'launcher'          # what this player is doing: launcher | searching
-    List = @(); Invites = @(); Online = -1; Stamp = 0
+    List = @(); Invites = @(); Friends = @(); Online = -1; Searching = 0; Stamp = 0
     Ask = New-Object 'System.Collections.Concurrent.ConcurrentQueue[hashtable]'
     News = New-Object 'System.Collections.Concurrent.ConcurrentQueue[hashtable]'
     Stop = $false
@@ -27,7 +27,7 @@ $NsNet = [hashtable]::Synchronized(@{
 $PlayersLoop = {
     param($P)
     $access = ''; $refresh = ''; $accessUntil = [DateTime]::MinValue
-    $sentInvite = $null; $quick = $false
+    $sentInvite = $null; $quick = $false; $quickNc = 'rollback'
     $nextBeat = [DateTime]::MinValue; $nextList = [DateTime]::MinValue; $nextPoll = [DateTime]::MinValue
 
     function Say($Kind, $More) { $n = @{ Kind = $Kind }; if ($More) { foreach ($k in $More.Keys) { $n[$k] = $More[$k] } }; $P.News.Enqueue($n) }
@@ -36,7 +36,10 @@ $PlayersLoop = {
         $h.Authorization = 'Bearer ' + $(if ($Anon -or -not $access) { $P.Key } else { $access })
         $args_ = @{ Method = $Method; Uri = $P.Url + $Path; Headers = $h; TimeoutSec = 10; UseBasicParsing = $true }
         if ($null -ne $Body) { $args_.Body = [Text.Encoding]::UTF8.GetBytes(($Body | ConvertTo-Json -Compress -Depth 5)) }
-        return Invoke-RestMethod @args_
+        $res = Invoke-RestMethod @args_
+        # (Windows PowerShell hands a JSON array on as one object: an empty answer - no invitations - was one invitation from nobody.
+        # Returned from a variable, its items go out one by one, and an empty one is nothing)
+        return $res
     }
     function Rpc([string]$Name, $Body) { if ($null -eq $Body) { $Body = @{} }; return Web 'POST' "/rest/v1/rpc/$Name" $Body }
     function Keep-Session($Tok) {
@@ -91,13 +94,23 @@ $PlayersLoop = {
                             $sentInvite = @{ Id = $r[0].id; Code = [string]$r[0].room_code; Netcode = $ask.Netcode; To = $ask.Name }
                             Say 'inviteSent' @{ Name = $ask.Name }
                         }
-                        'cancelInvite' { if ($sentInvite) { [void](Rpc 'cancel_invite' @{ invite_id = $sentInvite.Id }); $sentInvite = $null } }
+                        'cancelInvite' { if ($sentInvite) { [void](Rpc 'cancel_invite' @{ invite_id = $sentInvite.Id }); Say 'inviteCancelled' @{ Name = $sentInvite.To }; $sentInvite = $null } }
+                        'state' { $P.State = $ask.State; $nextBeat = [DateTime]::MinValue }
+                        'friendAdd' { $r = [string](Rpc 'friend_request' @{ name = $ask.Name }); Say $(if ($r -eq 'accepted') { 'friendNow' } else { 'friendSent' }) @{ Name = $ask.Name }; $nextList = [DateTime]::MinValue }
+                        'friendAnswer' { [void](Rpc 'friend_answer' @{ name = $ask.Name; accept = [bool]$ask.Accept }); $nextList = [DateTime]::MinValue }
+                        'friendRemove' { [void](Rpc 'friend_remove' @{ name = $ask.Name }); $nextList = [DateTime]::MinValue }
+                        'openMatch' {
+                            $r = @(Rpc 'my_open_match' $null)
+                            if ($r.Count -and -not $r[0].reported) { Say 'openMatch' @{ Id = $r[0].id; Opponent = [string]$r[0].opponent } } else { Say 'noMatch' $null }
+                        }
+                        'report' { $r = [string](Rpc 'report_result' @{ match_id = $ask.Id; result = $ask.Result }); Say 'reported' @{ Result = $r } }
                         'answer' {
                             $r = @(Rpc 'answer_invite' @{ invite_id = $ask.Id; accept = [bool]$ask.Accept })
                             $P.Invites = @($P.Invites | Where-Object { $_.Id -ne $ask.Id }); $P.Stamp++
                             if ($ask.Accept -and $r.Count -and $r[0].room_code) { Say 'start' @{ Role = 'join'; Code = [string]$r[0].room_code; Netcode = [string]$r[0].netcode; With = $ask.Name } }
                         }
                         'quick' {
+                            $quickNc = $ask.Netcode
                             $r = @(Rpc 'quick_match' @{ netcode = $ask.Netcode })
                             if ($r.Count -and $r[0].status -eq 'paired') { $quick = $false; $P.State = 'launcher'; Say 'start' @{ Role = $(if ($r[0].hosts) { 'host' } else { 'join' }); Code = [string]$r[0].room_code; Netcode = $ask.Netcode; With = [string]$r[0].opponent } }
                             else { $quick = $true; $P.State = 'searching'; $nextBeat = [DateTime]::MinValue; Say 'searching' $null }
@@ -113,6 +126,8 @@ $PlayersLoop = {
                     $P.List = @(Rpc 'online_players' $null | ForEach-Object { @{ Id = [string]$_.user_id; Name = [string]$_.username; State = [string]$_.state; Rating = $_.rating } })
                     $P.Invites = @(Rpc 'my_invites' $null | ForEach-Object { @{ Id = $_.id; Name = [string]$_.username; Netcode = [string]$_.netcode } })
                     $P.Online = [int](Rpc 'online_count' $null)
+                    try { $P.Friends = @(Rpc 'my_friends' $null | ForEach-Object { @{ Id = [string]$_.user_id; Name = [string]$_.username; Avatar = [string]$_.avatar; Rating = $_.rating; Relation = [string]$_.relation; State = [string]$_.state } }) } catch { }
+                    if ($quick) { try { $P.Searching = [int](Rpc 'searching_count' $null) } catch { } }
                     $P.Stamp++
                     $nextList = $now.AddSeconds(4)
                 }
@@ -123,8 +138,8 @@ $PlayersLoop = {
                         elseif ($st -in @('declined', 'expired', 'cancelled', '')) { Say 'inviteOver' @{ Name = $sentInvite.To; Why = $st }; $sentInvite = $null }
                     }
                     if ($quick) {
-                        $r = @(Rpc 'quick_status' $null)
-                        if ($r.Count -and $r[0].status -eq 'paired') { $quick = $false; $P.State = 'launcher'; Say 'start' @{ Role = $(if ($r[0].hosts) { 'host' } else { 'join' }); Code = [string]$r[0].room_code; Netcode = 'rollback'; With = [string]$r[0].opponent } }
+                        $r = @(Rpc 'quick_retry' @{ netcode = $quickNc })   # (paired yet - or paired now: each wait widens the range of points)
+                        if ($r.Count -and $r[0].status -eq 'paired') { $quick = $false; $P.State = 'launcher'; Say 'start' @{ Role = $(if ($r[0].hosts) { 'host' } else { 'join' }); Code = [string]$r[0].room_code; Netcode = $quickNc; With = [string]$r[0].opponent } }
                         elseif (-not $r.Count) { $quick = $false; $P.State = 'launcher'; Say 'quickStopped' $null }
                     }
                     $nextPoll = $now.AddSeconds(2)

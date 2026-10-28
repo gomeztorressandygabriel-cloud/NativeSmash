@@ -12,6 +12,7 @@ u64 rbt_net_ring_frame(u32 lks_frame);
 int rbt_net_rollback(u64 ring_from, u32 g);
 void rbt_net_cancel(void);
 void rbt_net_stop(void);
+void rbt_mapped(u64 base, u64 size);   /* (kernel.c) memory the game just mapped */
 static inline int rbt_on(void) {
     int s = rbt_state;
     return s > 0 || (s < 0 && rbt_probe());

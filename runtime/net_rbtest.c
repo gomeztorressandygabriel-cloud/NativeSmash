@@ -1211,7 +1211,7 @@ static void ring_promote(u64 page) {   /* (the write handler, cow_lock held; the
 
 /* Read-only, [from, to): in one call, or - across two reservations Windows refuses that - a page at a time; a page that cannot be
  * is active again (a write to it would go unseen) */
-static u64 ring_protect_failed;
+static u64 ring_protect_failed, ring_mapped_pages;
 static void ring_protect_run(u64 from, u64 to) {
     DWORD old;
     if (VirtualProtect(P(void, from), to - from, PAGE_READONLY, &old)) return;
@@ -1251,20 +1251,43 @@ static void ring_wake_now(u32 i) {   /* (cow_lock held) active again without a w
 }
 
 static int net_map_changed;   /* (netplay) the memory map changed since the saves began: they must start again */
+static int win_committed(u64 page) {
+    MEMORY_BASIC_INFORMATION mi;
+    return VirtualQuery(P(void, page), &mi, sizeof mi) && mi.State == MEM_COMMIT;
+}
 static void ring_check_regions(void) {   /* the alias area's mapping changed: which saved pages can be copied */
     read_regions();
     u64 sig = nalias;
     for (u32 r = 0; r < nalias; r++) sig = sig * 31 + alias_base[r] * 7 + alias_size[r];
-    if (rbt_net()) for (u32 r = 0; r < nregions; r++) sig = sig * 31 + region_base[r] * 5 + region_size[r];
     if (sig == ring_region_sig) return;
-    if (rbt_net() && ring_region_sig) {   /* (netplay: memory mapped or unmapped since the saves began - its writes went unseen: no save can be
-                                           * gone back to, and the saves start again) */
-        if (!net_map_changed) fprintf(stderr, "[rbtest] netplay: the game's memory map changed: the saves start again\n");
-        net_map_changed = 1;
-        memset(ring_frame_of, 0, sizeof ring_frame_of);
-    }
     ring_region_sig = sig;
-    for (u32 i = 0; i < nhot; i++) hot_ok[i] = hot[i] < ALIAS_BASE || hot[i] >= ALIAS_BASE + ALIAS_SIZE || committed(hot[i]);
+    /* (memory the game unmaps stays committed while rewinding is on - kernel.c clears it instead: a rewind to before the unmapping
+     * puts back a game that still uses it, so its pages are still saved and put back; only a page Windows has not got is left out) */
+    for (u32 i = 0; i < nhot; i++)
+        hot_ok[i] = hot[i] < ALIAS_BASE || hot[i] >= ALIAS_BASE + ALIAS_SIZE || committed(hot[i]) || win_committed(hot[i]);
+}
+
+/* (kernel.c, its lock held) Memory the game just mapped: committed after the copy on write began, so nothing watched it - its
+ * writes went unseen, and a rollback after one put back a game whose new memory was not as it had been (netplay crashed). Read-only
+ * now as the rest: the first write copies it into the saves. A page saved every frame stays writable. */
+void rbt_mapped(u64 base, u64 size) {
+    if (!ring_on || !cow_on || base < ALIAS_BASE || base + size > ALIAS_BASE + ALIAS_SIZE) return;
+    AcquireSRWLockExclusive(&cow_lock);
+    u64 run = 0, run_end = 0, n = 0;
+    for (u64 p = base & ~(u64)(PAGE - 1); p < base + size; p += PAGE) {
+        u32 *k = map_slot(p, 0);
+        if (k && !hot_watched[*k]) { hot_ok[*k] = 1; continue; }   /* (active: copied at every save) */
+        u8 mask, *bit = cow_bit_of(p, &mask);
+        if (!bit) continue;
+        *bit |= mask;   /* (first: a write the moment it is read-only finds it) */
+        n++;
+        if (p == run_end) { run_end += PAGE; continue; }
+        if (run) { ring_protect_run(run, run_end); if (ncow_runs < MAX_COW_RUNS) { cow_run_base[ncow_runs] = run; cow_run_size[ncow_runs] = run_end - run; ncow_runs++; } }
+        run = p; run_end = p + PAGE;
+    }
+    if (run) { ring_protect_run(run, run_end); if (ncow_runs < MAX_COW_RUNS) { cow_run_base[ncow_runs] = run; cow_run_size[ncow_runs] = run_end - run; ncow_runs++; } }
+    ring_mapped_pages += n;
+    ReleaseSRWLockExclusive(&cow_lock);
 }
 
 static int ring_begin(void) {
@@ -1398,9 +1421,9 @@ static void ring_save(Cpu *c, int replaying) {   /* replaying: a frame the main 
                 fprintf(stderr, "[rbtest] the runtime's pages: %u written last by thread %lu (%s)\n", cnt[k], (unsigned long)tid[k], name);
             }
         }
-        if (ring_protect_failed || ring_host_turned)
-            fprintf(stderr, "[rbtest] every frame: pages that could not be made read-only %llu; the game's pages the runtime's threads wrote too (theirs from then on) %llu\n",
-                    (unsigned long long)ring_protect_failed, (unsigned long long)ring_host_turned);
+        if (ring_protect_failed || ring_host_turned || ring_mapped_pages)
+            fprintf(stderr, "[rbtest] every frame: pages mapped meanwhile, watched %llu; pages that could not be made read-only %llu; the game's pages the runtime's threads wrote too (theirs from then on) %llu\n",
+                    (unsigned long long)ring_mapped_pages, (unsigned long long)ring_protect_failed, (unsigned long long)ring_host_turned);
         ring_demote_ns = ring_demoted = ring_woken = 0;
         ring_promoted = ring_unheld = 0;
     }

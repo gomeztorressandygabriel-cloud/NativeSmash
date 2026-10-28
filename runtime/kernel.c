@@ -527,6 +527,7 @@ void rt_svc(Cpu *c, u32 n) {
         if (i == 1024) rt_fatal("kernel: too many memory mappings");
         commit(x[0], x[2], "a memory mapping");
         memcpy(G2H(x[0]), G2H(x[1]), x[2]);
+        if (rbt_on()) rbt_mapped(x[0], x[2]);
         maps[i].dst = x[0]; maps[i].src = x[1]; maps[i].size = x[2];
         kernel_add_region(x[0], x[2], GM_STACK, 3);
         x[0] = R_OK;
@@ -635,6 +636,7 @@ void rt_svc(Cpu *c, u32 n) {
     }
     case 0x2C:     /* MapPhysicalMemory(address, size): back part of the alias area with memory */
         commit(x[0], x[1], "physical memory");
+        if (rbt_on()) rbt_mapped(x[0], x[1]);   /* (rewinding: watched from now as the rest) */
         kernel_add_region(x[0], x[1], GM_HEAP, 3);
         x[0] = R_OK;
         break;

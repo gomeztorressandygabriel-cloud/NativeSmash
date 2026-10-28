@@ -45,11 +45,11 @@ try {
     Save-Shot '1-en-linea-arriba.png'
     Scroll-To 'VsCardTitle'
     Save-Shot '2-vs-en-red-sin-servidor.png'
-    $Players.On = $true; Show-Account
+    $NsNet.On = $true; Show-Account
     Pause-Ui 300
     Scroll-To 'VsCardTitle'
     Save-Shot '2b-iniciar-sesion.png'
-    $Players.SignedIn = $true; $Players.Name = 'KingGMZ'; Show-Account
+    $NsNet.SignedIn = $true; $NsNet.Name = 'KingGMZ'; Show-Account
 
     $script:onlineTotal = 37
     $script:players = @(

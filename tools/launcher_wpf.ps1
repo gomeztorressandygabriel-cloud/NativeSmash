@@ -101,6 +101,12 @@ $Words = @{
     inviteOver = @('{0} no aceptó la invitación.', '{0} did not accept the invitation.')
     starting2 = @('Partida con {0}: abriendo el juego…', 'Match with {0}: opening the game…')
     netError = @('El servidor de jugadores dijo: {0}', 'The players server said: {0}')
+    badLogin = @('Correo o contraseña incorrectos.', 'Wrong email or password.')
+    notConfirmed = @('Tu cuenta aún no está confirmada: abre el enlace del correo que te enviamos al crearla.', 'Your account is not confirmed yet: open the link in the email we sent when you made it.')
+    notOnline = @('Ese jugador ya no está conectado.', 'That player is not online any more.')
+    inviteGone = @('Esa invitación ya no está (pasó más de un minuto).', 'That invitation is gone (over a minute passed).')
+    tooMany = @('Demasiadas invitaciones seguidas: espera un momento.', 'Too many invitations in a row: wait a moment.')
+    noServer = @('No se pudo hablar con el servidor de jugadores. ¿Tienes internet?', 'The players server could not be reached. Are you online?')
     needSignIn = @('Inicia sesión arriba para invitar o buscar partida.', 'Sign in above to invite or find a match.')
     advShow = @('Conectar con un código', 'Connect with a code'); advHide = @('Ocultar la conexión con código', 'Hide the code connection')
     vsOff = @('Apagado', 'Off'); vsHost = @('Crear sala (jugador 1)', 'Make a room (player 1)'); vsJoin = @('Unirme a una sala (jugador 2)', 'Join a room (player 2)')
@@ -521,6 +527,7 @@ $xaml = @'
                     </Grid>
                   </StackPanel>
                 </Border>
+                <TextBlock x:Name="NetStatus" Style="{StaticResource Help}" Foreground="#FFB9C2FF" MaxWidth="600" HorizontalAlignment="Left" Margin="0,12,0,0" Visibility="Collapsed"/>
                 <Grid Margin="0,4,0,0">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="36"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <StackPanel>
@@ -538,7 +545,6 @@ $xaml = @'
                   <Button x:Name="QuickBtn" Style="{StaticResource AccentBtn}"/>
                   <TextBlock x:Name="QuickHelp" Style="{StaticResource Help}" VerticalAlignment="Center" Margin="4,0,0,0" MaxWidth="380"/>
                 </StackPanel>
-                <TextBlock x:Name="NetStatus" Style="{StaticResource Help}" Foreground="#FFB9C2FF" MaxWidth="600" HorizontalAlignment="Left" Margin="0,12,0,0" Visibility="Collapsed"/>
 
                 <StackPanel x:Name="InvitesBox" Visibility="Collapsed">
                   <TextBlock x:Name="InvitesLabel" Style="{StaticResource Section}"/>
@@ -891,20 +897,20 @@ function Show-Advanced([bool]$Open) {
 . (Join-Path $PSScriptRoot 'players_client.ps1')
 function Say-Net([string]$Text) { $s_ = Find 'NetStatus'; $s_.Text = $Text; $s_.Visibility = if ($Text) { 'Visible' } else { 'Collapsed' } }
 function Show-Account {
-    (Find 'AccountBox').Visibility = if ($Players.On) { 'Visible' } else { 'Collapsed' }
-    (Find 'SignedOutPanel').Visibility = if ($Players.SignedIn) { 'Collapsed' } else { 'Visible' }
-    (Find 'SignedInPanel').Visibility = if ($Players.SignedIn) { 'Visible' } else { 'Collapsed' }
-    (Find 'MeText').Text = (T 'signedAs') -f $Players.Name
-    (Find 'MeInitial').Text = if ($Players.Name) { $Players.Name.Substring(0, 1).ToUpper() } else { '?' }
-    (Find 'QuickBtn').Content = if ($Players.State -eq 'searching') { T 'quickCancel' } else { T 'quick' }
+    (Find 'AccountBox').Visibility = if ($NsNet.On) { 'Visible' } else { 'Collapsed' }
+    (Find 'SignedOutPanel').Visibility = if ($NsNet.SignedIn) { 'Collapsed' } else { 'Visible' }
+    (Find 'SignedInPanel').Visibility = if ($NsNet.SignedIn) { 'Visible' } else { 'Collapsed' }
+    (Find 'MeText').Text = (T 'signedAs') -f $NsNet.Name
+    (Find 'MeInitial').Text = if ($NsNet.Name) { $NsNet.Name.Substring(0, 1).ToUpper() } else { '?' }
+    (Find 'QuickBtn').Content = if ($NsNet.State -eq 'searching') { T 'quickCancel' } else { T 'quick' }
 }
 function Send-Invite($P_) {
-    if (-not $Players.On) { Show-Soon; return }
-    if (-not $Players.SignedIn) { Say-Net (T 'needSignIn'); return }
+    if (-not $NsNet.On) { Show-Soon; return }
+    if (-not $NsNet.SignedIn) { Say-Net (T 'needSignIn'); return }
     Request-Players @{ Op = 'invite'; To = $P_.Id; Name = $P_.Name; Netcode = (Get-Chip (Find 'NetcodeChips')) }
 }
 function Answer-Invite($I_, [bool]$Yes) {
-    if (-not $Players.On) { Show-Soon; return }
+    if (-not $NsNet.On) { Show-Soon; return }
     Request-Players @{ Op = 'answer'; Id = $I_.Id; Accept = $Yes; Name = $I_.Name }
 }
 function Start-FromServer($N) {
@@ -918,9 +924,9 @@ function Start-FromServer($N) {
 }
 function Pick-Chip([string]$Panel, [string]$Value) { foreach ($ch in (Find $Panel).Children) { if ([string]$ch.Tag -eq $Value) { $ch.IsChecked = $true; return $ch } } }
 (Find 'QuickBtn').Add_Click({
-    if (-not $Players.On) { Show-Soon; return }
-    if (-not $Players.SignedIn) { Say-Net (T 'needSignIn'); return }
-    if ($Players.State -eq 'searching') { Request-Players @{ Op = 'quickCancel' } } else { Request-Players @{ Op = 'quick'; Netcode = (Get-Chip (Find 'NetcodeChips')) } }
+    if (-not $NsNet.On) { Show-Soon; return }
+    if (-not $NsNet.SignedIn) { Say-Net (T 'needSignIn'); return }
+    if ($NsNet.State -eq 'searching') { Request-Players @{ Op = 'quickCancel' } } else { Request-Players @{ Op = 'quick'; Netcode = (Get-Chip (Find 'NetcodeChips')) } }
 })
 (Find 'SignInBtn').Add_Click({
     $mail = (Find 'EmailBox').Text.Trim(); $pw = (Find 'PassBox').Password
@@ -935,15 +941,15 @@ $script:playersSeen = -1
 $playersTimer = New-Object Windows.Threading.DispatcherTimer
 $playersTimer.Interval = [TimeSpan]::FromMilliseconds(500)
 $playersTimer.Add_Tick({
-    if ($Players.Stamp -ne $script:playersSeen) {
-        $script:playersSeen = $Players.Stamp
-        $script:onlineTotal = $Players.Online
-        $script:players = @($Players.List | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; State = $_.State; Ping = $(if ($null -ne $_.Rating) { "$($_.Rating) pts" } else { '' }) } })
-        $script:invites = @($Players.Invites | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; Netcode = $_.Netcode; Ping = '' } })
+    if ($NsNet.Stamp -ne $script:playersSeen) {
+        $script:playersSeen = $NsNet.Stamp
+        $script:onlineTotal = $NsNet.Online
+        $script:players = @($NsNet.List | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; State = $_.State; Ping = $(if ($null -ne $_.Rating) { "$($_.Rating) pts" } else { '' }) } })
+        $script:invites = @($NsNet.Invites | ForEach-Object { @{ Id = $_.Id; Name = $_.Name; Netcode = $_.Netcode; Ping = '' } })
         Show-People
     }
     $n = $null
-    while ($Players.News.TryDequeue([ref]$n)) {
+    while ($NsNet.News.TryDequeue([ref]$n)) {
         switch ($n.Kind) {
             'signedIn' { Say-Net '' }
             'signedOut' { Say-Net '' }
@@ -951,7 +957,18 @@ $playersTimer.Add_Tick({
             'quickStopped' { Say-Net '' }
             'inviteSent' { Say-Net ((T 'inviteSent') -f $n.Name) }
             'inviteOver' { Say-Net ((T 'inviteOver') -f $n.Name) }
-            'error' { Say-Net ((T 'netError') -f $n.Text) }
+            'error' {
+                $why = switch -Regex ([string]$n.Text) {
+                    'Invalid login credentials' { T 'badLogin' }
+                    'Email not confirmed' { T 'notConfirmed' }
+                    'not online' { T 'notOnline' }
+                    'no longer there' { T 'inviteGone' }
+                    'too many' { T 'tooMany' }
+                    'Unable to connect|No es posible conectar|remote name|nombre remoto|timed out|tiempo de espera' { T 'noServer' }
+                    default { (T 'netError') -f $n.Text }
+                }
+                Say-Net $why
+            }
             'start' { Start-FromServer $n }
         }
         Show-Account
@@ -1408,6 +1425,6 @@ $win.Add_ContentRendered({
         $script:clickTimer.Start()
     }
 })
-if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot $(if ($env:NATIVESMASH_SHOTS_KIND -eq 'online') { 'launcher_shots_online.ps1' } else { 'launcher_shots.ps1' })) }) }   # (pictures for players: tools\launcher_shots.ps1)
+if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot $(if ($env:NATIVESMASH_SHOTS_KIND -in @('online', 'signin')) { "launcher_shots_$($env:NATIVESMASH_SHOTS_KIND).ps1" } else { 'launcher_shots.ps1' })) }) }   # (pictures for players: tools\launcher_shots.ps1)
 [void]$win.ShowDialog()
 exit 0

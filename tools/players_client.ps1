@@ -1,7 +1,7 @@
 # The launcher's side of NativeSmash's players server (Supabase: server/supabase/schema.sql): signing in, being online, the list of
 # players online, invitations and quick match. Dot-sourced by launcher_wpf.ps1. The talking to the server runs on a thread of its
-# own (a runspace) so the window never waits for it: the window puts requests in $Players.Ask and reads what came back from $Players
-# (the list, the invitations, the count) and $Players.News (things that happened: signed in, a game to start, an error).
+# own (a runspace) so the window never waits for it: the window puts requests in $NsNet.Ask and reads what came back from $NsNet
+# (the list, the invitations, the count) and $NsNet.News (things that happened: signed in, a game to start, an error).
 #
 # The session (the server's refresh token and the player's name) is kept in %LOCALAPPDATA%\NativeSmash\session.json, out of the
 # game's folder so that an update keeps it; the password is never kept.
@@ -10,7 +10,7 @@ $PlayersConfig = $null
 try { $PlayersConfig = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'players.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
 $PlayersSessionFile = Join-Path $env:LOCALAPPDATA 'NativeSmash\session.json'
 
-$Players = [hashtable]::Synchronized(@{
+$NsNet = [hashtable]::Synchronized(@{
     On = [bool]($PlayersConfig -and $PlayersConfig.url -and $PlayersConfig.key)
     Url = if ($PlayersConfig) { ([string]$PlayersConfig.url).TrimEnd('/') } else { '' }
     Key = if ($PlayersConfig) { [string]$PlayersConfig.key } else { '' }
@@ -140,16 +140,16 @@ $PlayersLoop = {
 }
 
 function Start-PlayersClient([string]$Version) {
-    if (-not $Players.On) { return }
-    $Players.Version = $Version
+    if (-not $NsNet.On) { return }
+    $NsNet.Version = $Version
     $rs = [runspacefactory]::CreateRunspace(); $rs.Open()
     $ps = [powershell]::Create(); $ps.Runspace = $rs
-    [void]$ps.AddScript($PlayersLoop).AddArgument($Players)
+    [void]$ps.AddScript($PlayersLoop).AddArgument($NsNet)
     $script:PlayersJob = @{ PS = $ps; Handle = $ps.BeginInvoke() }
 }
 function Stop-PlayersClient {
     if (-not $script:PlayersJob) { return }
-    $Players.Stop = $true
+    $NsNet.Stop = $true
     try { [void]$script:PlayersJob.Handle.AsyncWaitHandle.WaitOne(3000) } catch { }
 }
-function Request-Players([hashtable]$Ask) { if ($Players.On) { $Players.Ask.Enqueue($Ask) } }
+function Request-Players([hashtable]$Ask) { if ($NsNet.On) { $NsNet.Ask.Enqueue($Ask) } }

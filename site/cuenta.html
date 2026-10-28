@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tu cuenta · NativeSmash</title>
+<meta name="description" content="Crea tu cuenta de NativeSmash para jugar en línea: jugadores conectados, invitaciones, partida rápida y ranking.">
+<meta name="theme-color" content="#0b0d1c">
+<link rel="stylesheet" href="pages.css">
+<style>
+  .split { display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: start; }
+  .perks { list-style: none; padding: 0; margin: 30px 0 0; display: grid; gap: 14px; }
+  .perks li { display: flex; gap: 14px; align-items: flex-start; color: var(--muted); }
+  .perks b { color: var(--ink); display: block; font-weight: 600; }
+  .perks i { flex: none; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-style: normal; font-size: 18px;
+    background: linear-gradient(135deg, rgba(109,125,255,.3), rgba(166,107,255,.3)); box-shadow: inset 0 0 0 1px var(--edge); }
+  .tabs { display: flex; gap: 6px; padding: 5px; border-radius: 999px; background: rgba(255,255,255,.04); box-shadow: inset 0 0 0 1px var(--edge); margin-bottom: 22px; }
+  .tabs button { all: unset; flex: 1; text-align: center; cursor: pointer; padding: 9px 0; border-radius: 999px; color: var(--muted); font-weight: 600; font-size: 15px; }
+  .tabs button[aria-selected="true"] { color: #fff; background: linear-gradient(135deg, var(--a), var(--b)); }
+  label { display: block; font-size: 13.5px; color: var(--muted); margin: 14px 0 6px; }
+  input { width: 100%; font: inherit; color: var(--ink); background: rgba(255,255,255,.05); border: 1px solid var(--edge); border-radius: 13px; padding: 12px 14px; }
+  input:focus { border-color: #8e9bff; outline: none; }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 6px; min-height: 18px; }
+  .hint.ok { color: var(--ok); } .hint.bad { color: var(--bad); }
+  form .btn { width: 100%; margin-top: 22px; }
+  .msg { margin-top: 16px; padding: 12px 14px; border-radius: 13px; font-size: 14.5px; display: none; }
+  .msg.show { display: block; }
+  .msg.ok { background: rgba(98,227,164,.1); box-shadow: inset 0 0 0 1px rgba(98,227,164,.35); color: #c9f5de; }
+  .msg.bad { background: rgba(255,138,138,.1); box-shadow: inset 0 0 0 1px rgba(255,138,138,.35); color: #ffd1d1; }
+  .me { text-align: center; }
+  .avatar { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 14px; font-size: 36px; font-weight: 800;
+    background: linear-gradient(135deg, var(--a), var(--b)); box-shadow: 0 14px 40px -10px rgba(125,110,255,.8); }
+  .me h2 { margin: 0; font-size: 28px; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 14px;
+    background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px var(--edge); }
+  .badge::before { content: ""; width: 10px; height: 10px; border-radius: 3px; transform: rotate(45deg); background: var(--tier, #c4ccdc); box-shadow: 0 0 12px var(--tier, #c4ccdc); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 24px 0; }
+  .stats div { background: rgba(255,255,255,.04); border-radius: 16px; padding: 14px 6px; box-shadow: inset 0 0 0 1px var(--edge); }
+  .stats b { display: block; font-size: 24px; }
+  .stats span { color: var(--muted); font-size: 13px; }
+  .me p { color: var(--muted); font-size: 14.5px; margin: 0 0 18px; }
+  .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  @media (max-width: 820px) { .split { grid-template-columns: 1fr; gap: 30px; } .card { padding: 22px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 19V5l10 14V5"/></svg></span>NativeSmash</a>
+    <nav>
+      <a class="link" href="index.html"><span data-l="es">Inicio</span><span data-l="en">Home</span></a>
+      <a class="link keep" href="ranking.html"><span data-l="es">Ranking</span><span data-l="en">Ranking</span></a>
+      <a class="link keep" href="cuenta.html" aria-current="page"><span data-l="es">Mi cuenta</span><span data-l="en">My account</span></a>
+      <div class="lang" role="group" aria-label="Idioma / Language">
+        <button type="button" data-set="es" aria-pressed="true">ES</button>
+        <button type="button" data-set="en" aria-pressed="false">EN</button>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap split">
+    <section>
+      <span class="pill live" data-online-box hidden><span data-online>0</span>&nbsp;<span data-l="es">jugadores en línea ahora</span><span data-l="en">players online now</span></span>
+      <h1><span data-l="es">Tu cuenta de</span><span data-l="en">Your</span> <span class="grad">NativeSmash</span><span data-l="en"> account</span></h1>
+      <p class="lead">
+        <span data-l="es">Una sola cuenta para jugar en línea desde el launcher y subir en el ranking.</span>
+        <span data-l="en">One account to play online from the launcher and climb the ranking.</span>
+      </p>
+      <ul class="perks">
+        <li><i>👥</i><div><b data-l="es">Jugadores conectados</b><b data-l="en">Players online</b>
+          <span data-l="es">Mira quién tiene el launcher abierto y invítale a jugar.</span><span data-l="en">See who has the launcher open and invite them to play.</span></div></li>
+        <li><i>⚡</i><div><b data-l="es">Invitaciones sin códigos</b><b data-l="en">Invitations without codes</b>
+          <span data-l="es">Si acepta, entráis los dos en la misma sala: nada de pasar códigos por WhatsApp o Discord.</span><span data-l="en">When they accept, you both go into the same room: no codes over WhatsApp or Discord.</span></div></li>
+        <li><i>🎯</i><div><b data-l="es">Partida rápida</b><b data-l="en">Quick match</b>
+          <span data-l="es">Un botón y el launcher te busca rival.</span><span data-l="en">One button and the launcher finds you an opponent.</span></div></li>
+        <li><i>🏆</i><div><b data-l="es">Ranking por divisiones</b><b data-l="en">Ranked divisions</b>
+          <span data-l="es">De Hierro a Aspirante según tus partidas (las partidas puntuadas llegan pronto).</span><span data-l="en">From Iron to Challenger by your matches (ranked matches are coming soon).</span></div></li>
+      </ul>
+    </section>
+
+    <section class="card" id="box">
+      <div id="forms">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" id="tabUp" aria-selected="true"><span data-l="es">Crear cuenta</span><span data-l="en">Sign up</span></button>
+          <button type="button" role="tab" id="tabIn" aria-selected="false"><span data-l="es">Entrar</span><span data-l="en">Sign in</span></button>
+        </div>
+        <form id="up" novalidate>
+          <label for="upName"><span data-l="es">Nombre de jugador</span><span data-l="en">Player name</span></label>
+          <input id="upName" autocomplete="username" maxlength="20" required>
+          <div class="hint" id="nameHint"><span data-l="es">3 a 20 letras, números, punto, guion o guion bajo.</span><span data-l="en">3 to 20 letters, digits, dot, dash or underscore.</span></div>
+          <label for="upMail"><span data-l="es">Correo</span><span data-l="en">Email</span></label>
+          <input id="upMail" type="email" autocomplete="email" required>
+          <label for="upPass"><span data-l="es">Contraseña</span><span data-l="en">Password</span></label>
+          <input id="upPass" type="password" autocomplete="new-password" minlength="8" required>
+          <div class="hint"><span data-l="es">Al menos 8 caracteres.</span><span data-l="en">At least 8 characters.</span></div>
+          <button class="btn" type="submit"><span data-l="es">Crear mi cuenta</span><span data-l="en">Make my account</span></button>
+        </form>
+        <form id="in" novalidate hidden>
+          <label for="inMail"><span data-l="es">Correo</span><span data-l="en">Email</span></label>
+          <input id="inMail" type="email" autocomplete="email" required>
+          <label for="inPass"><span data-l="es">Contraseña</span><span data-l="en">Password</span></label>
+          <input id="inPass" type="password" autocomplete="current-password" required>
+          <button class="btn" type="submit"><span data-l="es">Entrar</span><span data-l="en">Sign in</span></button>
+        </form>
+        <div class="msg" id="msg" role="status"></div>
+      </div>
+
+      <div class="me" id="me" hidden>
+        <div class="avatar" id="meInitial">?</div>
+        <h2 id="meName"></h2>
+        <div class="badge" id="meTier"></div>
+        <div class="stats">
+          <div><b id="meRating">1000</b><span data-l="es">puntos</span><span data-l="en">points</span></div>
+          <div><b id="meWins">0</b><span data-l="es">victorias</span><span data-l="en">wins</span></div>
+          <div><b id="meLosses">0</b><span data-l="es">derrotas</span><span data-l="en">losses</span></div>
+        </div>
+        <p><span data-l="es">Abre el launcher, ve a En línea y entra con este correo para ver a los jugadores conectados.</span>
+           <span data-l="en">Open the launcher, go to Online and sign in with this email to see the players online.</span></p>
+        <div class="row">
+          <a class="btn" href="ranking.html"><span data-l="es">Ver el ranking</span><span data-l="en">See the ranking</span></a>
+          <button class="btn soft" type="button" id="out"><span data-l="es">Cerrar sesión</span><span data-l="en">Sign out</span></button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span data-l="es">NativeSmash es un proyecto de la comunidad. No incluye ningún archivo del juego, ni claves, ni firmware.</span>
+    <span data-l="en">NativeSmash is a community project. It includes no game file, key or firmware.</span>
+    · <a href="index.html"><span data-l="es">Volver al inicio</span><span data-l="en">Back home</span></a>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="players.js"></script>
+<script>
+  (function () {
+    NS.initLang();
+    NS.showOnline();
+    var sb = NS.client, $ = function (id) { return document.getElementById(id); };
+    var T = {
+      nameBad: { es: 'Usa de 3 a 20 letras, números, punto, guion o guion bajo.', en: 'Use 3 to 20 letters, digits, dot, dash or underscore.' },
+      nameTaken: { es: 'Ese nombre ya está cogido.', en: 'That name is taken.' },
+      nameFree: { es: '¡Disponible!', en: 'Available!' },
+      fill: { es: 'Rellena todos los campos.', en: 'Fill in every field.' },
+      short: { es: 'La contraseña necesita al menos 8 caracteres.', en: 'The password needs at least 8 characters.' },
+      check: { es: 'Cuenta creada. Te hemos enviado un correo: abre el enlace para confirmarla y después entra aquí o en el launcher.', en: 'Account made. We sent you an email: open its link to confirm it, then sign in here or in the launcher.' },
+      wrong: { es: 'Correo o contraseña incorrectos, o la cuenta aún no está confirmada (mira tu correo).', en: 'Wrong email or password, or the account is not confirmed yet (check your email).' },
+      down: { es: 'No se pudo hablar con el servidor. Inténtalo en un momento.', en: 'The server could not be reached. Try again in a moment.' },
+      wait: { es: 'Un momento…', en: 'One moment…' }
+    };
+    function t(k) { return T[k][NS.lang()]; }
+    function say(text, ok) { var m = $('msg'); m.textContent = text; m.className = 'msg show ' + (ok ? 'ok' : 'bad'); }
+    function quiet() { $('msg').className = 'msg'; }
+
+    function tab(up) {
+      $('tabUp').setAttribute('aria-selected', up); $('tabIn').setAttribute('aria-selected', !up);
+      $('up').hidden = !up; $('in').hidden = up; quiet();
+    }
+    $('tabUp').onclick = function () { tab(true); };
+    $('tabIn').onclick = function () { tab(false); };
+
+    /* the name: its form, then whether it is free (asked a moment after typing stops) */
+    var nameOk = false, timer = null;
+    $('upName').addEventListener('input', function () {
+      var v = this.value.trim(), h = $('nameHint');
+      nameOk = false; clearTimeout(timer);
+      if (!/^[A-Za-z0-9_.-]{3,20}$/.test(v)) { h.className = 'hint' + (v ? ' bad' : ''); if (v) h.textContent = t('nameBad'); return; }
+      timer = setTimeout(function () {
+        sb.rpc('username_free', { name: v }).then(function (r) {
+          if (r.error) return;
+          nameOk = !!r.data; h.className = 'hint ' + (r.data ? 'ok' : 'bad'); h.textContent = t(r.data ? 'nameFree' : 'nameTaken');
+        });
+      }, 350);
+    });
+
+    function busy(form, on) { form.querySelector('button').disabled = on; if (on) say(t('wait'), true); }
+
+    $('up').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var name = $('upName').value.trim(), mail = $('upMail').value.trim(), pass = $('upPass').value;
+      if (!name || !mail || !pass) return say(t('fill'));
+      if (!/^[A-Za-z0-9_.-]{3,20}$/.test(name)) return say(t('nameBad'));
+      if (pass.length < 8) return say(t('short'));
+      busy(this, true);
+      var form = this;
+      sb.rpc('username_free', { name: name }).then(function (r) {
+        if (r.error) throw r.error;
+        if (!r.data) { busy(form, false); return say(t('nameTaken')); }
+        return sb.auth.signUp({ email: mail, password: pass, options: { data: { username: name }, emailRedirectTo: location.href.split('#')[0] } })
+          .then(function (res) {
+            busy(form, false);
+            if (res.error) return say(res.error.message);
+            if (res.data && res.data.session) return show();   /* (no email confirmation asked by the project) */
+            say(t('check'), true);
+          });
+      }).catch(function () { busy(form, false); say(t('down')); });
+    });
+
+    $('in').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var mail = $('inMail').value.trim(), pass = $('inPass').value, form = this;
+      if (!mail || !pass) return say(t('fill'));
+      busy(form, true);
+      sb.auth.signInWithPassword({ email: mail, password: pass }).then(function (res) {
+        busy(form, false);
+        if (res.error) return say(t('wrong'));
+        quiet(); show();
+      }).catch(function () { busy(form, false); say(t('down')); });
+    });
+
+    $('out').onclick = function () { sb.auth.signOut().then(function () { $('me').hidden = true; $('forms').hidden = false; tab(false); }); };
+
+    /* signed in: the player's card */
+    function show() {
+      sb.auth.getUser().then(function (u) {
+        if (!u.data || !u.data.user) return;
+        return sb.from('profiles').select('username, rating, wins, losses').eq('id', u.data.user.id).single().then(function (p) {
+          if (p.error || !p.data) return;
+          var d = p.data, tr = NS.tier(d.rating);
+          $('meName').textContent = d.username;
+          $('meInitial').textContent = d.username.charAt(0).toUpperCase();
+          $('meRating').textContent = d.rating; $('meWins').textContent = d.wins; $('meLosses').textContent = d.losses;
+          var b = $('meTier'); b.style.setProperty('--tier', tr.color); b.textContent = tr[NS.lang()];
+          $('forms').hidden = true; $('me').hidden = false;
+        });
+      });
+    }
+    document.addEventListener('ns-lang', function () { if (!$('me').hidden) show(); });
+    if (location.hash.indexOf('type=signup') >= 0 || location.hash.indexOf('access_token') >= 0) tab(false);
+    sb.auth.getSession().then(function (s) { if (s.data && s.data.session) show(); });
+    sb.auth.onAuthStateChange(function (ev, session) { if (session && ev === 'SIGNED_IN') show(); });
+  })();
+</script>
+</body>
+</html>

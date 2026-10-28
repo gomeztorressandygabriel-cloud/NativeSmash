@@ -1,6 +1,6 @@
 {
   "comment": "NativeSmash's players server (Supabase: server/supabase/schema.sql). url and key are the project's URL and its publishable (anon) key, which are meant to be public; empty: the launcher's players list, invitations and quick match are off.",
-  "url": "",
-  "key": "",
+  "url": "https://vsaogrjmlwzwvdtffyow.supabase.co",
+  "key": "sb_publishable_ia8FosvjKAWFkLkMf4lXVA_uJmPZFg4",
   "signup": "https://gomeztorressandygabriel-cloud.github.io/NativeSmash/cuenta.html"
 }

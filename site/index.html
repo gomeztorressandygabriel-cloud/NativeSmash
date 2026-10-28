@@ -21,6 +21,7 @@
     --soon: #ffc56b;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html { scroll-behavior: smooth; }
   body {
     margin: 0; color: var(--ink); background: var(--bg); overflow-x: hidden;
@@ -192,6 +193,8 @@
       <a class="link" href="#android"><span data-l="es">Android</span><span data-l="en">Android</span></a>
       <a class="link" href="#instalar"><span data-l="es">Cómo se instala</span><span data-l="en">How to install</span></a>
       <a class="link" href="#creditos"><span data-l="es">Créditos</span><span data-l="en">Credits</span></a>
+      <a class="link" href="ranking.html"><span data-l="es">Ranking</span><span data-l="en">Ranking</span></a>
+      <a class="btn soft" style="padding:9px 18px;font-size:15px" href="cuenta.html"><span data-l="es">Mi cuenta</span><span data-l="en">My account</span></a>
       <a class="btn soft" style="padding:9px 18px;font-size:15px" href="https://github.com/gomeztorressandygabriel-cloud/NativeSmash" rel="noopener">GitHub</a>
       <div class="lang" role="group" aria-label="Idioma / Language">
         <button type="button" data-set="es" aria-pressed="true">ES</button>
@@ -222,6 +225,7 @@
     </div>
     <p class="note"><span data-l="es">Necesitas tu propia copia de Super Smash Bros. Ultimate, de tu consola. NativeSmash no la incluye.</span><span data-l="en">You need your own copy of Super Smash Bros. Ultimate from your console. NativeSmash does not include it.</span></p>
     <div class="chips">
+      <a class="chip" href="cuenta.html" style="text-decoration:none" data-online-box hidden><span data-l="es"><b data-online>0</b> jugadores en línea ahora</span><span data-l="en"><b data-online>0</b> players online now</span></a>
       <span class="chip"><span data-l="es"><b>60 fps</b> al 100 % de velocidad</span><span data-l="en"><b>60 fps</b> at full speed</span></span>
       <span class="chip"><span data-l="es">Mandos <b>configurables</b></span><span data-l="en"><b>Configurable</b> controllers</span></span>
       <span class="chip"><span data-l="es">Escalado <b>FSR</b></span><span data-l="en"><b>FSR</b> upscaling</span></span>
@@ -467,5 +471,7 @@
       });
   })();
 </script>
+<script src="players.js"></script>
+<script>NS.showOnline(); setInterval(NS.showOnline, 30000);</script>
 </body>
 </html>

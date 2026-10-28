@@ -28,6 +28,7 @@
   td:first-child { border-radius: 14px 0 0 14px; width: 56px; color: var(--muted); font-weight: 700; }
   td:last-child { border-radius: 0 14px 14px 0; text-align: right; }
   th:last-child { text-align: right; }
+  .who { text-decoration: none; color: inherit; } .who:hover { text-decoration: underline; }
   .who { display: flex; align-items: center; gap: 12px; font-weight: 600; }
   .who span { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; background: linear-gradient(135deg, var(--a), var(--b)); flex: none; }
   .div { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
@@ -105,7 +106,7 @@
       }
       rows.innerHTML = data.map(function (p, i) {
         var t = NS.tier(p.rating);
-        return '<tr><td>' + (i + 1) + '</td><td><div class="who"><span>' + e(p.username.charAt(0).toUpperCase()) + '</span>' + e(p.username) + '</div></td>' +
+        return '<tr><td>' + (i + 1) + '</td><td><a class="who" href="perfil.html?u=' + encodeURIComponent(p.username) + '"><span' + (p.avatar ? ' style="background:' + e(p.avatar) + '"' : '') + '>' + e(p.username.charAt(0).toUpperCase()) + '</span>' + e(p.username) + '</a></td>' +
           '<td><span class="div" style="--c:' + t.color + '"><i></i>' + e(t[l]) + '</span></td>' +
           '<td class="hide-sm muted">' + p.wins + ' / ' + p.losses + '</td><td><b>' + p.rating + '</b></td></tr>';
       }).join('');
@@ -126,7 +127,7 @@
         .map(function (r) { return { username: r[0], rating: r[1], wins: r[2], losses: r[3] }; });
       return draw();
     }
-    NS.client.from('profiles').select('username, rating, wins, losses').order('rating', { ascending: false }).order('wins', { ascending: false }).order('created_at').limit(100)
+    NS.client.from('profiles').select('username, rating, wins, losses, avatar').order('rating', { ascending: false }).order('wins', { ascending: false }).order('created_at').limit(100)
       .then(function (r) { data = r.error ? [] : r.data; draw(); });
   })();
 </script>

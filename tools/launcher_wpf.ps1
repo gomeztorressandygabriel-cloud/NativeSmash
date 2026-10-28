@@ -1141,5 +1141,6 @@ $win.Add_ContentRendered({
         $script:clickTimer.Start()
     }
 })
+if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot 'launcher_shots.ps1') }) }   # (pictures for players: tools\launcher_shots.ps1)
 [void]$win.ShowDialog()
 exit 0

@@ -79,7 +79,7 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define MAXSEND 48                  /* frames of pads in one packet at most (a player that fell behind is sent what it lacks) */
 #define REDUNDANCY 8                /* frames of pads each packet repeats (a lost packet costs nothing) */
 #define MAGIC 0x4B4C534Eu           /* "NSLK" */
-#define VERSION 4                   /* (2: up to four players, the sender in every packet) */
+#define VERSION 5                   /* (2: up to four players, the sender in every packet; 5: HELLO says the joiner's clock) */
 
 enum { M_OFF, M_RECORD, M_REPLAY, M_HOST, M_JOIN };
 
@@ -88,6 +88,11 @@ static DWORD main_thread;
 static u32 frame;                   /* the frame now (the input step's count since the start) */
 static u32 frames_max = 15000;      /* (record) */
 static u64 t0, tick_reads;
+/* The game's other threads see this PC's clock moved to the same base as the main thread's clock of frames (t0 is the host's,
+ * or the later of the PCs'): a PC's own clock is how long it has been on, and the movie player, for one, mixes the main thread's
+ * times with another thread's - with two bases hours apart, it waited for hours (the joiner's game stood still in the opening
+ * movie). */
+static i64 other_offset;
 static LksInput in_of[4][RING];     /* the players' pads, by frame */
 static u32 have[4];                 /* frames known: 0 .. have-1 */
 /* Rollback (SSBU_NETPLAY_ROLLBACK=1, with the rewind test's per-frame saves: net_rbtest.c): a frame whose pads from another player
@@ -602,7 +607,10 @@ static void on_packet(const u8 *p, int n, u32 src_vip, const struct sockaddr_in 
             peer[i].last_heard = now;
             fprintf(stderr, "[netplay] player %d joined (%u.%u.%u.%u)\n", i + 1, src_vip >> 24, src_vip >> 16 & 255, src_vip >> 8 & 255, src_vip & 255);
         }
-        if (!t0) t0 = rt_clock_ns() * 12 / 625;
+        if (!t0) {   /* the clock of frames starts at the later of the two PCs' clocks (2 s on): neither goes back */
+            u64 mine = rt_clock_ns() * 12 / 625, theirs = n >= HEAD + 16 ? get64(p + HEAD + 8) : 0;
+            t0 = (mine > theirs ? mine : theirs) + 2 * 19200000ull;
+        }
         u8 q[64];
         int k = header(q, P_WELCOME);
         memcpy(q + k, p + HEAD, 8); k += 8;   /* (their nonce) */
@@ -947,9 +955,10 @@ static int connect_peer(void) {
         if (via_lobby && mode == M_JOIN && !room_ready) { room_tick(&in_lobby, &room_ready, &next_room); if (!room_ready) { Sleep(50); continue; } }
         u64 now = rt_now_ns();
         if (mode == M_JOIN && !welcomed && now >= next_hello) {
-            u8 p[HEAD + 8];
+            u8 p[HEAD + 16];
             int n = header(p, P_HELLO);
             put64(p + n, nonce); n += 8;
+            put64(p + n, rt_clock_ns() * 12 / 625); n += 8;   /* (this PC's clock: the host's t0 is never behind it) */
             send_to(0, p, n);
             next_hello = now + 200000000ull;
         }
@@ -1098,6 +1107,8 @@ void lks_input_step(void) {
             if (mode == M_HOST) { if (!t0) t0 = rt_clock_ns() * 12 / 625; send_start(); start_sent = 1; }
             compare_with = me == 0 ? 1 : 0;
             phase = 4;
+            other_offset = (i64)(t0 - rt_clock_ns() * 12 / 625);
+            fprintf(stderr, "[netplay] the game's clock moved %+.1f s to the shared one\n", other_offset / 19200000.0);
         }
         started = 1;
         frame = 0;
@@ -1301,6 +1312,7 @@ int lks_rollback_on(void) {   /* SSBU_NETPLAY_ROLLBACK=1, or the launcher's "Rol
 }
 
 u64 lks_ticks(u64 now) {
-    if (!active() || !on_main()) return now;
+    if (!active()) return now;
+    if (!on_main()) return now + (u64)other_offset;
     return t0 + (u64)frame * TICKS_PER_FRAME + 16 * ++tick_reads;
 }

@@ -272,7 +272,9 @@ function Get-GameCommand([string]$Tree, [switch]$Local) {
     <# What Play SSBU.bat runs, inside start "SSBU log" /min cmd /c "...". -Local: without --online
        (the VS netplay: both games the same, with no online identity of their own). #>
     $online = if ($Local) { '' } else { ' --online' }
-    return "$Tree\build\ssbu.exe $Tree\dump\modules --status 30$online > $Tree\build\play.log 2>&1"
+    # (first the last game's log kept in build\logs, as the launchers\*.bat do; afterwards the error report, if there is one)
+    $ps = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File'
+    return "$ps $Tree\tools\keep_logs.ps1 $Tree\build & $Tree\build\ssbu.exe $Tree\dump\modules --status 30$online > $Tree\build\play.log 2>&1 & $ps tools\send_report.ps1 $Tree"
 }
 
 # ---- the VS netplay's save (docs\NETPLAY.md) ----------------------------------------------

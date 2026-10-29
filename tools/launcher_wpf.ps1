@@ -75,7 +75,7 @@ $Words = @{
     delayHelp = @('Cuántos cuadros guarda el juego antes de aplicar tu botón, para esperar al otro jugador. Menos es más rápido, pero si es muy poco para la conexión el juego se traba esperando. Con una buena conexión directa, prueba 2 o 3.', 'How many frames the game holds your button before applying it, to wait for the other player. Lower is quicker, but if it is too low for the connection the game stutters waiting. On a good direct connection, try 2 or 3.')
     vsTitle = @('Si preferís pasaros un código: uno crea la sala y le pasa el código al otro, que se une con él.', 'If you would rather share a code: one makes the room and gives the code to the other, who joins with it.')
     lwTitle = @('Local Wireless', 'Local Wireless')
-    lwHelp = @('El modo en línea del propio juego: entra en Smash, Local Wireless, y crea o busca una sala con tus amigos.', 'The game''s own online mode: go to Smash, Local Wireless, and make or find a room with your friends.')
+    lwHelp = @('El modo en línea del propio juego: en el menú principal abre el panel de la derecha, elige Juego local y crea o busca una sala. Recomendado: 2 cuadros de retraso.', 'The game''s own online mode: go to Smash, Local Wireless, and make or find a room with your friends.')
     vsCardTitle = @('VS en red', 'VS netplay')
     vsCardHelp = @('Combates de Smash entre PCs con rollback: elige el modo y el retraso, y busca partida o invita a un jugador conectado.', 'Smash battles between PCs with rollback: pick the mode and the delay, then find a match or invite a player who is online.')
     onlineSoon = @('Jugadores en línea: pronto', 'Players online: soon')
@@ -123,6 +123,7 @@ $Words = @{
     noSuchPlayer = @('No hay ningún jugador con ese nombre.', 'There is no player with that name.')
     searchingFor = @('Buscando partida… {0}  ·  {1} buscando ahora', 'Looking for a match… {0}  ·  {1} looking now')
     needSignIn = @('Inicia sesión arriba para invitar o buscar partida.', 'Sign in above to invite or find a match.')
+    vsOffForNow = @('Desactivado por ahora: lo estamos arreglando. Para jugar en línea usa Local Wireless (arriba): entra en el juego y, en el menú principal, abre el panel de la derecha y elige Juego local.', 'Off for now: we are fixing it. To play online use Local Wireless (above): in the game''s main menu, open the panel on the right and pick Local play.')
     advShow = @('Conectar con un código', 'Connect with a code'); advHide = @('Ocultar la conexión con código', 'Hide the code connection')
     vsOff = @('Apagado', 'Off'); vsHost = @('Crear sala (jugador 1)', 'Make a room (player 1)'); vsJoin = @('Unirme a una sala (jugador 2)', 'Join a room (player 2)')
     vsPeer = @('Código de la sala de tu amigo', 'Your friend''s room code')
@@ -1098,10 +1099,23 @@ $playersTimer.Add_Tick({
     }
 })
 $win.Add_Closed({ $playersTimer.Stop(); Stop-PlayersClient })
-if (-not $env:NATIVESMASH_SHOTS) { Start-PlayersClient ([string](Get-LineValue (Join-Path $Root 'VERSION'))); $playersTimer.Start() }
+# The VS netplay is off for now (it parted between PCs in the first games with friends): its card says so and nothing of it runs - no
+# players server, no VS room on Play; Local Wireless is how to play online. $VsNetplayOn = $true brings it all back.
+$VsNetplayOn = $false
+if ($VsNetplayOn -and -not $env:NATIVESMASH_SHOTS) { Start-PlayersClient ([string](Get-LineValue (Join-Path $Root 'VERSION'))); $playersTimer.Start() }
 Show-Account
 Show-Advanced ($vsMode -ne 'off')
 Show-People
+if (-not $VsNetplayOn) {
+    [void](Pick-Chip 'VsChips' 'off')
+    $card = (Find 'VsCardHelp').Parent
+    foreach ($el in @($card.Children)) {   # (the title and the note stay)
+        if ($el -eq (Find 'VsCardHelp') -or ($el -is [Windows.Controls.Grid] -and $el.Children.Contains((Find 'VsCardTitle')))) { continue }
+        $el.Visibility = 'Collapsed'
+    }
+    (Find 'OnlineCount').Parent.Parent.Visibility = 'Collapsed'
+    (Find 'VsCardHelp').Text = T 'vsOffForNow'
+}
 (Find 'VsCopy').Add_Click({
     try { [Windows.Clipboard]::SetText($script:vsCode); (Find 'VsSaveState').Text = T 'vsCopied'; $script:vsSaveNote = $true } catch { }
 })
@@ -1482,7 +1496,7 @@ $poll.Add_Tick({
     if ((Get-Chip (Find 'LobbyChips')) -eq 'custom' -and (Find 'ServerBox').Text.Trim() -and (Find 'ServerBox').Text.Trim() -notmatch '^\S+:\d+$') {
         [void][Windows.MessageBox]::Show($win, (T 'badServer'), 'NativeSmash', 'OK', 'Warning'); return
     }
-    $vs = Get-Chip (Find 'VsChips')
+    $vs = if ($VsNetplayOn) { Get-Chip (Find 'VsChips') } else { 'off' }
     $vsPeerNow = (Find 'VsPeerBox').Text -replace '\s', ''
     if ($vs -eq 'join' -and -not $vsPeerNow) { [void][Windows.MessageBox]::Show($win, (T 'vsNoPeer'), 'NativeSmash', 'OK', 'Warning'); return }
     $vars = @{}
@@ -1553,6 +1567,6 @@ $win.Add_ContentRendered({
         $script:clickTimer.Start()
     }
 })
-if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot $(if ($env:NATIVESMASH_SHOTS_KIND -in @('online', 'signin', 'lw')) { "launcher_shots_$($env:NATIVESMASH_SHOTS_KIND).ps1" } else { 'launcher_shots.ps1' })) }) }   # (pictures for players: tools\launcher_shots.ps1)
+if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot $(if ($env:NATIVESMASH_SHOTS_KIND -in @('online', 'signin', 'lw', 'lw2')) { "launcher_shots_$($env:NATIVESMASH_SHOTS_KIND).ps1" } else { 'launcher_shots.ps1' })) }) }   # (pictures for players: tools\launcher_shots.ps1)
 [void]$win.ShowDialog()
 exit 0

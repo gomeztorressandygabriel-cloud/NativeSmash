@@ -79,7 +79,8 @@ long long gfx_watch_pages(const u64 *base, const u64 *size, u32 n, u64 *seen, vo
 #define MAXSEND 48                  /* frames of pads in one packet at most (a player that fell behind is sent what it lacks) */
 #define REDUNDANCY 8                /* frames of pads each packet repeats (a lost packet costs nothing) */
 #define MAGIC 0x4B4C534Eu           /* "NSLK" */
-#define VERSION 5                   /* (2: up to four players, the sender in every packet; 5: HELLO says the joiner's clock) */
+#define VERSION 6                   /* (2: up to four players, the sender in every packet; 5: HELLO says the joiner's clock; 6: one
+                                     * simulation an input step, the battles' results - 0.1.25: games of other versions part) */
 
 enum { M_OFF, M_RECORD, M_REPLAY, M_HOST, M_JOIN };
 
@@ -315,6 +316,7 @@ static u32 lq_head, lq_tail;
 static SRWLOCK lq_lock = SRWLOCK_INIT;
 static CONDITION_VARIABLE lq_cv = CONDITION_VARIABLE_INIT;
 
+static void note_version(const u8 *p, int n);
 static int header(u8 *p, int type) { put32(p, MAGIC); p[4] = VERSION; p[5] = (u8)type; p[6] = (u8)(welcomed || mode == M_HOST ? me : 0xFF); return HEAD; }
 
 static void send_raw_vip(u32 vip, const u8 *p, int n) { net_send(net_local_ip(), lobby_port, vip, lobby_port, p, (u32)n); }
@@ -496,6 +498,7 @@ static void on_packet(const u8 *p, int n, u32 src_vip, const struct sockaddr_in 
 int lks_deliver(u32 src_ip, u16 src_port, u16 dst_port, const void *data, u32 len) {
     if (!via_lobby || dst_port != lobby_port) return 0;
     const u8 *p = data;
+    note_version(p, (int)len);
     if (len >= HEAD && get32(p) == MAGIC && p[4] == VERSION && p[5] >= P_SAVE_REQ) { on_save_packet(src_ip, p, (int)len); return 1; }
     /* (the ping, here: through the main thread's queue it would count the frames the game took too) */
     if (len >= HEAD && get32(p) == MAGIC && p[4] == VERSION && (p[5] == P_ALIVE || p[5] == P_PONG)) { on_packet(p, (int)len, src_ip, NULL); return 1; }
@@ -587,7 +590,16 @@ static int player_of(u32 vip, const struct sockaddr_in *addr) {   /* the index o
     return -1;
 }
 
+/* A packet of another NativeSmash version: not taken (the two games would simulate differently and part), said once and on screen. */
+static int other_version;
+static void note_version(const u8 *p, int n) {
+    if (n < HEAD || get32(p) != MAGIC || p[4] == VERSION || other_version == p[4]) return;
+    other_version = p[4];
+    fprintf(stderr, "[netplay] a player with another NativeSmash version (netplay %d, this one %d): not taken - both need the same version\n", p[4], VERSION);
+}
+
 static void on_packet(const u8 *p, int n, u32 src_vip, const struct sockaddr_in *from) {
+    note_version(p, n);
     if (n < HEAD || get32(p) != MAGIC || p[4] != VERSION) return;
     int who = p[6] < MAXP ? p[6] : -1;
     u64 now = rt_now_ns();
@@ -791,12 +803,14 @@ const char *lks_status_text(void) {
     switch (phase) {
     case 1: snprintf(text, sizeof text, es ? "Online Direct: entrando al servidor de salas..." : "Online Direct: entering the lobby..."); break;
     case 2:
+        if (other_version) { snprintf(text, sizeof text, es ? "Online Direct: el otro jugador tiene otra version de NativeSmash - actualizad los dos a la misma" : "Online Direct: the other player has another NativeSmash version - both update to the same one"); break; }
         if (mode == M_HOST) snprintf(text, sizeof text, es ? "Online Direct: sala %s - esperando jugadores (%d de %d)" : "Online Direct: room %s - waiting for players (%d of %d)", room_code, joined + 1, nplayers);
         else snprintf(text, sizeof text, es ? "Online Direct: buscando la sala %s..." : "Online Direct: looking for room %s...", room_code);
         break;
     case 3: snprintf(text, sizeof text, es ? "Online Direct: recibiendo el savegame del host (%u%%)" : "Online Direct: getting the host's save (%u%%)", save_parts ? save_got * 100 / save_parts : 0); break;
     case 4:
-        if (desync_frame != ~0u) snprintf(text, sizeof text, es ? "Online Direct: posible desincronizacion desde el cuadro %u - reiniciad la partida" : "Online Direct: probable desync from frame %u - restart the game", desync_frame);
+        if (other_version && !started) snprintf(text, sizeof text, es ? "Online Direct: el otro jugador tiene otra version de NativeSmash - actualizad los dos a la misma" : "Online Direct: the other player has another NativeSmash version - both update to the same one");
+        else if (desync_frame != ~0u) snprintf(text, sizeof text, es ? "Online Direct: posible desincronizacion desde el cuadro %u - reiniciad la partida" : "Online Direct: probable desync from frame %u - restart the game", desync_frame);
         else if (!started && !local_ready()) snprintf(text, sizeof text, es ? "Online Direct: cargando shaders - los demas esperan" : "Online Direct: loading shaders - the others wait");
         else if (!started) snprintf(text, sizeof text, es ? "Online Direct: esperando a que los demas carguen..." : "Online Direct: waiting for the others to load...");
         else snprintf(text, sizeof text, es ? "Online Direct: jugador %d de %d - ping %.0f ms - retraso %d%s" : "Online Direct: player %d of %d - ping %.0f ms - delay %d%s",
@@ -1085,6 +1099,7 @@ static void match_watch(void) {
     if (!*path || frame % 10) return;
     u64 mgr = g64(0x71052b94f8ull), data = mgr ? g64(mgr) : 0;
     if (!data) { was_result = 0; return; }
+    if (!guest_ok(data)) { was_result = 0; return; }
     int result = *P(u8, data + 0xE9) != 0;
     if (getenv("SSBU_MATCH_TRACE") && frame % 600 == 0) {   /* (a check: what is read, now and then) */
         u32 n = g32(data + 0xA0);

@@ -1553,6 +1553,6 @@ $win.Add_ContentRendered({
         $script:clickTimer.Start()
     }
 })
-if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot $(if ($env:NATIVESMASH_SHOTS_KIND -in @('online', 'signin')) { "launcher_shots_$($env:NATIVESMASH_SHOTS_KIND).ps1" } else { 'launcher_shots.ps1' })) }) }   # (pictures for players: tools\launcher_shots.ps1)
+if ($env:NATIVESMASH_SHOTS) { $win.Add_ContentRendered({ . (Join-Path $PSScriptRoot $(if ($env:NATIVESMASH_SHOTS_KIND -in @('online', 'signin', 'lw')) { "launcher_shots_$($env:NATIVESMASH_SHOTS_KIND).ps1" } else { 'launcher_shots.ps1' })) }) }   # (pictures for players: tools\launcher_shots.ps1)
 [void]$win.ShowDialog()
 exit 0

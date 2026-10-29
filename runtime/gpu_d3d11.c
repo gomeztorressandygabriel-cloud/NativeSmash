@@ -5447,6 +5447,15 @@ void gfx_present(u64 guest, u32 width, u32 height) {
     static double f4_at = -1;   /* SSBU_F4_AT: the second to press F4 at (debug runs) */
     if (f4_at == -1) f4_at = getenv("SSBU_F4_AT") ? atof(getenv("SSBU_F4_AT")) : -2;
     if (f4_at >= 0 && rt_now_ns() > (u64)(f4_at * 1e9)) { f4_at = -2; keys |= 8; }
+    {   /* SSBU_SHOTS_AT: the seconds to press F3 at, "12.5,20,33" (pictures of the game for guides, taken by scripted runs) */
+        static double shots[32]; static int nshots = -1, next_shot;
+        if (nshots < 0) {
+            nshots = 0;
+            const char *e = getenv("SSBU_SHOTS_AT");
+            while (e && *e && nshots < 32) { char *end; double v = strtod(e, &end); if (end == e) break; shots[nshots++] = v; e = *end == ',' ? end + 1 : end; }
+        }
+        if (next_shot < nshots && rt_now_ns() > (u64)(shots[next_shot] * 1e9)) { next_shot++; keys |= 4; }
+    }
     static int overlay = -1, details;
     if (overlay < 0) overlay = getenv("SSBU_OVERLAY") ? atoi(getenv("SSBU_OVERLAY")) != 0 : display_overlay();
     if (keys & 1) overlay = !overlay;

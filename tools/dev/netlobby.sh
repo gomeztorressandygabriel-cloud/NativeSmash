@@ -14,6 +14,9 @@
 #                (SSBU_NET_TEST_BLOCK) and both must go on through the lobby - 125 s
 #     blocked    Charlie's direct packets are dropped from the start (as a symmetric NAT): both
 #                must give up punching and play through the lobby
+#     symmetric  Charlie is behind a symmetric NAT (SSBU_NET_TEST_SYMMETRIC: other players see
+#                another port than the lobby), Alpha's router lets anything in: Alpha must
+#                take the port its hellos come from and both connect directly there
 #     off        Charlie turns direct connections off (SSBU_NET_DIRECT=0): the lobby must never
 #                introduce it, nor give Alpha its address
 #     three      Alpha hosts, Bravo and Charlie both join it (two stations: their own pair too) - 125 s
@@ -56,13 +59,15 @@ run() {   # who input seconds [capture dir] [more VAR=value ...]
 alpha_input="$host_input,85:A"
 bravo_input=$host_input
 charlie_env=
+alpha_env=
 case $mode in
     cut) charlie_env=SSBU_NET_TEST_BLOCK=55 ;;   # (Charlie starts 40 s in: 95 s)
     blocked) charlie_env=SSBU_NET_TEST_BLOCK=0 ;;
+    symmetric) charlie_env=SSBU_NET_TEST_SYMMETRIC=1; alpha_env=SSBU_NET_TEST_NAT=0 ;;
     off) charlie_env=SSBU_NET_DIRECT=0 ;;
     three) alpha_input="$host_input,60:A,85:A"; bravo_input=$join_input ;;
 esac
-run Alpha "$alpha_input" "$secs" "" &
+run Alpha "$alpha_input" "$secs" "" $alpha_env &
 a=$!
 sleep 12
 run Bravo "$bravo_input" $((secs - 12)) "" &
@@ -116,6 +121,13 @@ blocked)
     check "Charlie gave up punching" "$C" "no direct path to Alpha"
     never "never direct" "$A" "Charlie: direct"
     check "the overlay shows it" "$A" "Room: Charlie relayed"
+    ;;
+symmetric)
+    check "Charlie on a port of its own" "$C" "other players on a port of their own"
+    check "Alpha took the port Charlie's hellos came from" "$A" "Charlie: hello from 127.0.0.1:"
+    check "Alpha direct to Charlie there" "$A" "Charlie: direct, via seen 127.0.0.1:"
+    check "Charlie direct to Alpha" "$C" "Alpha: direct, via public 127.0.0.1:"
+    check "game packets came directly" "$A" "peer Charlie: direct.*in [1-9][0-9]* direct"
     ;;
 off)
     check "Charlie turned direct off" "$C" "direct connections off"

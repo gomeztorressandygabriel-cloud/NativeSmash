@@ -131,7 +131,7 @@ static void big_sends(SOCKET s) {
 static int configured = -1, hosting, logging;
 static char relay_text[256], room[NAME_LEN + 1] = "smash", name[NAME_LEN + 1] = "Player";
 static u16 port = NET_DEFAULT_PORT;
-static int direct_ok = 1, test_nat;   /* SSBU_NET_DIRECT; SSBU_NET_TEST_NAT (tests) */
+static int direct_ok = 1, test_nat, test_symmetric;   /* SSBU_NET_DIRECT; SSBU_NET_TEST_NAT, SSBU_NET_TEST_SYMMETRIC (tests) */
 static u64 test_block_at = ~0ull;     /* SSBU_NET_TEST_BLOCK (tests): no direct packets from then on */
 
 #ifdef _WIN32
@@ -183,6 +183,9 @@ static void configure(void) {
      * router does; SSBU_NET_TEST_BLOCK=<seconds after the game started>: drop every direct packet
      * from then on, as if a firewall closed the path (0: from the start, as a symmetric NAT) */
     if ((v = getenv("SSBU_NET_TEST_NAT"))) test_nat = atoi(v) > 0;
+    /* SSBU_NET_TEST_SYMMETRIC=1: other players are sent to and heard from on a socket of their own,
+     * so they see another port than the lobby does, as behind a symmetric (carrier-grade) NAT */
+    if ((v = getenv("SSBU_NET_TEST_SYMMETRIC"))) test_symmetric = atoi(v) > 0;
     if ((v = getenv("SSBU_NET_TEST_BLOCK")) && *v) {
         u64 age = process_age_ms(), at = (u64)(atof(v) * 1000);
         test_block_at = now_ms() + (at > age ? at - age : 0);
@@ -423,6 +426,42 @@ static void write_share_file(void) {
     fclose(f);
 }
 
+#ifdef _WIN32
+/* Asks the router to send what reaches UDP port p from outside to this PC's p: 1 done (the router's
+ * outside address in out), 2 no UPnP router, 3 refused. The mapping stays until upnp_unmap. */
+static LONG upnp_map(u16 p, const WCHAR *what_text, IStaticPortMappingCollection **kept, char *out, size_t n) {
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    IUPnPNAT *nat = NULL;
+    LONG state = 2;
+    if (SUCCEEDED(CoCreateInstance(&CLSID_UPnPNAT_, NULL, CLSCTX_ALL, &IID_IUPnPNAT_, (void **)&nat)) && nat) {
+        IStaticPortMappingCollection *maps = NULL;
+        if (SUCCEEDED(IUPnPNAT_get_StaticPortMappingCollection(nat, &maps)) && maps) {   /* (NULL: no UPnP router) */
+            WCHAR client[64];
+            MultiByteToWideChar(CP_UTF8, 0, lan_ip, -1, client, 64);
+            BSTR udp = SysAllocString(L"UDP"), who = SysAllocString(client), what = SysAllocString(what_text);
+            IStaticPortMapping *map = NULL;
+            IStaticPortMappingCollection_Remove(maps, p, udp);   /* (a stale one from an earlier run) */
+            if (SUCCEEDED(IStaticPortMappingCollection_Add(maps, p, udp, p, who, VARIANT_TRUE, what, &map)) && map) {
+                BSTR ext = NULL;
+                if (SUCCEEDED(IStaticPortMapping_get_ExternalIPAddress(map, &ext)) && ext) {
+                    WideCharToMultiByte(CP_UTF8, 0, ext, -1, out, (int)n, NULL, NULL);
+                    SysFreeString(ext);
+                }
+                IStaticPortMapping_Release(map);
+                *kept = maps;
+                state = 1;
+            } else {
+                state = 3;
+                IStaticPortMappingCollection_Release(maps);
+            }
+            SysFreeString(udp); SysFreeString(who); SysFreeString(what);
+        }
+        IUPnPNAT_Release(nat);
+    }
+    return state;
+}
+#endif
+
 static DWORD WINAPI upnp_thread(LPVOID unused) {
     (void)unused;
     lan_address();
@@ -433,34 +472,10 @@ static DWORD WINAPI upnp_thread(LPVOID unused) {
         if (unreachable_address(public_ip)) state = 4;
     }
 #else
-    CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    IUPnPNAT *nat = NULL;
-    LONG state = 2;
-    if (SUCCEEDED(CoCreateInstance(&CLSID_UPnPNAT_, NULL, CLSCTX_ALL, &IID_IUPnPNAT_, (void **)&nat)) && nat) {
-        IStaticPortMappingCollection *maps = NULL;
-        if (SUCCEEDED(IUPnPNAT_get_StaticPortMappingCollection(nat, &maps)) && maps) {   /* (NULL: no UPnP router) */
-            WCHAR client[64];
-            MultiByteToWideChar(CP_UTF8, 0, lan_ip, -1, client, 64);
-            BSTR udp = SysAllocString(L"UDP"), who = SysAllocString(client), what = SysAllocString(L"SSBU netplay relay");
-            IStaticPortMapping *map = NULL;
-            IStaticPortMappingCollection_Remove(maps, port, udp);   /* (a stale one from an earlier run) */
-            if (SUCCEEDED(IStaticPortMappingCollection_Add(maps, port, udp, port, who, VARIANT_TRUE, what, &map)) && map) {
-                BSTR ext = NULL;
-                if (SUCCEEDED(IStaticPortMapping_get_ExternalIPAddress(map, &ext)) && ext) {
-                    WideCharToMultiByte(CP_UTF8, 0, ext, -1, public_ip, sizeof public_ip, NULL, NULL);
-                    SysFreeString(ext);
-                }
-                IStaticPortMapping_Release(map);
-                upnp_mappings = maps;
-                atexit(upnp_close);
-                state = unreachable_address(public_ip) ? 4 : 1;
-            } else {
-                state = 3;
-                IStaticPortMappingCollection_Release(maps);
-            }
-            SysFreeString(udp); SysFreeString(who); SysFreeString(what);
-        }
-        IUPnPNAT_Release(nat);
+    LONG state = upnp_map(port, L"SSBU netplay relay", &upnp_mappings, public_ip, sizeof public_ip);
+    if (state == 1) {
+        atexit(upnp_close);
+        if (unreachable_address(public_ip)) state = 4;
     }
 #endif
     InterlockedExchange(&upnp_state, state);
@@ -512,13 +527,17 @@ typedef struct Candidate {   /* an address a player may be reached at */
 typedef struct Peer {
     u32 ip;
     char name[NAME_LEN + 1];
-    int flags, introduced, state, via, ncand, acks;   /* via: the candidate that answers; acks: sent this second */
+    int flags, introduced, state, via, ncand, nlobby, acks;   /* via: the candidate that answers; nlobby: the lobby's; acks: sent this second */
     u64 secret, t0, last_ack, next_hello, acks_at;
     LONG rtt;
-    Candidate cand[2];                                /* its address through its router, then on its own network */
+    Candidate cand[3];   /* its address through its router, then on its own network (from the lobby), then CAND_SEEN */
     volatile LONG in_direct, in_relayed, out_direct, out_relayed, dropped;
 } Peer;
 static SRWLOCK peers_lock = SRWLOCK_INIT;   /* (never held while calling hle_net, or printing) */
+/* CAND_SEEN: where its hellos came from, when that is none of the lobby's addresses - behind a
+ * symmetric or carrier-grade NAT a player goes out to each address on another port, so the lobby
+ * sees one and this player another. A hello there with the pair's secret is it all the same. */
+#define CAND_SEEN 2
 static Peer peers[PEERS_MAX];
 static int npeers;
 static u32 peers_version;
@@ -526,6 +545,7 @@ static volatile LONG direct_not_in_room;    /* direct packets from a player not 
 static int bound_loopback;
 static u32 local_ip;                        /* this player's own address and port (told to the lobby) */
 static u16 local_port;
+static SOCKET peer_sock = INVALID_SOCKET;   /* other players are sent to from here: client_sock, but for SSBU_NET_TEST_SYMMETRIC */
 
 typedef struct Notes { int n; char line[2 * PEERS_MAX + 1][200]; } Notes;   /* (lines printed once the lock is let go) */
 static void note(Notes *ns, const char *fmt, ...) {
@@ -563,7 +583,7 @@ static void send_punch(Peer *q, int c, int ack, u64 word, u64 t) {   /* (word: a
     p[20] = (u8)ack;
     put64(p + 21, word);
     q->cand[c].sent = t;
-    send_udp(client_sock, p, sizeof p, &q->cand[c].at);
+    send_udp(peer_sock, p, sizeof p, &q->cand[c].at);
 }
 static void hello(Peer *q, int c, u64 t) {
     Candidate *k = &q->cand[c];
@@ -574,15 +594,16 @@ static void hello(Peer *q, int c, u64 t) {
     send_punch(q, c, 0, k->nonce, t);
 }
 
-/* (peers_lock held) The introduced player whose secret a direct packet carries, if it came from
- * one of that player's addresses (which one: *cand); else NULL. */
+/* (peers_lock held) The introduced player whose secret a direct packet carries, if any; which of
+ * that player's addresses it came from: *cand (-1: none of them). */
 static Peer *peer_from(u64 secret, const struct sockaddr_in *from, int *cand) {
+    *cand = -1;
     for (int i = 0; i < npeers; i++) {
         Peer *q = &peers[i];
         if (!q->introduced || q->secret != secret) continue;
         for (int c = 0; c < q->ncand; c++)
-            if (same_addr(&q->cand[c].at, from)) { *cand = c; return q; }
-        return NULL;
+            if (same_addr(&q->cand[c].at, from)) { *cand = c; break; }
+        return q;
     }
     return NULL;
 }
@@ -626,12 +647,13 @@ static void read_peers(const u8 *p, int n) {
                 q->cand[1].at.sin_port = htons(get16(a + 10));
                 q->ncand = 2;
             }
+            q->nlobby = q->ncand;
         }
         const Peer *old = NULL;
         for (int j = 0; j < npeers && !old; j++)
             if (peers[j].ip == q->ip && peers[j].secret == q->secret && peers[j].introduced == q->introduced) old = &peers[j];
-        int same = old && old->ncand == q->ncand;
-        for (int c = 0; same && c < q->ncand; c++) same = same_addr(&old->cand[c].at, &q->cand[c].at);
+        int same = old && old->nlobby == q->nlobby;
+        for (int c = 0; same && c < q->nlobby; c++) same = same_addr(&old->cand[c].at, &q->cand[c].at);
         if (old) {
             q->in_direct = old->in_direct; q->in_relayed = old->in_relayed; q->dropped = old->dropped;
             q->out_direct = old->out_direct; q->out_relayed = old->out_relayed; q->rtt = old->rtt;
@@ -639,6 +661,7 @@ static void read_peers(const u8 *p, int n) {
         if (same) {
             q->state = old->state; q->via = old->via; q->t0 = old->t0; q->last_ack = old->last_ack;
             q->next_hello = old->next_hello; q->acks_at = old->acks_at; q->acks = old->acks;
+            q->ncand = old->ncand;   /* (with the address it was seen at, if any) */
             memcpy(q->cand, old->cand, sizeof q->cand);
         } else if (q->introduced) {
             char at[24];
@@ -703,7 +726,7 @@ static void direct_packet(const u8 *p, int n, const struct sockaddr_in *from) {
         int ok = 0;
         AcquireSRWLockShared(&peers_lock);
         Peer *q = peer_from(secret, from, &c);
-        if (q && nat_lets_in(q, c, t)) {   /* (what a router would not let in is not counted) */
+        if (q && c >= 0 && nat_lets_in(q, c, t)) {   /* (what a router would not let in is not counted) */
             ok = q->ip == src && (dst == my_ip || dst == NET_BROADCAST || dst == 0xFFFFFFFFu) &&
                  sport != NET_LDN_PORT && dport != NET_LDN_PORT;
             InterlockedIncrement(ok ? &q->in_direct : &q->dropped);
@@ -720,7 +743,17 @@ static void direct_packet(const u8 *p, int n, const struct sockaddr_in *from) {
     Notes ns = {0};
     AcquireSRWLockExclusive(&peers_lock);
     Peer *q = peer_from(secret, from, &c);
-    if (q && !nat_lets_in(q, c, t)) q = NULL;
+    if (q && c < 0 && !ack && q->ip == from_ip && to_ip == my_ip) {   /* (a hello from an address the lobby did not give) */
+        char at[24];
+        c = CAND_SEEN;
+        memset(&q->cand[c], 0, sizeof q->cand[c]);
+        q->cand[c].at = *from;
+        if (q->ncand <= c) q->ncand = c + 1;
+        if (q->state == P_DIRECT && q->via == c) q->state = P_RELAYED;   /* (the one it answered at changed: prove the new one) */
+        if (q->state != P_DIRECT) q->state = P_PUNCHING, q->t0 = t;
+        note(&ns, "%s: hello from %s, not the address the lobby gave (its router changes ports); trying there", q->name, addr_text(from, at));
+    }
+    if (q && (c < 0 || !nat_lets_in(q, c, t))) q = NULL;
     if (q && q->ip == from_ip && to_ip == my_ip) {
         Candidate *k = &q->cand[c];
         if (ack) {   /* (an answer to one of our latest hellos there, from there: the path works both ways) */
@@ -733,7 +766,7 @@ static void direct_packet(const u8 *p, int n, const struct sockaddr_in *from) {
                     char at[24];
                     q->state = P_DIRECT;
                     q->via = c;
-                    note(&ns, "%s: direct, via %s %s (%ld ms)", q->name, c ? "LAN" : "public", addr_text(&k->at, at), (long)q->rtt);
+                    note(&ns, "%s: direct, via %s %s (%ld ms)", q->name, c == CAND_SEEN ? "seen" : c ? "LAN" : "public", addr_text(&k->at, at), (long)q->rtt);
                 }
             }
         } else {
@@ -799,7 +832,7 @@ void net_send(u32 src_ip, u16 src_port, u32 dst_ip, u16 dst_port, const void *da
         h = body - DIRECT_HEAD;
         header(h, T_DIRECT);
         put64(h + 4, direct[i].secret);
-        send_udp(client_sock, h, n + DIRECT_HEAD, &direct[i].at);
+        send_udp(peer_sock, h, n + DIRECT_HEAD, &direct[i].at);
     }
     if (!nd || (broadcast && relayed)) {
         if (nd) {   /* (a broadcast some players got directly: the lobby leaves those out) */
@@ -885,6 +918,64 @@ static void read_members(const u8 *p, int n) {
     InterlockedExchange(&members, count);
 }
 
+/* The lobby's socket's port opened on the router too (UPnP), once the lobby is joined: then a
+ * player whose own router lets nothing in (carrier-grade NAT) can still reach this one directly.
+ * SSBU_NET_UPNP=0 leaves the router alone. */
+#ifdef _WIN32
+static IStaticPortMappingCollection *lobby_mappings;
+static u16 lobby_mapped;
+static void lobby_port_close(void) {
+    if (!lobby_mappings) return;
+    BSTR udp = SysAllocString(L"UDP");
+    IStaticPortMappingCollection_Remove(lobby_mappings, lobby_mapped, udp);
+    SysFreeString(udp);
+}
+static DWORD WINAPI lobby_port_thread(LPVOID unused) {
+    (void)unused;
+    char outside[64] = "";
+    lan_address();
+    LONG state = upnp_map(lobby_mapped, L"SSBU netplay lobby", &lobby_mappings, outside, sizeof outside);
+    if (state == 1) atexit(lobby_port_close);
+    if (state == 1 && unreachable_address(outside))
+        fprintf(stderr, "[net] UPnP: lobby port %u opened, but the router's outside address %s is behind another NAT\n", lobby_mapped, outside);
+    else if (state == 1) fprintf(stderr, "[net] UPnP: lobby port %u opened (outside address %s)\n", lobby_mapped, outside);
+    else fprintf(stderr, "[net] UPnP for the lobby port %u: %s\n", lobby_mapped, state == 2 ? "no UPnP router found" : "the router refused it");
+    return 0;
+}
+#endif
+static void open_lobby_port(void) {
+    const char *upnp = getenv("SSBU_NET_UPNP");
+    if (bound_loopback || !direct_ok || test_nat || test_symmetric || (upnp && !strcmp(upnp, "0"))) return;
+#ifdef _WIN32
+    lobby_mapped = local_port;
+    CloseHandle(CreateThread(NULL, 0, lobby_port_thread, NULL, 0, NULL));
+#endif
+}
+
+/* (SSBU_NET_TEST_SYMMETRIC) Other players on a socket of its own, read here. */
+static DWORD WINAPI symmetric_thread(LPVOID unused) {
+    (void)unused;
+    static u8 buf[65536];
+    for (;;) {
+        struct sockaddr_in from;
+        socklen_t flen = sizeof from;
+        int n = recvfrom(peer_sock, (char *)buf, sizeof buf, 0, (struct sockaddr *)&from, &flen);
+        if (n >= 4 && buf[0] == MAGIC0 && buf[1] == MAGIC1 && buf[2] == NET_PROTOCOL && joined) direct_packet(buf, n, &from);
+    }
+}
+static void start_symmetric_test(void) {
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    struct sockaddr_in a = {0};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(bound_loopback ? INADDR_LOOPBACK : INADDR_ANY);
+    if (s == INVALID_SOCKET || bind(s, (struct sockaddr *)&a, sizeof a)) return;
+    no_connreset(s);
+    big_sends(s);
+    peer_sock = s;
+    fprintf(stderr, "[net] test: other players on a port of their own (as behind a symmetric NAT)\n");
+    CloseHandle(CreateThread(NULL, 0, symmetric_thread, NULL, 0, NULL));
+}
+
 static DWORD WINAPI client_thread(LPVOID unused) {
     (void)unused;
     SetThreadDescription(GetCurrentThread(), L"netplay client");
@@ -895,6 +986,7 @@ static DWORD WINAPI client_thread(LPVOID unused) {
         Sleep(3000);
     }
     reject_text[0] = 0;
+    if (test_symmetric) start_symmetric_test();
     u64 last_join = 0, last_ping = 0, last_tick = 0;
     if (!direct_ok) fprintf(stderr, "[net] direct connections off (SSBU_NET_DIRECT=0): all through the relay\n");
     for (;;) {
@@ -907,7 +999,7 @@ static DWORD WINAPI client_thread(LPVOID unused) {
             put64(p + 12, t);
             put64(p + 20, cookie);
             put16(p + 28, ping_ms < 0 || ping_ms > 0xFFFF ? 0xFFFF : (u16)ping_ms);
-            if (!local_port) local_address();
+            if (!local_port) { local_address(); if (local_port && lobby) open_lobby_port(); }
             int direct_now = 0;
             AcquireSRWLockShared(&peers_lock);
             for (int i = 0; i < npeers; i++) direct_now += usable(&peers[i], t);
@@ -933,7 +1025,7 @@ static DWORD WINAPI client_thread(LPVOID unused) {
         int n = recvfrom(client_sock, (char *)buf, sizeof buf, 0, (struct sockaddr *)&from, &flen);
         if (n < 4 || buf[0] != MAGIC0 || buf[1] != MAGIC1) continue;
         if (!same_addr(&from, &relay_at)) {   /* (another player, straight) */
-            if (buf[2] == NET_PROTOCOL && joined) direct_packet(buf, n, &from);
+            if (buf[2] == NET_PROTOCOL && joined && peer_sock == client_sock) direct_packet(buf, n, &from);
             continue;
         }
         if (buf[2] != NET_PROTOCOL && buf[3] != T_REJECT) continue;   /* (a REJECT comes in our own version) */
@@ -1043,6 +1135,7 @@ static void start(void) {
             int big = 1 << 20;
             setsockopt(client_sock, SOL_SOCKET, SO_RCVBUF, (const char *)&big, sizeof big);
             big_sends(client_sock);
+            peer_sock = client_sock;
             CloseHandle(CreateThread(NULL, 0, client_thread, NULL, 0, NULL));
             atexit(leave);
         }

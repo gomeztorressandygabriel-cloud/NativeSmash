@@ -108,7 +108,7 @@ The game's own **Online** menu works with NativeSmash's game server, which runs 
 
 ## Direct connections and your internet address
 
-Online, the games in a room send their traffic **straight to each other** whenever the players' routers allow it. The lobby introduces them, and the games open a path through their routers themselves (UDP hole punching), so nobody forwards a port for this either. Where that doesn't work, the traffic keeps going through the lobby. Some mobile networks, and providers that share one address between many customers (symmetric NAT), don't allow direct paths. A direct path that goes quiet falls back to the lobby within about a second and is tried again later.
+Online, the games in a room send their traffic **straight to each other** whenever the players' routers allow it. The lobby introduces them, and the games open a path through their routers themselves (UDP hole punching), so nobody forwards a port for this either. Where that doesn't work, the traffic keeps going through the lobby. Some mobile networks, and providers that share one address between many customers (symmetric or carrier-grade NAT), allow a direct path only when the other player's router lets it in: the game answers at whatever port such a player's hellos come from, and asks its own router (UPnP) to open the lobby port. A direct path that goes quiet falls back to the lobby within about a second and is tried again later.
 
 Through the lobby, the delay between two players is roughly both players' pings to the lobby added together. Directly, it's just the delay between the two PCs.
 

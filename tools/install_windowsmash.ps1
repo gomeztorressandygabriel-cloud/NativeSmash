@@ -13,7 +13,7 @@ Steps, each skipped when it is already done, so running it again carries on wher
                of main with no changes of its own is fast-forwarded with git pull. Anything else
                (another branch, a commit GitHub does not have, no internet) is left as it is.
   2. check     64-bit Windows 10 or 11, a processor with AVX2, the installed RAM, the free space
-               on this drive (about 60 GB for the build). A failed check stops with a plain message.
+               on this drive (about 20 GB for the build). A failed check stops with a plain message.
   3. python    a Python 3.10 or newer with the packages (deps\python, then python on the PATH, then
                the py launcher); otherwise python.org's embeddable Python 3.14 into deps\python, with
                pip and requirements.txt. Every later Python call uses the one found.
@@ -107,7 +107,7 @@ $SdlFallback = @{   # when GitHub's API cannot be read: a known release and its 
 $VsBuildToolsId = 'Microsoft.VisualStudio.BuildTools'   # Visual Studio 2026's; 2022's is Microsoft.VisualStudio.2022.BuildTools
 $VsBuildToolsUrl = 'https://visualstudio.microsoft.com/visual-cpp-build-tools/'
 $VsInstallerDir = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
-$NeedDiskGb = 60
+$NeedDiskGb = 20
 $MinRamGb = 8
 $FirewallRuleName = 'NativeSmash (ssbu.exe)'
 $UserAgent = 'NativeSmash-installer'

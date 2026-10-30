@@ -12,7 +12,7 @@ This guide takes you from a fresh download to playing. No programming knowledge 
 
 ## Install in one go
 
-**What you need:** a Windows 10 or 11 PC (64-bit, a processor with AVX2, 16 GB of RAM is comfortable, about 60 GB free) and your own game files: the game as dumped from your Switch, with its update if you have one, your console's keys (`prod.keys` and `title.keys`) and its firmware. If you have played the game in **yuzu or Ryujinx on this PC, you already have all three**, and the installer finds them by itself. Otherwise, put the game (its `.xci`, `.nsp` or `.nca` files), its update `.nsp` and your DLC `.nsp` files in one folder; [Part 2](#part-2-gather-your-game-files) below says what the files are.
+**What you need:** a Windows 10 or 11 PC (64-bit, a processor with AVX2, 16 GB of RAM is comfortable, about 20 GB free) and your own game files: the game as dumped from your Switch, with its update if you have one, your console's keys (`prod.keys` and `title.keys`) and its firmware. If you have played the game in **yuzu or Ryujinx on this PC, you already have all three**, and the installer finds them by itself. Otherwise, put the game (its `.xci`, `.nsp` or `.nca` files), its update `.nsp` and your DLC `.nsp` files in one folder; [Part 2](#part-2-gather-your-game-files) below says what the files are.
 
 > **From a release** (the download on the project's web page): extract the zip and double-click **`Install NativeSmash.exe`**, which asks your language and starts the same installer from a hidden `NativeSmash` folder. The steps below are for the source download.
 
@@ -80,7 +80,7 @@ Open **Settings → System → About** and check:
 | **Installed RAM** | 16 GB is comfortable. Note the number: [step 14](#step-14-build-the-game) uses it. |
 | **Processor** | One with AVX2: an Intel Core i3, i5, i7 or i9 with a model number of 4000 or higher (for example *i5-4590* or *i7-12700*), an Intel Core Ultra, or any AMD Ryzen. Most Pentium and Celeron processors don't have it. |
 
-You also need **about 60 GB free on drive C:** for NativeSmash, plus about 17 GB wherever your game files go, and a graphics card or chip with DirectX 11 and an up-to-date driver.
+You also need **about 20 GB free on drive C:** for NativeSmash, plus about 17 GB wherever your game files go, and a graphics card or chip with DirectX 11 and an up-to-date driver.
 
 ---
 
@@ -421,7 +421,7 @@ By hand: download the ZIP again, unblock it as in [step 5](#step-5-download-wind
 
 | What you see | What to do |
 | :--- | :--- |
-| `Install NativeSmash.bat` stops at a check | It says what the PC lacks: 64-bit Windows 10 or 11, a processor with AVX2, 8 GB of RAM, or free space (about 60 GB, less what is built already). Free some space or move NativeSmash to a drive with room, then run it again. |
+| `Install NativeSmash.bat` stops at a check | It says what the PC lacks: 64-bit Windows 10 or 11, a processor with AVX2, 8 GB of RAM, or free space (about 20 GB, less what is built already). Free some space or move NativeSmash to a drive with room, then run it again. |
 | `Install NativeSmash.bat` says winget is not available | The compiler download didn't work either (the message above it says why). Install the compiler by hand: download the **Build Tools for Visual Studio** from <https://visualstudio.microsoft.com/visual-cpp-build-tools/>, tick **Desktop development with C++** and, under Installation details, **C++ Clang tools for Windows**, install, then run `Install NativeSmash.bat` again. |
 | `Microsoft's license terms were not accepted` | The compiler needs Microsoft's C runtime and Windows SDK, and those come under Microsoft's license terms, whichever way you get them. To accept them, run `Install NativeSmash.bat` again and type `yes` when it asks. |
 | The installer's window says a folder has a problem | The line under the folder says what: no `prod.keys`, no `.nca` files, no program among the game files. Point it at the right folder ([Part 2](#part-2-gather-your-game-files)) and click **Check files**. |

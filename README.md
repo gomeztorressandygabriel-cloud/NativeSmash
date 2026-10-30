@@ -72,7 +72,7 @@ The game itself still comes from your files. This repository holds only the tran
 | **Processor** | One with AVX2: an Intel Core i3, i5, i7 or i9 of the 4th generation (2013) or newer, or any AMD Ryzen. Most Pentium and Celeron processors don't have it. |
 | **Graphics** | Any graphics card or chip that supports DirectX 11, with an up-to-date driver. |
 | **Memory** | 16 GB recommended. |
-| **Free space** | About 60 GB on the drive NativeSmash goes on, plus room for your game files (about 17 GB). |
+| **Free space** | About 20 GB on the drive NativeSmash goes on, plus room for your game files (about 17 GB). |
 | **Your game files** | Super Smash Bros. Ultimate from your own Switch (a game card dump, an `.nsp`, or the game installed in yuzu or Ryujinx), with your console's keys and firmware. Any version should work; **11.0.0** and **13.0.5** have been tested. [Step 2](#step-2-have-your-game-files-ready) below says where to put them. |
 | **Two free tools** | Python and a compiler. `Install NativeSmash.bat` installs them for you. |
 | **Time** | About 15 minutes of your own time, plus a few minutes while the tools download and 30 minutes to a few hours while your PC builds the game. |
@@ -117,7 +117,7 @@ Compare your PC with [what you need](#what-you-need) above. (**Settings → Syst
 ### Step 3: Download NativeSmash
 
 1. At the top of this page, click the green **Code** button, then **Download ZIP**.
-2. Right-click `NativeSmash-main.zip`, choose **Extract All…**, pick a drive with about 60 GB free (for example `C:\`), and click **Extract**. You get a folder named `NativeSmash-main`; rename it to `NativeSmash` if you like.
+2. Right-click `NativeSmash-main.zip`, choose **Extract All…**, pick a drive with about 20 GB free (for example `C:\`), and click **Extract**. You get a folder named `NativeSmash-main`; rename it to `NativeSmash` if you like.
 
 > [!TIP]
 > Keep NativeSmash out of the Desktop and Documents folders: OneDrive may try to upload them, and the finished build is around 30 GB. With [Git](https://git-scm.com/download/win), `git clone https://github.com/gomeztorressandygabriel-cloud/NativeSmash.git` does the same as the download.

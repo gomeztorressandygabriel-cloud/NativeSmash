@@ -475,6 +475,7 @@ static const char DECODE_HLSL[] =
 
 static void start_compilers(void);                 /* (see "shaders") */
 static DWORD WINAPI prewarm_main(void *unused);
+static const char *cache_dir(void);
 static int prewarm_on;                             /* the prewarm was started */
 static int warm_first_draws;                       /* (see "first draws") */
 static u32 gpu_vendor;                             /* the Direct3D driver's PCI vendor (0 under DXVK) */
@@ -813,6 +814,12 @@ static BOOL CALLBACK init(PINIT_ONCE o, PVOID p, PVOID *c) {
      * the translator writes its variant 131 (gpu_shader.c: also no vector read at an address that
      * is not a multiple of 16 - stages lit right then), kept apart in the disk cache. */
     if (gpu_vendor == 0x8086) shader_set_hlsl_variant(131);
+    /* (the variant this PC's game uses, for tools/shader_aot.py: its files are only of use when they are
+     * that variant's) */
+    char variant_path[1100];
+    snprintf(variant_path, sizeof variant_path, "%s/variant.txt", cache_dir());
+    FILE *vf = fopen(variant_path, "w");
+    if (vf) { fprintf(vf, "%d\n", shader_hlsl_variant()); fclose(vf); }
     /* The textures kept: at most 1 GB on a PC with under 12 GB of RAM (a battle held about 120 MB; a long
      * session's cache, up to 4096 of them, otherwise keeps growing), else as many as fit the table.
      * SSBU_TEXTURE_MB=<MB> sets it, 0 for no limit. */

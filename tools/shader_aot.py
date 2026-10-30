@@ -278,10 +278,13 @@ def main():
     build_tool(exe)
     cache = os.path.join(tree, "dump", "shadercache")
     os.makedirs(cache, exist_ok=True)
+    variant, why = shader_variant(tree)
+    print(f"shaders for variant {variant} ({why})", flush=True)
+    env = dict(os.environ, SSBU_SHADER_VARIANT=str(variant))
     jobs = 1 if a.dry else a.jobs
     procs = [subprocess.Popen([exe, pack, cache, str(i), str(jobs)] + (["--dry"] if a.dry else []),
                               stdout=subprocess.PIPE if a.dry else subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                              **low_priority())
+                              env=env, **low_priority())
              for i in range(jobs)]
     if a.dry:
         outs = [p.communicate() for p in procs]
@@ -296,7 +299,7 @@ def main():
         have = set()
         for name in os.listdir(cache):
             parts = name[:-5].split("_") if name.endswith(".dxbc") else []
-            if len(parts) == 5 and parts[0] == "v" + str(cache_version()) and parts[1] in ("vs", "ps"):
+            if len(parts) == 5 and parts[0] == "v" + str(cache_version() + 100 * variant) and parts[1] in ("vs", "ps"):
                 have.add(("vs", parts[2]) if parts[1] == "vs" else ("ps", parts[2], parts[3]))
         print(f"the cache has {len(have)} vertex/pixel keys; {len(have & keys)} of them are among the {len(keys)} found here")
     print(f"done in {time.time() - t0:.0f} s")
@@ -405,10 +408,57 @@ def summary(lines):
             f"{total['not translated']:,} not translated")
 
 
+def shader_variant(tree):
+    """The HLSL variant this PC's game translates to (gpu_shader.c's shader_hlsl_variant: 131 on an
+    Intel card's Direct3D, else 0), so that the files made here are the ones the game looks for:
+    SSBU_SHADER_VARIANT, else what the game wrote last time it started (shadercache/variant.txt),
+    else the PC's graphics - 131 when every card is Intel's (the game draws with the other one when
+    there is one)."""
+    if os.environ.get("SSBU_SHADER_VARIANT", "").strip().isdigit():
+        return int(os.environ["SSBU_SHADER_VARIANT"]), "SSBU_SHADER_VARIANT"
+    try:
+        with open(os.path.join(tree, "dump", "shadercache", "variant.txt"), encoding="ascii") as f:
+            return int(f.read().split()[0]), "the game's last start"
+    except (OSError, ValueError, IndexError):
+        pass
+    if LINUX:
+        return 0, "Linux (DXVK)"
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "(Get-CimInstance Win32_VideoController).PNPDeviceID"], capture_output=True, text=True, timeout=30)
+        cards = [line.upper() for line in r.stdout.splitlines() if "VEN_" in line.upper()]
+    except (OSError, subprocess.SubprocessError):
+        cards = []
+    if cards and all("VEN_8086" in c for c in cards):
+        return 131, "an Intel card"
+    return 0, "the graphics card" if cards else "no card found"
+
+
 def cache_version():
     text = open(os.path.join(ROOT, "runtime", "gpu_shader_cache.h"), encoding="utf-8").read()
     return int(re.search(r"#define SHADER_CACHE_VERSION (\d+)", text).group(1))
 
 
+class Tee:
+    """What goes to the window, also to a log file (Prepare Shaders.bat: reports/prepare_shaders.log)."""
+    def __init__(self, stream, log):
+        self.stream, self.log = stream, log
+
+    def write(self, text):
+        self.stream.write(text)
+        self.log.write(text)
+        self.log.flush()
+
+    def flush(self):
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
 if __name__ == "__main__":
+    log_path = os.environ.get("SSBU_AOT_LOG")
+    if log_path:
+        log = open(log_path, "w", encoding="utf-8", errors="replace")
+        sys.stdout, sys.stderr = Tee(sys.stdout, log), Tee(sys.stderr, log)
     main()

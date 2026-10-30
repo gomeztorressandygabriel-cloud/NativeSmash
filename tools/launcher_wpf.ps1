@@ -253,11 +253,23 @@ $netMode = if (-not $lobbyHost -or $lobbyHost -eq 'off') { 'offline' }
            elseif ($lobbyHost -eq $PublicLobby) { if ($lobbyCode) { 'private' } else { 'public' } }
            else { 'custom' }
 
-$shaderDir = Join-Path $Root 'dump\shadercache'
-$shaderTotal = 0; $shaderPlayed = 0
-if (Test-Path -LiteralPath $shaderDir) {
+function Get-ShaderCounts([string]$Tree) {
+    <# The selected version's saved shaders: all, and the ones the game used - only those of the variant its
+       game uses (dump\shadercacheariant.txt, written each start: Intel cards' are apart), when it is known. #>
+    $total = 0; $usedCount = 0
+    if (-not $Tree) { return @(0, 0) }
+    $base = if ([IO.Path]::IsPathRooted($Tree)) { $Tree } else { Join-Path $Root $Tree }
+    $dir = Join-Path $base 'dump\shadercache'
+    if (-not (Test-Path -LiteralPath $dir)) { return @(0, 0) }
+    $pattern = '*.dxbc'
+    $variantFile = Join-Path $dir 'variant.txt'
+    if (Test-Path -LiteralPath $variantFile) {
+        $variant = 0
+        if ([int]::TryParse(([string](Get-Content -LiteralPath $variantFile -TotalCount 1)).Trim(), [ref]$variant)) { $pattern = "v$(10 + 100 * $variant)_*.dxbc" }
+    }
     $played = [DateTime]'2002-01-01'
-    foreach ($f in [IO.DirectoryInfo]::new($shaderDir).EnumerateFiles('*.dxbc')) { $shaderTotal++; if ($f.LastWriteTimeUtc -ge $played) { $shaderPlayed++ } }
+    foreach ($f in [IO.DirectoryInfo]::new($dir).EnumerateFiles($pattern)) { $total++; if ($f.LastWriteTimeUtc -ge $played) { $usedCount++ } }
+    return @($total, $usedCount)
 }
 
 # ---- the window --------------------------------------------------------------------------------
@@ -1228,10 +1240,14 @@ function Update-GameState {
     (Find 'Footer').Text = if ($has) { $label } else { '' }
 }
 New-Chips (Find 'VersionChips') @($versions | ForEach-Object { @{ Value = $_.Tree; Text = $_.Label } }) $script:tree
-foreach ($c in (Find 'VersionChips').Children) { $c.Add_Checked({ param($s, $e) $script:tree = [string]$s.Tag; Update-GameState }) }
+foreach ($c in (Find 'VersionChips').Children) { $c.Add_Checked({ param($s, $e) $script:tree = [string]$s.Tag; Update-GameState; Update-ShaderCounts }) }
 Update-GameState
-(Find 'ShaderNumber').Text = '{0:N0}' -f $shaderTotal
-(Find 'ShaderCaption').Text = "$(T 'shadersCount')  ·  $('{0:N0}' -f $shaderPlayed) $(T 'shadersPlayed')"
+function Update-ShaderCounts {
+    $n = Get-ShaderCounts $script:tree
+    (Find 'ShaderNumber').Text = '{0:N0}' -f $n[0]
+    (Find 'ShaderCaption').Text = "$(T 'shadersCount')  ·  $('{0:N0}' -f $n[1]) $(T 'shadersPlayed')"
+}
+Update-ShaderCounts
 
 # ---- pages ---------------------------------------------------------------------------------------
 $pageNames = @{ play = 'PagePlay'; online = 'PageOnline'; pads = 'PagePads'; video = 'PageVideo'; shaders = 'PageShaders'; game = 'PageGame' }
@@ -1374,7 +1390,13 @@ $install = {
 }
 (Find 'InstallBtn').Add_Click($install); (Find 'GameInstall').Add_Click($install)
 (Find 'OpenPads').Add_Click({ if (Test-Path -LiteralPath $padsIni) { Start-Process notepad.exe -ArgumentList "`"$padsIni`"" } })
-(Find 'PrepareBtn').Add_Click({ $b = Join-Path $Root 'launchers\Prepare Shaders.bat'; if (Test-Path -LiteralPath $b) { Start-Process -FilePath $b -WorkingDirectory $Root } })
+(Find 'PrepareBtn').Add_Click({   # (for the version picked on the Game page: Prepare Shaders.bat takes SSBU_TREE)
+    $b = Join-Path $Root 'launchers\Prepare Shaders.bat'
+    if (-not $script:tree -or -not (Test-Path -LiteralPath $b)) { return }
+    $was = $env:SSBU_TREE
+    $env:SSBU_TREE = $script:tree
+    try { Start-Process -FilePath $b -WorkingDirectory $Root } finally { $env:SSBU_TREE = $was }
+})
 (Find 'UnlockBtn').Add_Click({ $b = Join-Path $Root 'launchers\Unlock All Fighters.bat'; if (Test-Path -LiteralPath $b) { Start-Process -FilePath $b -WorkingDirectory $Root } })
 (Find 'FolderBtn').Add_Click({ Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Root`"" })
 (Find 'ReportsBtn').Add_Click({ $d = Join-Path $Root 'reports'; if (Test-Path -LiteralPath $d) { Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$d`"" } })

@@ -532,6 +532,7 @@ typedef struct Peer {
     LONG rtt;
     Candidate cand[3];   /* its address through its router, then on its own network (from the lobby), then CAND_SEEN */
     volatile LONG in_direct, in_relayed, out_direct, out_relayed, dropped;
+    volatile LONG hellos, heard, heard_elsewhere;   /* (since introduced: our hellos; its punches that got here, those from no address of its) */
 } Peer;
 static SRWLOCK peers_lock = SRWLOCK_INIT;   /* (never held while calling hle_net, or printing) */
 /* CAND_SEEN: where its hellos came from, when that is none of the lobby's addresses - behind a
@@ -591,6 +592,7 @@ static void hello(Peer *q, int c, u64 t) {
     k->prev_asked = k->asked;
     k->nonce = random64() | 1;
     k->asked = t;
+    q->hellos++;
     send_punch(q, c, 0, k->nonce, t);
 }
 
@@ -662,6 +664,7 @@ static void read_peers(const u8 *p, int n) {
             q->state = old->state; q->via = old->via; q->t0 = old->t0; q->last_ack = old->last_ack;
             q->next_hello = old->next_hello; q->acks_at = old->acks_at; q->acks = old->acks;
             q->ncand = old->ncand;   /* (with the address it was seen at, if any) */
+            q->hellos = old->hellos; q->heard = old->heard; q->heard_elsewhere = old->heard_elsewhere;
             memcpy(q->cand, old->cand, sizeof q->cand);
         } else if (q->introduced) {
             char at[24];
@@ -692,10 +695,12 @@ static void peers_tick(u64 t) {
             note(&ns, "direct path to %s went quiet; using the relay", q->name);
         } else if (q->state == P_PUNCHING && t - q->t0 >= PUNCH_MS) {
             q->state = P_RELAYED;
-            note(&ns, "no direct path to %s (a router or firewall blocks it); using the relay", q->name);
+            note(&ns, "no direct path to %s (a router or firewall blocks it); using the relay - %ld hellos sent, %ld of its punches got here%s",
+                 q->name, (long)q->hellos, (long)q->heard,
+                 q->heard_elsewhere ? " (some from a port the lobby did not give)" : !q->heard ? " (none: blocked on its side or on this side's way in)" : "");
         }
         if (t >= q->next_hello) {
-            q->next_hello = t + (q->state == P_PUNCHING ? 200 : q->state == P_DIRECT || t - q->t0 < PUNCH_MS ? 400 : 5000);
+            q->next_hello = t + (q->state == P_PUNCHING ? 200 : q->state == P_DIRECT || t - q->t0 < PUNCH_MS ? 400 : 1000);   /* (relayed: a hello a second, a path that opens later is taken) */
             if (q->state == P_DIRECT) hello(q, q->via, t);
             else for (int c = 0; c < q->ncand; c++) hello(q, c, t);
         }
@@ -743,6 +748,7 @@ static void direct_packet(const u8 *p, int n, const struct sockaddr_in *from) {
     Notes ns = {0};
     AcquireSRWLockExclusive(&peers_lock);
     Peer *q = peer_from(secret, from, &c);
+    if (q) { q->heard++; if (c < 0) q->heard_elsewhere++; }
     if (q && c < 0 && !ack && q->ip == from_ip && to_ip == my_ip) {   /* (a hello from an address the lobby did not give) */
         char at[24];
         c = CAND_SEEN;

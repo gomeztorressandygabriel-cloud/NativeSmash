@@ -64,6 +64,9 @@ $Words = @{
     lobPublic = @('Pública', 'Public'); lobPrivate = @('Privada (código)', 'Private (code)'); lobCustom = @('Tu servidor', 'Your server'); lobOff = @('Sin conexión', 'Offline')
     code = @('Código de la sala', 'Lobby code'); server = @('Servidor (host:puerto)', 'Server (host:port)')
     directConn = @('Conexiones directas', 'Direct connections')
+    firewallBtn = @('Dejar entrar al juego en el firewall de Windows', 'Let the game through the Windows firewall')
+    firewallHelp = @('Así un amigo cuyo router cambia de puerto puede llegarte directo. Windows te pedirá permiso una vez.', 'So a friend whose router changes ports can reach you directly. Windows asks for permission once.')
+    firewallOk = @('El firewall de Windows ya deja entrar al juego.', 'The Windows firewall lets the game in.')
     report = @('Enviar informes de errores automáticamente', 'Send error reports automatically')
     reportHelp = @('Si el juego se cierra por un error o falla el online, al cerrarse se envía un informe al proyecto para arreglarlo. Sin datos personales: se quitan tu nombre de usuario, el de tu PC, tu nombre online, tu código de sala y tus direcciones de internet. Va a un repositorio privado del proyecto.', 'If the game stops on an error or the online fails, a report goes to the project when it closes, so it can be fixed. No personal data: your user name, your PC''s name, your online name, your room code and your internet addresses are taken out. It goes to a private repository of the project.')
     netcodeLabel = @('Modo', 'Mode')
@@ -515,6 +518,8 @@ $xaml = @'
                 <TextBox x:Name="ServerBox" Style="{StaticResource Field}" Width="360" HorizontalAlignment="Left"/>
                 <CheckBox x:Name="DirectConn" Style="{StaticResource Switch}" Margin="0,22,0,0"/>
                 <TextBlock x:Name="DirectHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
+                <Button x:Name="FirewallBtn" Style="{StaticResource Soft}" HorizontalAlignment="Left" Margin="0,14,0,0"/>
+                <TextBlock x:Name="FirewallHelp" Style="{StaticResource Help}" MaxWidth="560" HorizontalAlignment="Left"/>
                 <TextBlock x:Name="DelayLabel" Style="{StaticResource Label}" Margin="0,22,0,8"/>
                 <WrapPanel x:Name="DelayChips" MaxWidth="660" HorizontalAlignment="Left"/>
               </StackPanel>
@@ -751,7 +756,7 @@ function Say($Name, [string]$Key) { $el = Find $Name; if ($el -is [Windows.Contr
 foreach ($p in @(@('NavPlay', 'play'), @('NavOnline', 'online'), @('NavPads', 'pads'), @('NavVideo', 'video'), @('NavShaders', 'shaders'), @('NavGame', 'game'),
                  @('Tagline', 'tagline'), @('PlayTitle', 'ready'), @('PlayHelp', 'readyHelp'), @('VersionLabel', 'version'), @('PlayBtn', 'playBtn'),
                  @('InstallBtn', 'install'), @('DirectBox', 'direct'), @('OnlineTitle', 'onlineTitle'), @('NameLabel', 'name'), @('LobbyLabel', 'lobby'),
-                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('AccTitle', 'accTitle'), @('AccHelp', 'accHelp'), @('EmailLabel', 'emailLabel'), @('PassLabel', 'passLabel'), @('SignInBtn', 'signIn'), @('SignUpBtn', 'signUp'), @('SignOutBtn', 'signOut'), @('ForgotBtn', 'forgot'), @('CancelInviteBtn', 'cancelInvite'), @('FriendsLabel', 'friendsLabel'), @('FriendsEmpty', 'friendsEmpty'), @('FriendAddBtn', 'friendAdd'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
+                 @('CodeLabel', 'code'), @('ServerLabel', 'server'), @('DirectConn', 'directConn'), @('DirectHelp', 'directHelp'), @('FirewallBtn', 'firewallBtn'), @('ReportBox', 'report'), @('ReportHelp', 'reportHelp'), @('NetcodeLabel', 'netcodeLabel'), @('LwTitle', 'lwTitle'), @('LwHelp', 'lwHelp'), @('VsCardTitle', 'vsCardTitle'), @('VsCardHelp', 'vsCardHelp'), @('QuickBtn', 'quick'), @('QuickHelp', 'quickHelp'), @('InvitesLabel', 'invitesLabel'), @('PlayersLabel', 'playersLabel'), @('PlayersEmpty', 'playersEmpty'), @('AccTitle', 'accTitle'), @('AccHelp', 'accHelp'), @('EmailLabel', 'emailLabel'), @('PassLabel', 'passLabel'), @('SignInBtn', 'signIn'), @('SignUpBtn', 'signUp'), @('SignOutBtn', 'signOut'), @('ForgotBtn', 'forgot'), @('CancelInviteBtn', 'cancelInvite'), @('FriendsLabel', 'friendsLabel'), @('FriendsEmpty', 'friendsEmpty'), @('FriendAddBtn', 'friendAdd'), @('NetcodeHelp', 'netcodeHelp'), @('DelayLabel', 'delayLabel'), @('VsTitle', 'vsTitle'), @('VsPeerLabel', 'vsPeer'), @('VsDelayLabel', 'vsDelay'), @('VsPlayersLabel', 'vsPlayers'), @('VsHelp', 'vsHelp'), @('VsSaveMake', 'vsSaveMake'), @('VsSaveUse', 'vsSaveUse'), @('VsCopy', 'vsCopy'), @('VsNewCode', 'vsNewCode'), @('PadsTitle', 'padsTitle'),
                  @('KbLabel', 'kbPlays'), @('BackgroundBox', 'background'), @('PadsHelp', 'padsHelp'), @('OpenPads', 'openPads'), @('KeysTitle', 'keysTitle'), @('UpdTitle', 'updTitle'), @('UpdCheckBtn', 'updCheck'), @('UpdNowBtn', 'updNow'), @('KeysHelp', 'keysHelp'), @('ResetKeys', 'resetKeys'), @('PadPickLabel', 'padPick'), @('PadNone', 'padNone'), @('PadStyleLabel', 'padStyle'), @('PadLayoutLabel', 'padLayout'), @('PadDeadLabel', 'padDead'), @('PadRumbleLabel', 'padRumble'), @('PadTrigLabel', 'padTrig'), @('PadMapTitle', 'padMapTitle'), @('PadMapHelp', 'padMapHelp'), @('ResetPad', 'resetPad'), @('PadLetters', 'padLetters'), @('VideoTitle', 'videoTitle'),
                  @('WindowLabel', 'windowMode'), @('SizeLabel', 'size'), @('PacingLabel', 'pacing'), @('GpuLabel', 'gpu'), @('UpLabel', 'upLabel'), @('TexLabel', 'texLabel'), @('FskipBox', 'fskipBox'), @('FskipHelp', 'fskipHelp'), @('TexHelp', 'texHelp'), @('FpsHelp', 'fpsHelp'), @('VsyncBox', 'vsyncBox'), @('VsyncHelp', 'vsyncHelp'), @('SharpLabel', 'sharpLabel'), @('UpHelp', 'upHelp'), @('CursorBox', 'hideCursor'),
                  @('OverlayBox', 'overlay'), @('ShadersTitle', 'shadersTitle'), @('ShadersHelp', 'shadersHelp'), @('PrepareBtn', 'prepare'), @('GameTitle', 'gameTitle'),
@@ -825,6 +830,39 @@ New-Chips (Find 'SharpChips') @(
 (Find 'CodeBox').Text = $lobbyCode
 (Find 'ServerBox').Text = if ($netMode -eq 'custom') { $lobbyHost } else { '' }
 (Find 'DirectConn').IsChecked = -not ((Get-LineValue $directFile) -match '^(?i)off')
+
+# ---- the Windows firewall: the game let in, for direct connections -------------------------------
+# A friend's punch that comes from a port the lobby did not give (a router that changes ports) only
+# reaches the game when Windows lets the game take what it did not ask for: an inbound UDP rule for each
+# version's ssbu.exe ("NativeSmash-UDP-In-<n>"), made once, as administrator (Windows asks).
+function Get-GameExes { @($versions | ForEach-Object { $b = if ([IO.Path]::IsPathRooted($_.Tree)) { $_.Tree } else { Join-Path $Root $_.Tree }; [IO.Path]::GetFullPath((Join-Path $b 'build\ssbu.exe')) }) }
+function Test-FirewallOpen {
+    $exes = Get-GameExes
+    if (-not $exes.Count) { return $true }
+    try {
+        $have = @(Get-NetFirewallRule -Name 'NativeSmash-UDP-In-*' -ErrorAction Stop | Where-Object { $_.Enabled -eq 'True' } |
+                  Get-NetFirewallApplicationFilter | ForEach-Object { $_.Program })
+    } catch { return $false }
+    foreach ($e in $exes) { if ($have -notcontains $e) { return $false } }
+    return $true
+}
+function Update-FirewallState {
+    $open = Test-FirewallOpen
+    (Find 'FirewallBtn').Visibility = if ($open) { 'Collapsed' } else { 'Visible' }
+    (Find 'FirewallHelp').Text = if ($open) { T 'firewallOk' } else { T 'firewallHelp' }
+}
+Update-FirewallState
+(Find 'FirewallBtn').Add_Click({
+    $lines = @("Remove-NetFirewallRule -Name 'NativeSmash-UDP-In-*' -ErrorAction SilentlyContinue")
+    $i = 0
+    foreach ($e in (Get-GameExes)) {
+        $i++
+        $lines += "New-NetFirewallRule -Name 'NativeSmash-UDP-In-$i' -DisplayName 'NativeSmash (online play)' -Direction Inbound -Protocol UDP -Action Allow -Profile Any -Program '$($e.Replace("'", "''"))' | Out-Null"
+    }
+    $cmd = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($lines -join '; ')))
+    try { Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-NoProfile', '-EncodedCommand', $cmd } catch { }   # (cancelled: nothing changes)
+    Update-FirewallState
+})
 (Find 'ReportBox').IsChecked = -not ((Get-LineValue $reportFile) -match '^(?i)off')
 $delayNow = '3'; $delayText = ([string](Get-LineValue $delayFile)).Trim().ToLower()
 if ($delayText -match '^auto') { $delayNow = 'auto' } elseif ($delayText -match '^\d+$') {

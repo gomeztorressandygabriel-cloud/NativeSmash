@@ -57,6 +57,7 @@ void gfx_report_compiles(void (*line)(const char *text));
 void gfx_status_lines(void);
 #ifdef _WIN32
 int gfx_warm_shaders_main(const char *dir, const char *luid);   /* (gpu_d3d11.c: ssbu --warm-shaders) */
+int gfx_prepare_shaders_main(const char *dir);   /* (gpu_d3d11.c: ssbu --prepare-shaders) */
 #endif
 const char *rt_data_dir;
 /* This thread is reading another thread's stack (debug_profile.c): a fault there is expected and
@@ -1170,6 +1171,10 @@ static DWORD WINAPI crash_test(void *seconds) {
 }
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    /* (before the game's high priority and the monitor: it runs below normal, beside what the PC is doing) */
+    if (argc >= 3 && !strcmp(argv[1], "--prepare-shaders")) return gfx_prepare_shaders_main(argv[2]);
+#endif
     cpu_sched_process();
     if (display_monitor()) monitor_start();
     const char *dir = argc >= 2 ? argv[1] : NULL;

@@ -194,6 +194,8 @@ The game's graphics programs (*shaders*) are prepared the first time each one is
 
 To prepare them all before playing, double-click **`launchers\Prepare Shaders.bat`**. It runs once per game version, at low priority so the PC stays usable, and shows a progress bar with the time left. A first run compiles about 40,000 shaders (for 13.0.5): about half an hour on a 16-thread processor, an hour or two on a 4- to 8-thread one. You can close it at any time and start it again later; what's done stays done, so a later run takes minutes. It needs Python and Visual Studio, as for [building](BUILDING.md).
 
+After that, on an NVIDIA or AMD card, it has the graphics driver make every shader once, as a ported game does at its install: the driver keeps them in its own cache, so a new effect's first time costs about a millisecond instead of a compile. After a graphics driver update, run `python tools\shader_aot.py --driver-only` (minutes) to make them again. Intel's driver keeps no such cache (measured on an Iris Xe), so there this step is skipped and the game's start prepares the shaders you have used. With NVIDIA, keep its **Shader Cache Size** large enough (*Driver default* or more; see below).
+
 ## Finding what slows the game down
 
 Start the game with `monitor = on` in [`display.ini`](#window-and-display) (or `SSBU_MONITOR=1`), play, and look at <kbd>F2</kbd> or at `build\monitor_now.txt`. The lines say:

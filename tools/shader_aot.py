@@ -254,9 +254,14 @@ def main():
     ap.add_argument("--tree", default=ROOT, help="the game version's folder (default: the port's own)")
     ap.add_argument("--jobs", type=int, default=default_jobs())
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--driver-only", action="store_true", help="only the graphics driver's step (after a driver update)")
     a = ap.parse_args()
     tree = os.path.abspath(a.tree)
     t0 = time.time()
+    if a.driver_only:
+        ok = driver_step(tree, os.path.join(tree, "dump", "shadercache"))
+        print(f"done in {time.time() - t0:.0f} s" if ok else "the driver's step did not finish")
+        return
     arc = A.Arc(os.path.join(tree, "dump", "modules", "romfs.cfg"))
     read_errors = []
     try:
@@ -294,6 +299,8 @@ def main():
               "what is done stays done)", flush=True)
         parts = follow(procs, Progress(sys.stdout))
         print(summary(parts) or "\n".join(parts))
+        if not LINUX:
+            driver_step(tree, cache)
     if a.dry:
         keys = {tuple(l.split()) for l in outs[0][0].splitlines()}
         have = set()
@@ -303,6 +310,34 @@ def main():
                 have.add(("vs", parts[2]) if parts[1] == "vs" else ("ps", parts[2], parts[3]))
         print(f"the cache has {len(have)} vertex/pixel keys; {len(have & keys)} of them are among the {len(keys)} found here")
     print(f"done in {time.time() - t0:.0f} s")
+
+
+# ---- the driver's step: the game itself (ssbu --prepare-shaders) has the graphics card's driver make
+# every file once, so the driver's own disk cache holds their GPU code, as a ported game's install does:
+# a program's first use in a match is then a lookup in that cache, not a compile. It is the game's exe
+# because the driver keeps its cache by the exe's name; from the port's folder, where display.ini is.
+def driver_step(tree, cache):
+    exe = os.path.join(tree, "build", "ssbu.exe")
+    if not os.path.exists(exe):
+        print(f"(no {exe}: the graphics driver's step is left for after the game is built)", flush=True)
+        return False
+    print("now your graphics card's driver makes each shader once, for its own cache:", flush=True)
+    p = subprocess.Popen([exe, "--prepare-shaders", cache], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                         text=True, **low_priority())
+    lasts = []
+
+    def note(line):
+        if line.startswith("prepare-shaders: "):
+            lasts.append(line.rstrip())
+    bar_ = Progress(sys.stdout)
+
+    def show(state, final=False):   # (no bar while it has said nothing, nor when it had nothing to do)
+        if state[0][1]:
+            bar_(state, final=final)
+    follow([p], show, other=note)
+    for line in lasts:
+        print(line[len("prepare-shaders: "):], flush=True)
+    return p.returncode == 0
 
 
 # ---- progress: shaderaot's "progress <done> <of>" lines, from every part, as one bar ------------
@@ -368,8 +403,9 @@ class Progress:
                 self.shown, self.last = step, text
 
 
-def follow(procs, show, every=1.0):
-    """Waits for the parts, showing their progress as it comes; returns their last lines ("part ...")."""
+def follow(procs, show, every=1.0, other=None):
+    """Waits for the parts, showing their progress as it comes; returns their last lines ("part ...").
+    other: called with every other line."""
     state = [(0, None)] * len(procs)
     lasts = []
 
@@ -380,6 +416,8 @@ def follow(procs, show, every=1.0):
                 state[i] = got
             elif line.startswith("part "):
                 lasts.append(line.rstrip())
+            elif other:
+                other(line)
     readers = [threading.Thread(target=read, args=(i, p), daemon=True) for i, p in enumerate(procs)]
     for r in readers:
         r.start()

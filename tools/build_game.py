@@ -868,6 +868,42 @@ def check_game_data(cfg, game):
     log(f"  game data version {game_version.REQUIRED}")
 
 
+def update_over_romfs_bin(romfs_bin, keys, the_program):
+    """(NativeSmash) A romfs.bin made by hand from an earlier version (folders set up from 13.0.3), with the 13.0.5
+    update in the game folder: the update's data is a patch over the game's own, so it is applied over romfs.bin
+    (tools/update.py, every block checked against the update's hashes), as for a game folder's own data. True
+    when it did; False leaves romfs.bin to be used as it is (already 13.0.5, or no 13.0.5 update next to it)."""
+    import arc
+    import game_version
+    os.makedirs(MODULES, exist_ok=True)
+    base_cfg = os.path.join("dump", "modules", "romfs_base.cfg")
+    with open(base_cfg, "w", newline="\n") as f:
+        f.write(f"{os.path.abspath(romfs_bin)}\n0\n")
+    try:
+        version = arc.game_data_version(base_cfg)
+    except (SystemExit, OSError, ValueError, struct.error):
+        return False   # (not readable as a plain RomFS: Configure-Game-Data.ps1 says why)
+    if version == game_version.DATA_ARC_VERSION:
+        return False
+    try:
+        path, _title, program, _result = the_program()
+    except Failed:
+        return False
+    if not program or program.get("kind") != "update" or program.get("romfs") != "patch" \
+            or program.get("version") != game_version.UPDATE_TITLE_VERSION:
+        return False
+    log(f"  {romfs_bin} is version {game_version.version_text(version)}: applying the 13.0.5 update over it "
+        "(a few minutes; every block of the result is checked)")
+    inner = ["--inner", program["name"]] if program["container"] else []
+    run([sys.executable, os.path.join("tools", "update.py"), "apply", path, *inner, "--base", base_cfg, "--keys", keys],
+        f"The 13.0.5 update could not be applied over {romfs_bin} (see above). Most often romfs.bin or the update is "
+        "incomplete: compare each file's size with the original's, copy or dump it again, and run this again.")
+    warning = unverified_warning(os.path.join(MODULES, "romfs.unverified.txt"))
+    if warning:
+        log(warning)
+    return True
+
+
 def write_romfs_cfg(game, keys, the_program):
     romfs_bin = os.path.join(game, "romfs.bin")
     if os.path.isfile(romfs_bin) and (LINUX or MACOS):   # (Configure-Game-Data.ps1's checks are Windows-only: the format's here)
@@ -879,6 +915,8 @@ def write_romfs_cfg(game, keys, the_program):
         with open(os.path.join(MODULES, "romfs.cfg"), "w", newline="\n") as f:
             f.write(f"{os.path.abspath(romfs_bin)}\n0\n")
         log(f"  {romfs_bin}: the game's data, read in place")
+        return
+    if os.path.isfile(romfs_bin) and update_over_romfs_bin(romfs_bin, keys, the_program):
         return
     if os.path.isfile(romfs_bin):
         run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",

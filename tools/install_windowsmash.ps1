@@ -115,7 +115,8 @@ param(
     [switch]$BuildAfterUpdate,
     [switch]$BuildTools,
     [switch]$Rebuild,
-    [switch]$AcceptLicense
+    [switch]$AcceptLicense,
+    [string]$Language   # (NativeSmash before 0.2 started its updated installer with this: accepted, not used)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -153,10 +154,10 @@ $UserAgent = 'WindowSmash-installer'
 $ZstdCheck = 'import sys, importlib.util as u; sys.exit(0 if u.find_spec(''zstandard'') or (sys.version_info >= (3, 14) and u.find_spec(''compression.zstd'')) else 1)'
 # tomllib is Python 3.11's; on 3.10 the tomli package (paramconfig.py reads mods' config_param.toml with it)
 $TomlCheck = 'import sys, importlib.util as u; sys.exit(0 if sys.version_info >= (3, 11) or u.find_spec(''tomli'') else 1)'
-# where updates come from: this repository's branch
-$RepoOwner = 'OpenSmash-Ultimate'
-$RepoName = 'OpenSmash-Ultimate'
-$UpdateBranch = 'main'
+# where updates come from: this repository's branch (NativeSmash: its own repository, which follows OpenSmash-Ultimate)
+$RepoOwner = 'gomeztorressandygabriel-cloud'
+$RepoName = 'NativeSmash'
+$UpdateBranch = 'nativesmash'
 $RepoApi = "https://api.github.com/repos/$RepoOwner/$RepoName"
 $SourceVersionFile = 'tools\source_version.txt'   # "<commit> <date>": GitHub's ZIP download fills it in
 
@@ -1210,7 +1211,67 @@ function Get-UpdateBuildAnswers {
     $folders = Get-DetectedFolders
     if (-not $folders.Game) { throw 'The saved game folder could not be found. Open Setup and select the game files, then retry the update.' }
     if (-not $folders.Keys) { throw 'The saved keys folder could not be found. Open Setup and select the keys, then retry the update.' }
+    if (-not $DryRun) { Confirm-Update1305 $folders.Game $folders.Keys | Out-Null }
     return @{ Game = $folders.Game; Keys = $folders.Keys; Firmware = $folders.Firmware }
+}
+
+# ---- NativeSmash: the game's 13.0.5 update, asked for when the game folder lacks it ----------------------------------
+# A folder set up from 13.0.3 (NativeSmash before 0.2), or a first install whose game folder has no update: the player
+# picks their 13.0.5 update (.nsp / .nsz) and it is put in the game folder (a hard link on the same drive, else a copy),
+# where tools\gamefiles.py and the build find it. A romfs.bin made by hand gets the update applied over it in step 6.
+$Update1305Version = 2031616   # (tools\game_version.py UPDATE_TITLE_VERSION: v31, 13.0.5)
+
+function Test-Has1305Update {
+    param([string]$GameDir, [string]$KeysDir)
+    $r = Get-PythonOutput @((Join-Path $Root 'tools\gamefiles.py'), $GameDir, '--keys', $KeysDir, '--json')
+    try { $scan = $r.Output | ConvertFrom-Json } catch { return $false }
+    if (@($scan.contents | Where-Object { $_.kind -eq 'update' -and [int64]$_.version -eq $Update1305Version }).Count -gt 0) { return $true }
+    # (a game with 13.0.5 merged in, read in place: no update needed)
+    return ($scan.program -and -not $scan.problem -and [string]$scan.program.display_version -eq '13.0.5')
+}
+
+function Find-Update1305Candidate {
+    <# A file that looks like the 13.0.5 update in Downloads or on the Desktop (by its name), for the dialog to start at. #>
+    foreach ($p in @((Join-Path $env:USERPROFILE 'Downloads'), [Environment]::GetFolderPath('Desktop'))) {
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        $f = Get-ChildItem -LiteralPath $p -Recurse -Depth 2 -File -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Extension -eq '.nsp' -or $_.Extension -eq '.nsz') -and $_.Name -match '13\.0\.5|v2031616' } |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($f) { return $f.FullName }
+    }
+    return $null
+}
+
+function Confirm-Update1305 {
+    <# $true when the game folder has the 13.0.5 update (or now does: the player picked it); throws when cancelled. #>
+    param([string]$GameDir, [string]$KeysDir)
+    if (Test-Has1305Update $GameDir $KeysDir) { Write-Info 'game update 13.0.5: found in the game folder'; return $true }
+    Add-Type -AssemblyName System.Windows.Forms
+    $cancel = 'Cancelado: NativeSmash necesita el update 13.0.5 de tu juego. Vuelve a darle a Actualizar o Instalar cuando lo tengas.'
+    $intro = "NativeSmash ahora usa la versión 13.0.5 del juego.`n`nElige el archivo del update 13.0.5 de tu juego (.nsp o .nsz), el que sacaste de tu Switch. Se guarda junto a tus archivos del juego, en:`n$GameDir`n`nTus partidas y ajustes no se tocan."
+    if ([Windows.Forms.MessageBox]::Show($intro, 'NativeSmash - Update 13.0.5', 'OKCancel', 'Information') -ne 'OK') { throw $cancel }
+    while ($true) {
+        $dlg = New-Object Windows.Forms.OpenFileDialog
+        $dlg.Title = 'Elige el update 13.0.5 de Super Smash Bros. Ultimate'
+        $dlg.Filter = 'Update de Switch (*.nsp;*.nsz)|*.nsp;*.nsz|Todos los archivos (*.*)|*.*'
+        $guess = Find-Update1305Candidate
+        if ($guess) { $dlg.InitialDirectory = Split-Path -Parent $guess; $dlg.FileName = Split-Path -Leaf $guess }
+        else { $dlg.InitialDirectory = Join-Path $env:USERPROFILE 'Downloads' }
+        if ($dlg.ShowDialog() -ne 'OK') { throw $cancel }
+        $src = $dlg.FileName
+        $dest = Join-Path $GameDir ('Smash-Ultimate-update-13.0.5' + [IO.Path]::GetExtension($src).ToLower())
+        $placed = $false
+        if ([IO.Path]::GetFullPath($src) -ne [IO.Path]::GetFullPath($dest)) {
+            if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Force }
+            try { New-Item -ItemType HardLink -Path $dest -Target $src -ErrorAction Stop | Out-Null; Write-Info "update 13.0.5: linked into the game folder ($dest)" }
+            catch { Write-Info "update 13.0.5: copying it into the game folder ($([math]::Round((Get-Item -LiteralPath $src).Length / 1GB, 1)) GB, a minute or two)"; Copy-Item -LiteralPath $src -Destination $dest -Force }
+            $placed = $true
+        }
+        if (Test-Has1305Update $GameDir $KeysDir) { Write-Info 'game update 13.0.5: checked'; return $true }
+        if ($placed) { Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue }
+        $msg = "Ese archivo no es el update 13.0.5 de Super Smash Bros. Ultimate:`n$src`n`nElige otro: tiene que ser el update (no el juego ni un DLC), versión 13.0.5 (v2031616)."
+        if ([Windows.Forms.MessageBox]::Show($msg, 'NativeSmash - Update 13.0.5', 'RetryCancel', 'Warning') -ne 'Retry') { throw $cancel }
+    }
 }
 
 function Test-KeysFolder {
@@ -1474,6 +1535,7 @@ function Step-GameFiles {
         }
         if (-not $DryRun -and $default -and -not (Test-Path -LiteralPath $nameFile)) { [IO.File]::WriteAllText($nameFile, $default + "`r`n") }
         Write-Info "online name: $default"
+        if (-not $DryRun) { Confirm-Update1305 $Game $Keys | Out-Null }
         return @{ Game = $Game; Keys = $Keys; Firmware = $fw; OnlineName = $default; Shortcut = [bool]$Shortcut; Firewall = [bool]$Firewall; Shaders = [bool]$Shaders }
     }
     if ($DryRun) {
@@ -1491,6 +1553,7 @@ function Step-GameFiles {
         [IO.File]::WriteAllText($nameFile, $answers.OnlineName + "`r`n")
     }
     Write-Info "online name: $($answers.OnlineName)"
+    Confirm-Update1305 $answers.Game $answers.Keys | Out-Null
     return $answers
 }
 

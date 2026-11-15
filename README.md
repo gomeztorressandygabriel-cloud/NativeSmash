@@ -1,3 +1,7 @@
+# NativeSmash
+
+> **NativeSmash** es una copia de [OpenSmash-Ultimate](https://github.com/OpenSmash-Ultimate/OpenSmash-Ultimate) (GPL-3.0-or-later) para nuestro grupo. Desde la versión 0.2 usa el juego en su versión **13.0.5**: al instalar, o al darle a **Actualizar** desde una versión anterior (13.0.3), el instalador te pide el **update 13.0.5 de tu juego** (.nsp o .nsz), el que sacas de tu propia Switch, y lo aplica solo. Tus partidas y ajustes se quedan. El resto de esta página es el README de OpenSmash-Ultimate.
+
 # OpenSmash-Ultimate
 
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pkgyYGf3YB)

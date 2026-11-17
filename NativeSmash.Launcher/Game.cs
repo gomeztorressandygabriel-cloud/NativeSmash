@@ -176,11 +176,25 @@ namespace NativeSmash
             return Convert.ToHexString(hash.GetHashAndReset());
         }
 
-        async void ApplyUpdate()
+        // buildOnly: no files fetched, the game set up again (-BuildAfterUpdate) - for a game still at 13.0.3 (Needs1305),
+        // where the installer asks for the player's 13.0.5 update file first (Confirm-Update1305).
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
+
+        // NativeSmash plays 13.0.5 now: a game built before (version.txt, written by build_game.py, says 13.0.3) has to
+        // be set up again from the player's 13.0.5 update before Play, or it would go online as the old version.
+        bool Needs1305()
+        {
+            if (!WindowSmash.IsBuilt(repo)) return false;
+            var m = Regex.Match(WindowSmash.Version(repo), @"\d+\.\d+\.\d+");
+            return m.Success && m.Value != "13.0.5";
+        }
+
+        async void ApplyUpdate(bool buildOnly = false)
         {
             if (updBusy) return;
             if (GameRunning()) { Toast(T("gameRunning"), warn: true); return; }
-            if (MessageBox.Show(this, T("updConfirm"), "NativeSmash", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (!buildOnly && MessageBox.Show(this, T("updConfirm"), "NativeSmash", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (buildOnly) NavGame.IsChecked = true;
             updBusy = true;
             UpdNowBtn.IsEnabled = UpdCheckBtn.IsEnabled = PlayBtn.IsEnabled = false;
             UpdRun.Visibility = Visibility.Visible; UpdBar.IsIndeterminate = true;
@@ -192,10 +206,13 @@ namespace NativeSmash
                 string before = await Task.Run(LocalCommit);
                 string fpBefore = await Task.Run(() => LauncherFingerprint(repo));
                 void Line(string l) => Dispatcher.BeginInvoke(() => UpdLine.Text = l.Trim());
-                var r = await Task.Run(() => Launch.RunPowerShell(repo, "install_windowsmash.ps1", new[] { "-UpdateOnly" }, Line));
-                if (r.Code != 0) throw new InvalidOperationException(r.Output.Contains("changes of its own") ? T("updOwn") : Tail(r.Output));
+                if (!buildOnly)
+                {
+                    var r = await Task.Run(() => Launch.RunPowerShell(repo, "install_windowsmash.ps1", new[] { "-UpdateOnly" }, Line));
+                    if (r.Code != 0) throw new InvalidOperationException(r.Output.Contains("changes of its own") ? T("updOwn") : Tail(r.Output));
+                }
                 string after = await Task.Run(LocalCommit);
-                if (after != before)
+                if (buildOnly || after != before)
                 {
                     void Build(string l) => Dispatcher.BeginInvoke(() =>
                     {
@@ -204,16 +221,18 @@ namespace NativeSmash
                         if (m.Success && int.TryParse(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value, out int pct))
                         { UpdBar.IsIndeterminate = false; UpdBar.Value = pct * 10; UpdStatus.Text = F("updBuilding", pct); }
                     });
+                    UpdStatus.Text = Needs1305() ? T("upd1305Asking") : T("updRunning");
+                    AllowSetForegroundWindow(-1);   // (ASFW_ANY: the installer's 13.0.5 dialogs come to the front)
                     var b = await Task.Run(() => Launch.RunPowerShell(repo, "install_windowsmash.ps1", new[] { "-BuildAfterUpdate" }, Build));
-                    if (b.Code != 0) throw new InvalidOperationException(Tail(b.Output));
+                    if (b.Code != 0) throw new InvalidOperationException(b.Output.Contains("Cancelado: NativeSmash necesita el update 13.0.5") ? T("upd1305Cancelled") : Tail(b.Output));
                     launcherChanged = await Task.Run(() => LauncherFingerprint(repo)) != fpBefore;
                 }
             }
             catch (Exception ex) { why = ex.Message; }
             UpdRun.Visibility = Visibility.Collapsed;
-            UpdNowBtn.IsEnabled = UpdCheckBtn.IsEnabled = true; PlayBtn.IsEnabled = WindowSmash.IsBuilt(repo);
+            UpdNowBtn.IsEnabled = UpdCheckBtn.IsEnabled = true; PlayBtn.IsEnabled = WindowSmash.IsBuilt(repo) && !Needs1305();
             updBusy = false;
-            if (why != "") { UpdStatus.Text = F("updError", why); return; }
+            if (why != "") { UpdStatus.Text = F("updError", why); RefreshHome(); return; }
             UpdBanner.Visibility = Visibility.Collapsed;
             if (launcherChanged && RebuildLauncher())
             {

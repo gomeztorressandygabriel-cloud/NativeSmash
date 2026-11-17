@@ -55,7 +55,7 @@ namespace NativeSmash
             foreach (var nav in new[] { NavHome, NavOnline, NavPads, NavVideo, NavMods, NavShaders, NavGame })
                 nav.Checked += (s, _) => ShowPage((string)((RadioButton)s).Tag);
             PlayBtn.Click += (_, _) => Play();
-            InstallBtn.Click += (_, _) => Repair();
+            InstallBtn.Click += (_, _) => { if (Needs1305()) ApplyUpdate(buildOnly: true); else Repair(); };
             DirectBox.Click += (_, _) => Save(() => Settings.SetStartDirectly(repo, DirectBox.IsChecked == true));
             VanillaBox.Click += (_, _) => Save(() => Settings.SetLaunchMode(repo, VanillaBox.IsChecked == true ? "vanilla" : "mods"), quiet: true);
             UpdBannerBtn.Click += (_, _) => NavGame.IsChecked = true;
@@ -247,10 +247,12 @@ namespace NativeSmash
             string renderer = SettingDefaults.Renderer(Settings.Display(repo, "renderer"));
             string rlabel = renderer switch { "vulkan" => "VULKAN", "direct3d11" => "DIRECT3D 11", _ => "VULKAN" };
             Kicker.Text = F("kicker", GameVersion(), rlabel);
-            PlayTitle.Text = built ? T("ready") : T("notready");
-            PlayHelp.Text = built ? T("readyHelp") : T("notreadyHelp");
-            PlayBtn.IsEnabled = built;
-            InstallBtn.Visibility = built ? Visibility.Collapsed : Visibility.Visible;
+            bool old = Needs1305();
+            PlayTitle.Text = old ? T("need1305") : built ? T("ready") : T("notready");
+            PlayHelp.Text = old ? F("need1305Help", GameVersion()) : built ? T("readyHelp") : T("notreadyHelp");
+            PlayBtn.IsEnabled = built && !old;
+            InstallBtn.Content = old ? T("pick1305") : T("install");
+            InstallBtn.Visibility = built && !old ? Visibility.Collapsed : Visibility.Visible;
             DirectBox.IsChecked = Settings.StartDirectly(repo);
             VanillaBox.IsChecked = Settings.LaunchMode(repo) == "vanilla";
             VanillaBox.Visibility = modsCached is { Total: > 0 } ? Visibility.Visible : Visibility.Collapsed;
@@ -283,6 +285,7 @@ namespace NativeSmash
         {
             if (playing) return;
             if (!WindowSmash.IsBuilt(repo)) { Toast(T("notBuilt"), warn: true); return; }
+            if (Needs1305()) { RefreshHome(); Toast(T("need1305"), warn: true); return; }
             if (game != null && !game.HasExited) { BringToFront(game); return; }
             if (lobbyBefore == null && !CommitOnline()) { NavOnline.IsChecked = true; return; }   // (an invitation set its own lobby)
             playing = true;

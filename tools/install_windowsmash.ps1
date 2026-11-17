@@ -1261,10 +1261,18 @@ function Confirm-Update1305 {
     <# $true when the game folder has the 13.0.5 update (or now does: the player picked it); throws when cancelled. #>
     param([string]$GameDir, [string]$KeysDir)
     if (Test-Has1305Update $GameDir $KeysDir) { Write-Info 'game update 13.0.5: found in the game folder'; return $true }
-    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    # (in front of everything: the launcher runs this with no console, and its window would otherwise hide the dialogs)
+    $owner = New-Object Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false; StartPosition = 'Manual'; Location = (New-Object Drawing.Point -32000, -32000); Size = (New-Object Drawing.Size 1, 1); FormBorderStyle = 'None' }
+    $owner.Show(); $owner.Activate()
+    try { return (Confirm-Update1305Dialogs $GameDir $KeysDir $owner) } finally { $owner.Close(); $owner.Dispose() }
+}
+
+function Confirm-Update1305Dialogs {
+    param([string]$GameDir, [string]$KeysDir, $owner)
     $cancel = 'Cancelado: NativeSmash necesita el update 13.0.5 de tu juego. Vuelve a darle a Actualizar o Instalar cuando lo tengas.'
-    $intro = "NativeSmash ahora usa la versión 13.0.5 del juego.`n`nElige el archivo del update 13.0.5 de tu juego (.nsp o .nsz), el que sacaste de tu Switch. Se guarda junto a tus archivos del juego, en:`n$GameDir`n`nTus partidas y ajustes no se tocan."
-    if ([Windows.Forms.MessageBox]::Show($intro, 'NativeSmash - Update 13.0.5', 'OKCancel', 'Information') -ne 'OK') { throw $cancel }
+    $intro = "NativeSmash ahora usa la versi$([char]0x00F3)n 13.0.5 del juego.`n`nElige el archivo del update 13.0.5 de tu juego (.nsp o .nsz), el que sacaste de tu Switch. Se guarda junto a tus archivos del juego, en:`n$GameDir`n`nTus partidas y ajustes no se tocan."
+    if ([Windows.Forms.MessageBox]::Show($owner, $intro, 'NativeSmash - Update 13.0.5', 'OKCancel', 'Information') -ne 'OK') { throw $cancel }
     while ($true) {
         $dlg = New-Object Windows.Forms.OpenFileDialog
         $dlg.Title = 'Elige el update 13.0.5 de Super Smash Bros. Ultimate'
@@ -1272,7 +1280,7 @@ function Confirm-Update1305 {
         $guess = Find-Update1305Candidate
         if ($guess) { $dlg.InitialDirectory = Split-Path -Parent $guess; $dlg.FileName = Split-Path -Leaf $guess }
         else { $dlg.InitialDirectory = Join-Path $env:USERPROFILE 'Downloads' }
-        if ($dlg.ShowDialog() -ne 'OK') { throw $cancel }
+        if ($dlg.ShowDialog($owner) -ne 'OK') { throw $cancel }
         $src = $dlg.FileName
         $dest = Join-Path $GameDir ('Smash-Ultimate-update-13.0.5' + [IO.Path]::GetExtension($src).ToLower())
         $placed = $false
@@ -1284,8 +1292,8 @@ function Confirm-Update1305 {
         }
         if (Test-Has1305Update $GameDir $KeysDir) { Write-Info 'game update 13.0.5: checked'; return $true }
         if ($placed) { Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue }
-        $msg = "Ese archivo no es el update 13.0.5 de Super Smash Bros. Ultimate:`n$src`n`nElige otro: tiene que ser el update (no el juego ni un DLC), versión 13.0.5 (v2031616)."
-        if ([Windows.Forms.MessageBox]::Show($msg, 'NativeSmash - Update 13.0.5', 'RetryCancel', 'Warning') -ne 'Retry') { throw $cancel }
+        $msg = "Ese archivo no es el update 13.0.5 de Super Smash Bros. Ultimate:`n$src`n`nElige otro: tiene que ser el update (no el juego ni un DLC), versi$([char]0x00F3)n 13.0.5 (v2031616)."
+        if ([Windows.Forms.MessageBox]::Show($owner, $msg, 'NativeSmash - Update 13.0.5', 'RetryCancel', 'Warning') -ne 'Retry') { throw $cancel }
     }
 }
 
@@ -1330,7 +1338,7 @@ function Show-Wizard {
     <# The setup window: three folders with what was found in each, the online name, the options.
        Returns @{Game; Keys; Firmware; OnlineName; Shaders; Shortcut; Firewall}, or $null if cancelled. #>
     param([hashtable]$Detected, [string]$DefaultName)
-    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     Add-Type -AssemblyName System.Drawing
     [Windows.Forms.Application]::EnableVisualStyles()
 
@@ -1753,6 +1761,26 @@ function Main {
         Write-Host "  $Root"
         if ($DryRun) { Write-Host '  dry run: saying what each step would do, doing nothing' -ForegroundColor DarkGray }
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        # (NativeSmash) The 0.1.x launcher runs its installer with no console (NATIVESMASH_WINDOW = 1: that installer
+        # had a progress window of its own), and after updating it starts this one in the same hidden console. So
+        # this one starts itself again in a window that shows, with the folders the last build used (no setup window
+        # to answer again): the player sees the 13.0.5 update being asked for and the build, and the launcher opens
+        # at the end (NATIVESMASH_SHOWN).
+        if ($env:NATIVESMASH_WINDOW -eq '1' -and -not $DryRun) {
+            $env:NATIVESMASH_WINDOW = $null
+            $env:NATIVESMASH_SHOWN = '1'
+            $again = @(Get-RestartArguments $ScriptBound)
+            $saved = Get-SavedFolders
+            $isDir = { param($p) $p -and (Test-Path -LiteralPath $p -PathType Container) }
+            if (-not $ScriptBound.ContainsKey('Game') -and (& $isDir $saved['game']) -and (& $isDir $saved['keys'])) {
+                $again += @('-NoWizard', '-Game', $saved['game'], '-Keys', $saved['keys'])
+                if (& $isDir $saved['firmware']) { $again += @('-Firmware', $saved['firmware']) } else { $again += '-NoFirmware' }
+            }
+            $line = Join-CommandLine (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Root 'tools\install_windowsmash.ps1')) + $again)
+            Write-Host 'Opening the installer in a window of its own'
+            Start-Process -FilePath 'powershell.exe' -ArgumentList $line -WorkingDirectory $Root -WindowStyle Normal | Out-Null
+            return 0
+        }
         if ($PythonOnly) {
             Step-Python
             return 0
@@ -1795,12 +1823,24 @@ function Main {
         } else {
             Write-Host 'Setup done.' -ForegroundColor Green
         }
+        if ($env:NATIVESMASH_SHOWN -eq '1' -and -not $DryRun) {
+            # (the window opened above for a 0.1.x launcher's update: the launcher again, as before the update)
+            Write-Host "Listo: NativeSmash est$([char]0x00E1) al d$([char]0x00ED)a. Abriendo el launcher..." -ForegroundColor Green
+            $play = Join-Path $Root 'Play SSBU.bat'
+            if (Test-Path -LiteralPath $play) { Start-Process -FilePath $play -WorkingDirectory $Root | Out-Null }
+            Start-Sleep -Seconds 3
+        }
         return 0
     } catch {
         Write-Host ''
         Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
         if ($_.ScriptStackTrace) { Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray }
         Write-Host "(everything above is also in $log)"
+        if ($env:NATIVESMASH_SHOWN -eq '1') {
+            Write-Host ''
+            Write-Host "La actualizaci$([char]0x00F3)n se detuvo (el motivo est$([char]0x00E1) arriba). Cuando lo arregles, abre NativeSmash otra vez y dale a Actualizar." -ForegroundColor Yellow
+            try { Read-Host 'Pulsa Enter para cerrar' | Out-Null } catch { }
+        }
         return 1
     } finally {
         try { Stop-Transcript | Out-Null } catch { }

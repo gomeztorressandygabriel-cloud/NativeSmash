@@ -60,12 +60,12 @@ namespace NativeSmash
             VanillaBox.Click += (_, _) => Save(() => Settings.SetLaunchMode(repo, VanillaBox.IsChecked == true ? "vanilla" : "mods"), quiet: true);
             UpdBannerBtn.Click += (_, _) => NavGame.IsChecked = true;
             BoardLink.Click += (_, _) => Launch.Open(CommunityFeed.SitePage);
-            AccSignIn.Click += (_, _) => DiscordSignIn();
             AccIn.MouseLeftButtonUp += (_, _) => NavOnline.IsChecked = true;
             SideMe.MouseLeftButtonUp += (_, _) => NavOnline.IsChecked = true;
             KeyDown += OnKey;
 
             InitOnline();
+            InitAccount();
             InitPads();
             InitVideo();
             InitMods();
@@ -96,7 +96,7 @@ namespace NativeSmash
                 _ = CheckUpdates(atStart: true);
                 _ = RefreshModsAsync();
             };
-            Closing += (_, _) => { PresenceStop(); StopPadSource(); };
+            Closing += (_, _) => { PresenceStop(); StopPadSource(); AccountClosing(); };
         }
 
         // ---- words ----------------------------------------------------------------------------------------------
@@ -110,7 +110,6 @@ namespace NativeSmash
             PlayBtn.Content = T("playBtn"); InstallBtn.Content = T("install");
             VanillaBox.Content = T("vanilla"); DirectBox.Content = T("direct");
             UpdBannerBtn.Content = T("updBannerBtn");
-            AccSignIn.Content = T("signIn"); AccOutHelp.Text = T("accOutHelp");
             LobbyEyebrow.Text = T("lobbyEyebrow"); BoardEyebrow.Text = T("boardEyebrow"); BoardLink.Content = T("boardLink"); BoardEmpty.Text = T("boardEmpty");
             StartingText.Text = T("starting");
         }
@@ -285,7 +284,7 @@ namespace NativeSmash
             if (playing) return;
             if (!WindowSmash.IsBuilt(repo)) { Toast(T("notBuilt"), warn: true); return; }
             if (game != null && !game.HasExited) { BringToFront(game); return; }
-            if (!CommitOnline()) { NavOnline.IsChecked = true; return; }
+            if (lobbyBefore == null && !CommitOnline()) { NavOnline.IsChecked = true; return; }   // (an invitation set its own lobby)
             playing = true;
             Starting.Visibility = Visibility.Visible;
             Starting.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
@@ -338,6 +337,7 @@ namespace NativeSmash
             finally
             {
                 playing = false;
+                RestoreLobby();   // (an invitation's private lobby: the player's own comes back)
                 Starting.Visibility = Visibility.Collapsed;
                 if (!IsVisible) Show();
             }

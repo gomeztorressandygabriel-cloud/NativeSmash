@@ -229,14 +229,6 @@ namespace NativeSmash
                 ? (gsp.Count > 0 ? F("rankBest", rank, gsp.Max(g => g.Gsp).ToString("N0", CultureInfo.CurrentCulture)) : F("rankIs", rank))
                 : T("rankNone");
 
-            AccEyebrow.Text = inn ? T("accEyebrowIn") : T("accEyebrow");
-            AccOut.Visibility = inn ? Visibility.Collapsed : Visibility.Visible;
-            AccIn.Visibility = inn ? Visibility.Visible : Visibility.Collapsed;
-            AccSignIn.IsEnabled = !discordBusy;
-            AccSignIn.Content = discordBusy ? T("dcBusy") : T("signIn");
-            if (!discordApp) { AccSignIn.Visibility = Visibility.Collapsed; AccOutHelp.Text = T("dcNoApp"); }
-
-            SideMe.Visibility = inn ? Visibility.Visible : Visibility.Collapsed;
             DcOut.Visibility = inn ? Visibility.Collapsed : Visibility.Visible;
             DcIn.Visibility = inn ? Visibility.Visible : Visibility.Collapsed;
             DcSignIn.IsEnabled = !discordBusy && discordApp;
@@ -246,9 +238,7 @@ namespace NativeSmash
             if (!inn) return;
 
             string name = discord!.Shown;
-            AccName.Text = name; SideName.Text = name; DcName.Text = name;
-            AccRank.Text = rankText; DcRank.Text = rankText; SideRank.Text = rank > 0 ? "#" + rank + " GSP" : "Discord";
-            AccAvatar.Fill = pic; SideAvatar.Fill = pic; DcAvatar.Fill = pic;
+            DcName.Text = name; DcRank.Text = rankText; DcAvatar.Fill = pic;
 
             GspList.Children.Clear();
             GspEmpty.Visibility = gsp.Count == 0 ? Visibility.Visible : Visibility.Collapsed;

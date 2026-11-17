@@ -250,7 +250,7 @@
             <StackPanel Grid.Row="2">
               <Border x:Name="SideMe" CornerRadius="14" Background="#0DFFFFFF" BorderBrush="{StaticResource Edge}" BorderThickness="1" Padding="12,10" Margin="0,0,0,12" Cursor="Hand" Visibility="Collapsed">
                 <StackPanel Orientation="Horizontal">
-                  <Grid Width="32" Height="32"><Ellipse Fill="{StaticResource Discord}"/><Ellipse x:Name="SideAvatar"/></Grid>
+                  <Border x:Name="SideAvatar" Width="32" Height="32" CornerRadius="16" Background="{StaticResource Accent}"><TextBlock x:Name="SideInitial" Foreground="White" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
                   <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
                     <TextBlock x:Name="SideName" Foreground="{StaticResource Ink}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="140"/>
                     <TextBlock x:Name="SideRank" Foreground="{StaticResource Muted}" FontSize="11"/></StackPanel></StackPanel></Border>
@@ -270,6 +270,12 @@
           <Grid x:Name="PageHome">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="32"/><ColumnDefinition Width="300"/></Grid.ColumnDefinitions>
             <StackPanel VerticalAlignment="Center">
+              <Border x:Name="InviteBanner" Visibility="Collapsed" CornerRadius="16" Background="#2A3DDC97" BorderBrush="#883DDC97" BorderThickness="1" Padding="18,12,10,12" HorizontalAlignment="Left" Margin="0,0,0,20">
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="&#xE8BD;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="{StaticResource Good}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                  <TextBlock x:Name="InviteText" Foreground="{StaticResource Ink}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                  <Button x:Name="InviteYes" Style="{StaticResource AccentBtn}" Margin="0,0,8,0"/>
+                  <Button x:Name="InviteNo" Style="{StaticResource Small}" VerticalAlignment="Center"/></StackPanel></Border>
               <Border x:Name="UpdBanner" Visibility="Collapsed" CornerRadius="14" Background="#22A66BFF" BorderBrush="#55A66BFF" BorderThickness="1" Padding="16,6,6,6" HorizontalAlignment="Left" Margin="0,0,0,24">
                 <StackPanel Orientation="Horizontal"><TextBlock x:Name="UpdBannerText" Foreground="{StaticResource Ink}" FontSize="14" VerticalAlignment="Center" Margin="0,0,14,0"/>
                   <Button x:Name="UpdBannerBtn" Style="{StaticResource Small}"/></StackPanel></Border>
@@ -292,15 +298,32 @@
                   <StackPanel>
                     <TextBlock x:Name="AccEyebrow" Style="{StaticResource Eyebrow}"/>
                     <StackPanel x:Name="AccOut" Margin="0,10,0,0">
-                      <Button x:Name="AccSignIn" Style="{StaticResource DiscordBtn}"/>
-                      <TextBlock x:Name="AccOutHelp" Style="{StaticResource Help}" FontSize="12"/></StackPanel>
+                      <Grid Margin="0,0,0,8">
+                        <TextBox x:Name="AccEmail" Style="{StaticResource Field}"/>
+                        <TextBlock x:Name="AccEmailHint" Foreground="{StaticResource Muted}" FontSize="14" Margin="16,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/></Grid>
+                      <Grid Margin="0,0,0,10">
+                        <PasswordBox x:Name="AccPass" Foreground="{StaticResource Ink}" CaretBrush="White" FontSize="14">
+                          <PasswordBox.Template><ControlTemplate TargetType="PasswordBox">
+                            <Border x:Name="b" CornerRadius="12" Background="{StaticResource Veil}" BorderBrush="{StaticResource Edge}" BorderThickness="1" Padding="14,10"><ScrollViewer x:Name="PART_ContentHost"/></Border>
+                            <ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="b" Property="BorderBrush" Value="#FF8E9BFF"/></Trigger></ControlTemplate.Triggers>
+                          </ControlTemplate></PasswordBox.Template></PasswordBox>
+                        <TextBlock x:Name="AccPassHint" Foreground="{StaticResource Muted}" FontSize="14" Margin="16,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/></Grid>
+                      <Button x:Name="AccSignIn" Style="{StaticResource AccentBtn}" Margin="0"/>
+                      <WrapPanel Margin="0,10,0,0">
+                        <Button x:Name="AccSignUp" Style="{StaticResource Link}"/>
+                        <TextBlock Text="   ·   " Foreground="{StaticResource Muted}" FontSize="13"/>
+                        <Button x:Name="AccForgot" Style="{StaticResource Link}"/></WrapPanel>
+                      <TextBlock x:Name="AccError" Style="{StaticResource Help}" FontSize="12" Foreground="{StaticResource Warn}" Visibility="Collapsed"/>
+                    </StackPanel>
                     <Grid x:Name="AccIn" Margin="0,10,0,0" Visibility="Collapsed" Cursor="Hand">
                       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                      <Grid Width="46" Height="46"><Ellipse Fill="{StaticResource Discord}"/><Ellipse x:Name="AccAvatar"/></Grid>
+                      <Border x:Name="AccAvatar" Width="46" Height="46" CornerRadius="23" Background="{StaticResource Accent}">
+                        <TextBlock x:Name="AccInitial" Foreground="White" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
                       <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                         <TextBlock x:Name="AccName" Foreground="{StaticResource Ink}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                         <TextBlock x:Name="AccRank" Foreground="#FFB9C2FF" FontSize="12" Margin="0,2,0,0"/></StackPanel>
                     </Grid>
+                    <StackPanel x:Name="HomeFriends" Margin="0,12,0,0" Visibility="Collapsed"/>
                   </StackPanel>
                 </Border>
                 <Border Style="{StaticResource SideCard}">
@@ -329,6 +352,44 @@
             <StackPanel>
               <TextBlock x:Name="OnlineTitle" Style="{StaticResource Title}"/>
               <TextBlock x:Name="OnlineHelp" Style="{StaticResource Help}" FontSize="14" MaxWidth="680" HorizontalAlignment="Left"/>
+
+              <!-- NativeSmash account, friends, players online -->
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <Grid>
+                    <TextBlock x:Name="NsTitle" Style="{StaticResource CardTitle}"/>
+                    <Border HorizontalAlignment="Right" VerticalAlignment="Center" CornerRadius="11" Background="#1A3DDC97" BorderBrush="#553DDC97" BorderThickness="1" Padding="12,4">
+                      <StackPanel Orientation="Horizontal"><Ellipse Width="8" Height="8" Fill="{StaticResource Good}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="NsCount" Foreground="{StaticResource Ink}" FontSize="12"/></StackPanel></Border>
+                  </Grid>
+                  <TextBlock x:Name="NsHelp" Style="{StaticResource Help}" MaxWidth="640" HorizontalAlignment="Left"/>
+                  <StackPanel x:Name="NsOut" Margin="0,14,0,0" Orientation="Horizontal">
+                    <Button x:Name="NsGoHome" Style="{StaticResource AccentBtn}"/><Button x:Name="NsSignUp" Style="{StaticResource Soft}" Margin="0"/></StackPanel>
+                  <StackPanel x:Name="NsIn" Visibility="Collapsed" Margin="0,16,0,0">
+                    <Grid>
+                      <StackPanel Orientation="Horizontal">
+                        <Border x:Name="NsAvatar" Width="56" Height="56" CornerRadius="28" Background="{StaticResource Accent}">
+                          <TextBlock x:Name="NsInitial" Foreground="White" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                          <TextBlock x:Name="NsName" Foreground="{StaticResource Ink}" FontSize="20" FontWeight="SemiBold"/>
+                          <TextBlock x:Name="NsRank" Foreground="#FFB9C2FF" FontSize="13" Margin="0,2,0,0"/></StackPanel></StackPanel>
+                      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button x:Name="NsProfile" Style="{StaticResource Soft}" Margin="0,0,10,0"/><Button x:Name="NsSignOut" Style="{StaticResource Soft}" Margin="0"/></StackPanel>
+                    </Grid>
+                    <TextBlock x:Name="NsStatus" Style="{StaticResource Help}" Foreground="#FFB9C2FF" Visibility="Collapsed"/>
+                    <Button x:Name="NsCancelInvite" Style="{StaticResource Soft}" HorizontalAlignment="Left" Margin="0,10,0,0" Visibility="Collapsed"/>
+                    <TextBlock x:Name="FriendsLabel" Style="{StaticResource Section}"/>
+                    <StackPanel x:Name="FriendsList"/>
+                    <TextBlock x:Name="FriendsEmpty" Style="{StaticResource Help}" MaxWidth="620" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                      <TextBox x:Name="FriendBox" Style="{StaticResource Field}" Width="250" MaxLength="20"/>
+                      <Button x:Name="FriendAdd" Style="{StaticResource Soft}" Margin="10,0,0,0"/></StackPanel>
+                    <TextBlock x:Name="PlayersLabel" Style="{StaticResource Section}"/>
+                    <StackPanel x:Name="PlayersList"/>
+                    <TextBlock x:Name="PlayersEmpty" Style="{StaticResource Help}" MaxWidth="620" HorizontalAlignment="Left"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
 
               <!-- Discord account and GSP -->
               <Border Style="{StaticResource Card}">

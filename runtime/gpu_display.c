@@ -62,7 +62,9 @@ static struct {
     int view;             /* VIEW_* (display.h) */
     int uw_online;        /* experimental_ultrawide_online: the picture shape kept in online matches (read at the start) */
     int timer;            /* TIMER_* (display.h): where a fight's timer is drawn */
-} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 1.0, RENDERER_DEFAULT, "16:9", VIEW_HYBRID, 0, TIMER_RIGHT};
+    int upscale;          /* 1: FSR 1 */
+    float sharpness;
+} cfg = {MODE_WINDOWED, 1280, 720, 3, 1, 1, 1, PACING_CLOCK, 0, "auto", 1.0f, 1.0, RENDERER_DEFAULT, "16:9", VIEW_HYBRID, 0, TIMER_RIGHT, 0, 0.8f};
 
 static int cfg_runahead;   /* display.ini's runahead (display_runahead) */
 
@@ -153,6 +155,14 @@ static const char DEFAULT_INI[] =
     ";   monitor with window = borderless), at least 1. A bigger picture than the window is shrunk to fit.\n"
 #endif
     "render_scale = 1\n"
+    "\n"
+    "; upscale = off | fsr\n"
+    ";   fsr: a picture smaller than its place in the window (render_scale under 1) is made bigger by AMD's\n"
+    ";   FidelityFX Super Resolution 1 instead of a plain filter: render_scale 0.67 with fsr draws about 2.2\n"
+    ";   times fewer pixels and gives a picture close to the full size (Direct3D 11 and Vulkan).\n"
+    "upscale = off\n"
+    "; sharpness = 0 to 1: how much the upscaled picture is sharpened. 0: not at all.\n"
+    "sharpness = 0.8\n"
     "\n"
     "; aspect = 16:9 | auto | 21:9 | 32:9 (or any width:height up to 32:9)\n"
     ";   The picture's shape. 16:9 is the game as it was made. A wider shape shows more at the sides\n"
@@ -251,6 +261,12 @@ static void parse_overlay_scale(const char *v) {
     else fprintf(stderr, "[display] overlay_scale is a number from 0.25 to 2, not '%s': 1 it is\n", v);
 }
 
+static void parse_upscale(const char *v) {
+    if (!_stricmp(v, "fsr")) cfg.upscale = 1;
+    else if (!_stricmp(v, "off") || !_stricmp(v, "none")) cfg.upscale = 0;
+    else fprintf(stderr, "[display] upscale is off or fsr, not '%s'\n", v);
+}
+
 static char *trim(char *s) {
     while (*s == ' ' || *s == '\t') s++;
     char *e = s + strlen(s);
@@ -294,6 +310,8 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
         else if (!_stricmp(key, "gpu")) snprintf(cfg.gpu, sizeof cfg.gpu, "%s", value);
         else if (!_stricmp(key, "render_scale")) parse_render_scale(value);
         else if (!_stricmp(key, "renderer")) parse_renderer(value, path);
+        else if (!_stricmp(key, "upscale")) parse_upscale(value);
+        else if (!_stricmp(key, "sharpness")) cfg.sharpness = (float)atof(value);
         else if (!_stricmp(key, "ui_language")) {}   /* (ui_locale.h reads it for the external menu) */
         else if (!_stricmp(key, "aspect")) snprintf(cfg.aspect, sizeof cfg.aspect, "%s", value);
         else if (!_stricmp(key, "view")) parse_view(value, path);
@@ -311,6 +329,10 @@ static BOOL CALLBACK load_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     if ((env = getenv("SSBU_WINDOW_SIZE")) && *env) sscanf(env, "%dx%d", &cfg.width, &cfg.height);
     if ((env = getenv("SSBU_RENDER_SCALE")) && *env) parse_render_scale(env);
     if ((env = getenv("SSBU_RENDERER")) && *env) parse_renderer(env, "SSBU_RENDERER");
+    if ((env = getenv("SSBU_UPSCALE")) && *env) parse_upscale(env);
+    if ((env = getenv("SSBU_SHARPNESS")) && *env) cfg.sharpness = (float)atof(env);
+    if (!(cfg.sharpness >= 0)) cfg.sharpness = 0;
+    if (cfg.sharpness > 1) cfg.sharpness = 1;
     if ((env = getenv("SSBU_ASPECT")) && *env) snprintf(cfg.aspect, sizeof cfg.aspect, "%s", env);
     if ((env = getenv("SSBU_VIEW")) && *env) parse_view(env, "SSBU_VIEW");
     if ((env = getenv("SSBU_TIMER")) && *env) parse_timer(env, "SSBU_TIMER");
@@ -343,6 +365,8 @@ Pacing display_pacing(void) { load(); return cfg.pacing; }
 const char *display_gpu(void) { load(); return cfg.gpu; }
 float display_render_scale(void) { load(); return cfg.render_scale; }
 int display_renderer(void) { load(); return cfg.renderer; }
+int display_upscale(void) { load(); return cfg.upscale; }
+float display_sharpness(void) { load(); return cfg.sharpness; }
 /* The picture shape (display.ini aspect, SSBU_ASPECT over it): "W:H", a number, or auto (the primary
  * monitor's shape); 16:9 for anything not wider, at most 32:9 (the widest supported). 16:9 for online
  * matches (display_aspect_take) and, for the whole session, on macOS (Metal not ported yet): display_shape_locked. */

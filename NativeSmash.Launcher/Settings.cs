@@ -100,6 +100,8 @@ namespace NativeSmash
         // display.ini's keys (no section) and controllers.ini's [general] ones, as the game has them now.
         public static string Display(string repo, string key) => Ini(File(repo, "display.ini"), "", key) ?? SettingDefaults.Of(key);
         public static void SetDisplay(string repo, string key, string value) => SetIni(File(repo, "display.ini"), "", key, value);
+        // (keys OpenSmash's table does not have: ours, such as upscale and sharpness for FSR 1)
+        public static string DisplayOr(string repo, string key, string fallback) => Ini(File(repo, "display.ini"), "", key) ?? fallback;
         public static string Pads(string repo, string key) => Ini(File(repo, "controllers.ini"), "general", key) ?? SettingDefaults.Of(key);
         public static void SetPads(string repo, string key, string value) => SetIni(File(repo, "controllers.ini"), "general", key, value);
 

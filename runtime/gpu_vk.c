@@ -38,6 +38,10 @@
 #include "gpu_shader_cache.h"
 #include "gpu_spirv.h"
 #include "gpu_texture.h"
+#define FSR_CONSTANTS_ONLY
+#include "gpu_fsr.h"
+#define FSR_VULKAN_SOURCE
+#include "gpu_fsr_shaders.h"
 #include "gpu_vulkan.h"
 #include "gpu_wait_budget.h"
 #include "gpu_watch.h"
@@ -4704,25 +4708,31 @@ static int win_picture(VkCommandBuffer c) {
     return win_unorm != VK_NULL_HANDLE;
 }
 
-/* One pass into the window's image through `view`, drawing `count` vertices with `pipe`, the vertex
+/* One pass into an image of tw x th through `view`, drawing `count` vertices with `pipe`, the vertex
  * program's set (or none) and the pixel program's; viewport (x, y, w, h). */
-static void win_pass(VkCommandBuffer c, VkImageView view, VkPipeline pipe, VkDescriptorSet vset, VkDescriptorSet pset, const uint32_t *offs,
-                     float x, float y, float w, float h, u32 count) {
+static void pass_into(VkCommandBuffer c, VkImageView view, u32 tw, u32 th, VkPipeline pipe, VkDescriptorSet vset, VkDescriptorSet pset,
+                      const uint32_t *offs, float x, float y, float w, float h, u32 count) {
     VkRenderingAttachmentInfoKHR ca = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR, NULL, view, VK_IMAGE_LAYOUT_GENERAL, VK_RESOLVE_MODE_NONE,
                                        VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE};
-    VkRenderingInfoKHR ri = {VK_STRUCTURE_TYPE_RENDERING_INFO_KHR, NULL, 0, {{0, 0}, {win_w, win_h}}, 1, 0, 1, &ca, NULL, NULL};
+    VkRenderingInfoKHR ri = {VK_STRUCTURE_TYPE_RENDERING_INFO_KHR, NULL, 0, {{0, 0}, {tw, th}}, 1, 0, 1, &ca, NULL, NULL};
     vkCmdBeginRenderingKHR(c, &ri);
     vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     if (vset) vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx_layout, SPIRV_SET_VERTEX, 1, &vset, 1, &offs[0]);
     vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_GRAPHICS, gfx_layout, SPIRV_SET_PIXEL, 1, &pset, 1, &offs[1]);
     VkViewport v = {x, y + h, w, -h, 0, 1};   /* (upside down: Direct3D's y, as the draws') */
-    VkRect2D r = {{0, 0}, {win_w, win_h}};
+    VkRect2D r = {{0, 0}, {tw, th}};
     vkCmdSetViewport(c, 0, 1, &v);
     vkCmdSetScissor(c, 0, 1, &r);
     vkCmdDraw(c, count, 1, 0, 0);
     vkCmdEndRenderingKHR(c);
     sync_all(c);
     bound.serial = 0;   /* (the draws' state is no longer bound) */
+}
+
+/* The same into the window's image. */
+static void win_pass(VkCommandBuffer c, VkImageView view, VkPipeline pipe, VkDescriptorSet vset, VkDescriptorSet pset, const uint32_t *offs,
+                     float x, float y, float w, float h, u32 count) {
+    pass_into(c, view, win_w, win_h, pipe, vset, pset, offs, x, y, w, h, count);
 }
 
 /* A set with the parameters' buffer (bytes at its dynamic offset), and optionally a raw buffer at t18 and
@@ -4742,6 +4752,86 @@ static VkDescriptorSet win_set(VkBuffer pbuf, VkBufferView raw, VkImageView tex)
     }
     vkUpdateDescriptorSets(device, n, w, 0, NULL);
     return set;
+}
+
+/* ---- FSR 1 (display.ini upscale = fsr; gpu_fsr.h): a picture smaller than its place made bigger by AMD's
+ * EASU, then sharpened by RCAS into the window, as gpu_fsr.c does for Direct3D 11 - the same shaders, their
+ * source made SPIR-V here the first time, their constants from AMD's CPU functions (gpu_fsr.c). ------------ */
+static int fsr_state;   /* 0 not tried, 1 ready, -1 failed (then bilinear, as before) */
+static VkPipeline fsr_easu_mid, fsr_easu_win, fsr_rcas_win;
+static VkImage fsr_mid;   /* EASU's picture, at the place's size, before RCAS */
+static Alloc fsr_mid_alloc;
+static VkImageView fsr_mid_view;
+static u32 fsr_mid_w, fsr_mid_h;
+static u64 vk_stat_fsr;
+
+static int fsr_ready(void) {
+    if (fsr_state) return fsr_state > 0;
+    fsr_state = -1;
+    VkShaderModule easu = small_module((const char *)fsr1_easu_vk_hlsl, "ps_5_0", SHADER_PIXEL);
+    VkShaderModule rcas = easu ? small_module((const char *)fsr1_rcas_vk_hlsl, "ps_5_0", SHADER_PIXEL) : VK_NULL_HANDLE;
+    if (easu && rcas) {
+        fsr_easu_mid = small_pipeline(full_vs, easu, VK_FORMAT_R8G8B8A8_UNORM, 0);
+        fsr_easu_win = small_pipeline(full_vs, easu, swap_format, 0);
+        fsr_rcas_win = small_pipeline(full_vs, rcas, swap_format, 0);
+    }
+    if (!fsr_easu_mid || !fsr_easu_win || !fsr_rcas_win) {
+        fprintf(stderr, "[vulkan] FSR 1: its programs could not be made: the picture is drawn bilinear\n");
+        return 0;
+    }
+    fprintf(stderr, "[vulkan] FSR 1: ready (sharpness %.2f)\n", display_sharpness());
+    fsr_state = 1;
+    return 1;
+}
+
+/* EASU's picture, w x h (made again when that changes). */
+static int fsr_mid_image(VkCommandBuffer c, u32 w, u32 h) {
+    if (fsr_mid && fsr_mid_w == w && fsr_mid_h == h) return 1;
+    if (fsr_mid) {
+        bury_view(fsr_mid_view);
+        bury_grave((Grave){fsr_mid, VK_NULL_HANDLE, VK_NULL_HANDLE, fsr_mid_alloc});
+        fsr_mid = VK_NULL_HANDLE; fsr_mid_view = VK_NULL_HANDLE;
+    }
+    VkImageCreateInfo ici = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, NULL, 0, VK_IMAGE_TYPE_2D, VK_FORMAT_R8G8B8A8_UNORM, {w, h, 1}, 1, 1,
+                             VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                             VK_SHARING_MODE_EXCLUSIVE, 0, NULL, VK_IMAGE_LAYOUT_UNDEFINED};
+    if (!(fsr_mid = make_image(&ici, &fsr_mid_alloc))) return 0;
+    fsr_mid_view = make_view(fsr_mid, VK_IMAGE_VIEW_TYPE_2D, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, NULL);
+    image_layout(c, fsr_mid, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    fsr_mid_w = w; fsr_mid_h = h;
+    return fsr_mid_view != VK_NULL_HANDLE;
+}
+
+/* The game's picture src into the window's place (x, y, w, h) through FSR: 0, having drawn nothing, when it
+ * cannot (then the caller draws it bilinear). */
+static int fsr_pass(VkCommandBuffer c, Surface *src, u32 x, u32 y, u32 w, u32 h) {
+    if (!fsr_ready()) return 0;
+    float sharpness = display_sharpness();
+    int rcas = sharpness > 0.0f;
+    if (rcas && !fsr_mid_image(c, w, h)) return 0;
+    VkImageView in = surface_sampled(src, 0, TEX_2D);
+    VkBuffer ebuf, rbuf = VK_NULL_HANDLE;
+    VkDeviceSize eoff, roff = 0;
+    unsigned *ek = in ? (unsigned *)arena(256, ubo_align, &ebuf, &eoff) : NULL;
+    unsigned *rk = ek && rcas ? (unsigned *)arena(256, ubo_align, &rbuf, &roff) : NULL;
+    VkDescriptorSet eset = ek ? win_set(ebuf, VK_NULL_HANDLE, in) : VK_NULL_HANDLE;
+    VkDescriptorSet rset = rk && eset ? win_set(rbuf, VK_NULL_HANDLE, fsr_mid_view) : VK_NULL_HANDLE;
+    if (!eset || (rcas && !rset)) return 0;
+    /* EASU: its pixel position is relative to the picture's corner - the mid image's own when RCAS follows,
+     * (x, y) when it goes straight into the window */
+    fsr_easu_constants(ek, src->hw, src->hh, w, h);
+    ek[16] = rcas ? 0 : x; ek[17] = rcas ? 0 : y; ek[18] = ek[19] = 0;
+    uint32_t eoffs[2] = {0, (uint32_t)eoff};
+    if (!rcas) {
+        win_pass(c, win_unorm, fsr_easu_win, VK_NULL_HANDLE, eset, eoffs, (float)x, (float)y, (float)w, (float)h, 3);
+        return 1;
+    }
+    pass_into(c, fsr_mid_view, w, h, fsr_easu_mid, VK_NULL_HANDLE, eset, eoffs, 0, 0, (float)w, (float)h, 3);
+    fsr_rcas_constants(rk, sharpness);
+    rk[4] = x; rk[5] = y; rk[6] = rk[7] = 0;
+    uint32_t roffs[2] = {0, (uint32_t)roff};
+    win_pass(c, win_unorm, fsr_rcas_win, VK_NULL_HANDLE, rset, roffs, (float)x, (float)y, (float)w, (float)h, 3);
+    return 1;
 }
 
 static u64 vk_stat_downscaled;
@@ -4768,6 +4858,8 @@ static int compose(VkCommandBuffer c, Surface *src, int show_overlay, const char
             uint32_t offs[2] = {0, (uint32_t)poff};
             win_pass(c, win_srgb, down_pipe, VK_NULL_HANDLE, set, offs, (float)fx, (float)fy, (float)fw, (float)fh, 3);
             vk_stat_downscaled++;
+        } else if ((src->hw < fw || src->hh < fh) && display_upscale() && fsr_pass(c, src, fx, fy, fw, fh)) {
+            vk_stat_fsr++;   /* smaller than its place: AMD's FSR 1 made it bigger */
         } else if (features_of(src->storage) & VK_FORMAT_FEATURE_BLIT_SRC_BIT) {   /* as big as its place or smaller: bilinear */
             VkImageBlit b;
             memset(&b, 0, sizeof b);

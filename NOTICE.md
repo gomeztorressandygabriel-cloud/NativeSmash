@@ -36,6 +36,10 @@ libopus 1.5.2 (Xiph.Org Foundation and contributors) is included as source in [`
 
 The Khronos Group's Vulkan headers, Vulkan-Headers v1.4.365, are included in [`third_party/vulkan-headers/`](third_party/vulkan-headers/) for the Vulkan back end in development ([`runtime/gpu_vulkan.c`](runtime/gpu_vulkan.c)): headers only, no library is linked, and the program loads the system's Vulkan loader at run time. They are unmodified; [`third_party/README.md`](third_party/README.md) says which files and from which commit. Their license is Apache-2.0 OR MIT, with the texts kept there: [LICENSE.md](third_party/vulkan-headers/LICENSE.md), [Apache-2.0](third_party/vulkan-headers/LICENSES/Apache-2.0.txt), [MIT](third_party/vulkan-headers/LICENSES/MIT.txt).
 
+### AMD FidelityFX Super Resolution 1 (NativeSmash)
+
+The upscaler's two shader passes are AMD's [FidelityFX Super Resolution 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (`ffx_a.h` and `ffx_fsr1.h`, version 1.20210629, unmodified), copyright (c) 2021 Advanced Micro Devices, Inc., under the MIT license. They are in [`third_party/fsr1/`](third_party/fsr1/), with the license as AMD publishes it ([`LICENSE.txt`](third_party/fsr1/LICENSE.txt)). `runtime/fsr1/*.hlsl` includes them; `tools/make_fsr1.py` turns those into `runtime/gpu_fsr_shaders.h`: bytecode for Direct3D 11, and the preprocessed source that the Vulkan back end makes SPIR-V.
+
 ### HDE64
 
 The Hacker Disassembler Engine 64 (HDE64), copyright 2008-2009 Vyacheslav Patkov, is included as source in [`runtime/hde/`](runtime/hde/) and compiled into the game; [`runtime/hle_detour.c`](runtime/hle_detour.c) uses it to measure x86-64 instructions when it hooks a recompiled function. It is under the [BSD license](runtime/hde/LICENSE) kept beside it. `hde64.inc` (upstream `hde64.c`, renamed because it is compiled only through hle_detour.c) is changed so a decode stops at the 15-byte instruction limit instead of reading past it.

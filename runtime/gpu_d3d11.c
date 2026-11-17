@@ -17,6 +17,7 @@
 #include "gpu_menu.h"
 #include "gpu_nvcache.h"
 #include "gpu_overlay.h"
+#include "gpu_fsr.h"
 #include "gpu_renderer.h"
 #include "net.h"
 #include "pad.h"
@@ -6885,6 +6886,11 @@ void d3d11_present(u64 guest, u32 width, u32 height) {
         ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &final_srv_srgb);
         ID3D11DeviceContext_Draw(ctx, 3, 0);
         ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &none);
+        ID3D11DeviceContext_PSSetShader(ctx, blit_ps, NULL, 0);
+        ID3D11DeviceContext_OMSetRenderTargets(ctx, 1, &rtv, NULL);
+    } else if ((final_w < fit_w || final_h < fit_h) && display_upscale() &&
+               fsr_draw(dev, ctx, final_srv, final_w, final_h, rtv, fit_x, fit_y, fit_w, fit_h, linear_sampler, display_sharpness())) {
+        /* smaller than its place: AMD's FSR 1 made it bigger (gpu_fsr.c) */
         ID3D11DeviceContext_PSSetShader(ctx, blit_ps, NULL, 0);
         ID3D11DeviceContext_OMSetRenderTargets(ctx, 1, &rtv, NULL);
     } else {   /* as big as its place or smaller: drawn bilinear */

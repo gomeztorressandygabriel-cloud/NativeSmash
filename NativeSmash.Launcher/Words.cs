@@ -1,0 +1,215 @@
+using System.Globalization;
+using System.IO;
+
+namespace NativeSmash
+{
+    // The window's words, in Spanish and English: language.txt (the installer's choice), else the PC's language.
+    public static class Words
+    {
+        public static bool Es = true;
+
+        public static void Pick(string repo)
+        {
+            string lang = "";
+            try
+            {
+                string f = Path.Combine(repo, "language.txt");
+                if (File.Exists(f)) lang = (File.ReadLines(f).FirstOrDefault() ?? "").Trim().ToLowerInvariant();
+            }
+            catch { }
+            Es = lang == "es" || (lang != "en" && CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "es");
+        }
+
+        public static string T(string key) => All.TryGetValue(key, out var w) ? (Es ? w.Es : w.En) : key;
+        public static string F(string key, params object[] args) => string.Format(T(key), args);
+
+        static readonly Dictionary<string, (string Es, string En)> All = new()
+        {
+            // menu
+            ["home"] = ("Inicio", "Home"), ["online"] = ("En línea", "Online"), ["pads"] = ("Controles", "Controllers"),
+            ["video"] = ("Video y sonido", "Video and sound"), ["mods"] = ("Mods", "Mods"), ["shaders"] = ("Shaders", "Shaders"),
+            ["game"] = ("Juego", "Game"),
+            ["tagline"] = ("Super Smash Bros. Ultimate · PC nativo", "Super Smash Bros. Ultimate · native PC"),
+            ["footer"] = ("Juego {0} · launcher {1}\nCompatible con OpenSmash", "Game {0} · launcher {1}\nPlays with OpenSmash"),
+            ["min"] = ("Minimizar", "Minimize"), ["close"] = ("Cerrar", "Close"),
+
+            // home
+            ["kicker"] = ("PC NATIVO   ·   JUEGO {0}   ·   {1}", "NATIVE PC   ·   GAME {0}   ·   {1}"),
+            ["ready"] = ("Todo listo para jugar", "Ready to play"),
+            ["readyHelp"] = ("Recompilado, no emulado: Smash Ultimate como un programa de Windows, hecho en este PC con tu propia copia. Juegas en línea con todos los de NativeSmash y OpenSmash.",
+                             "Recompiled, not emulated: Smash Ultimate as a Windows program, built on this PC from your own copy. You play online with everyone on NativeSmash and OpenSmash."),
+            ["notready"] = ("Falta instalar el juego", "The game is not installed yet"),
+            ["notreadyHelp"] = ("NativeSmash no incluye el juego: se prepara con tu propia copia. Pulsa Instalar y elige tus archivos.",
+                                "NativeSmash does not include the game: it is set up from your own copy. Press Install and pick your files."),
+            ["playBtn"] = ("JUGAR", "PLAY"), ["install"] = ("Instalar el juego", "Install the game"),
+            ["vanilla"] = ("Jugar sin mods esta vez", "Play without mods this time"),
+            ["direct"] = ("Abrir el juego directo la próxima vez (Shift muestra el launcher)", "Start the game directly next time (Shift shows the launcher)"),
+            ["chipVulkan"] = ("Vulkan", "Vulkan"), ["chipD3D"] = ("Direct3D 11", "Direct3D 11"), ["chipAutoR"] = ("Gráficos automáticos", "Automatic renderer"),
+            ["chipMods"] = ("{0} mods activos", "{0} mods on"), ["chipNoMods"] = ("Sin mods", "No mods"),
+            ["chipShadersOk"] = ("Shaders listos", "Shaders ready"), ["chipShadersNo"] = ("Faltan shaders", "Shaders missing"),
+            ["chipLobby_auto"] = ("Sala pública", "Public lobby"), ["chipLobby_private"] = ("Sala privada: {0}", "Private lobby: {0}"),
+            ["chipLobby_custom"] = ("Tu servidor", "Your server"), ["chipLobby_lan"] = ("Red local", "Local network"), ["chipLobby_offline"] = ("Sin conexión", "Offline"),
+            ["updBanner"] = ("Hay una actualización: {0} cambios nuevos", "An update is ready: {0} new changes"), ["updBannerBtn"] = ("Ver", "See"),
+            ["accEyebrow"] = ("JUEGA EN LÍNEA CON TU NOMBRE", "PLAY ONLINE AS YOURSELF"), ["accEyebrowIn"] = ("TU CUENTA", "YOUR ACCOUNT"),
+            ["signIn"] = ("Entrar con Discord", "Sign in with Discord"),
+            ["accOutHelp"] = ("Tu GSP y tu puesto en el ranking van con tu cuenta de Discord, en cualquier PC.", "Your GSP and ranking follow your Discord account, on any PC."),
+            ["rankNone"] = ("Aún sin puesto en el ranking", "Not ranked yet"), ["rankIs"] = ("#{0} en el ranking GSP", "#{0} in the GSP ranking"),
+            ["rankBest"] = ("#{0} en el ranking · mejor GSP {1}", "#{0} in the ranking · best GSP {1}"),
+            ["lobbyEyebrow"] = ("EN LÍNEA AHORA", "ONLINE NOW"), ["lobbyAsking"] = ("Preguntando…", "Asking…"),
+            ["lobbyDown"] = ("La sala pública no responde", "The public lobby is not answering"), ["lobbyDownSmall"] = ("Se vuelve a preguntar cada minuto.", "Asked again every minute."),
+            ["players1"] = ("1 jugador", "1 player"), ["playersN"] = ("{0} jugadores", "{0} players"),
+            ["rooms"] = ("{0} jugando  ·  {1} salas abiertas", "{0} playing  ·  {1} open rooms"), ["rooms1"] = ("{0} jugando  ·  1 sala abierta", "{0} playing  ·  1 open room"),
+            ["padNoSdlDll"] = ("Para leer y cambiar mandos que no son de Xbox falta SDL3 (lo pone Reparar, en la página Juego). Los mandos de Xbox funcionan igual en el juego.", "Reading and remapping pads other than Xbox ones needs SDL3 (Repair, on the Game page, puts it there). Xbox pads work in the game anyway."),
+            ["boardEyebrow"] = ("RANKING GSP", "GSP LEADERBOARD"), ["boardRanked"] = ("{0} EN EL RANKING", "{0} RANKED"),
+            ["boardEmpty"] = ("Nadie en el ranking todavía: juega Partida rápida en línea para entrar.", "Nobody ranked yet: play online Quickplay to get in."),
+            ["boardLink"] = ("Ver el ranking completo  →", "See the full leaderboard  →"), ["boardYou"] = ("(tú)", "(you)"),
+
+            // online
+            ["onlineTitle"] = ("Juego en línea", "Online play"),
+            ["onlineHelp"] = ("NativeSmash usa la misma sala pública, los mismos servidores de Epic y el mismo ranking que OpenSmash: juegas con todos, tengan el launcher que tengan.",
+                              "NativeSmash uses the same public lobby, the same Epic servers and the same ranking as OpenSmash: you play with everyone, whatever launcher they have."),
+            ["dcTitle"] = ("Tu cuenta de Discord", "Your Discord account"),
+            ["dcHelp"] = ("Con ella tu GSP es tuyo en cualquier PC, apareces en el ranking y tus amigos ven en Discord a qué juegas. Se abre el navegador para que des permiso; NativeSmash no ve tu contraseña.",
+                          "With it your GSP is yours on any PC, you show on the leaderboard and your friends see in Discord what you play. The browser opens for you to allow it; NativeSmash never sees your password."),
+            ["dcNoApp"] = ("Esta copia no tiene el inicio de sesión con Discord (falta build\\discord.txt). Se pone solo al actualizar o reparar el juego.", "This copy has no Discord sign-in (build\\discord.txt is missing). An update or a repair puts it there."),
+            ["dcBusy"] = ("Termina en el navegador…", "Finish in the browser…"), ["dcCancel"] = ("Cancelar", "Cancel"),
+            ["dcSignOut"] = ("Cerrar sesión", "Sign out"), ["dcShown"] = ("Mostrar mi nombre en el ranking", "Show my name on the leaderboard"),
+            ["dcNeedPlay"] = ("Juega en línea una vez primero: después podrá salir tu nombre.", "Play online once first: then your name can be shown."),
+            ["dcCancelled"] = ("Inicio de sesión cancelado.", "Sign-in cancelled."),
+            ["gspLabel"] = ("Tu GSP por luchador", "Your GSP per fighter"),
+            ["gspEmpty"] = ("Aún no hay partidas en línea: juega Partida rápida para tener GSP.", "No online matches yet: play Quickplay to get a GSP."),
+            ["lobbyTitle"] = ("Sala y conexión", "Lobby and connection"),
+            ["lobbyHelp"] = ("Pública: todos los jugadores de NativeSmash y OpenSmash, y la Partida rápida con GSP. Privada: solo quien escriba el mismo código. Se guarda al momento y el juego lo usa al abrirse.",
+                             "Public: every NativeSmash and OpenSmash player, and Quickplay with GSP. Private: only those who type the same code. Saved at once; the game uses it when it starts."),
+            ["name"] = ("Tu nombre en línea", "Your online name"), ["lobby"] = ("Sala", "Lobby"),
+            ["lobby_auto"] = ("Pública (Europa)", "Public (Europe)"), ["lobby_private"] = ("Privada (con código)", "Private (a code)"),
+            ["lobby_custom"] = ("Tu servidor", "Your server"), ["lobby_lan"] = ("Red local (LAN)", "Local network (LAN)"), ["lobby_offline"] = ("Sin conexión", "Offline"),
+            ["code"] = ("Código de la sala", "Lobby code"), ["codeNew"] = ("Crear un código", "Make a code"), ["codeCopy"] = ("Copiar", "Copy"),
+            ["codeHelp"] = ("Pásale el código a tus amigos (WhatsApp, Discord…). Quien lo escriba aquí entra en tu sala.", "Give the code to your friends (WhatsApp, Discord…). Whoever types it here joins your lobby."),
+            ["codeCopied"] = ("Código copiado: pégaselo a tus amigos.", "Code copied: paste it to your friends."),
+            ["needCode"] = ("Escribe un código, o pulsa Crear un código.", "Type a code, or press Make a code."),
+            ["server"] = ("Servidor (host:puerto)", "Server (host:port)"), ["badServer"] = ("El servidor es host:puerto, por ejemplo 192.168.1.20:39420.", "Your server is host:port, e.g. 192.168.1.20:39420."),
+            ["directConn"] = ("Conexiones directas", "Direct connections"),
+            ["directHelp"] = ("Más rápidas: tu PC y el de tu rival se hablan directo. Apagadas, todo pasa por los servidores y nadie ve tu dirección de internet.",
+                              "Faster: your PC and your opponent's talk directly. Off: everything goes through the servers and nobody learns your internet address."),
+            ["firewallBtn"] = ("Dejar entrar al juego en el firewall de Windows", "Let the game through the Windows firewall"),
+            ["firewallHelp"] = ("Ayuda a que las conexiones directas funcionen con más rivales. Windows te pedirá permiso una vez.", "Helps direct connections work with more opponents. Windows asks for permission once."),
+            ["firewallOk"] = ("El firewall de Windows ya deja entrar al juego.", "The Windows firewall lets the game in."),
+            ["firewallFail"] = ("No se pudo (¿dijiste que no al permiso?).", "It could not be done (was permission refused?)."),
+            ["howTitle"] = ("Cómo jugar en línea", "How to play online"),
+            ["howText"] = ("1.  Pulsa JUGAR.\n2.  En el menú principal del juego entra en En línea.\n3.  Partida rápida busca rival con un GSP parecido al tuyo; en Salas de combate creas una o te unes a la de un amigo.\n\nDentro del juego, F1 abre el menú de NativeSmash. La red usa rollback: el juego adivina los botones del rival y corrige al momento, así se nota mucho menos el retraso.",
+                          "1.  Press PLAY.\n2.  In the game's main menu go to Online.\n3.  Quickplay finds an opponent with a GSP close to yours; in Battle Arenas you make one or join a friend's.\n\nIn the game, F1 opens NativeSmash's menu. The netcode is rollback: the game guesses the opponent's buttons and corrects at once, so the delay shows much less."),
+            ["saved"] = ("Guardado.", "Saved."),
+
+            // controllers
+            ["padsTitle"] = ("Controles", "Controllers"), ["tabKeys"] = ("Teclado", "Keyboard"), ["tabPads"] = ("Mandos", "Controllers"),
+            ["kbPlays"] = ("El teclado juega como", "The keyboard plays as"), ["player"] = ("Jugador {0}", "Player {0}"), ["nobody"] = ("Nadie", "Nobody"),
+            ["background"] = ("Los mandos funcionan con otra ventana al frente", "Controllers work while another window is in front"),
+            ["moveLabel"] = ("Movimiento con el teclado", "Keyboard movement"), ["move_full"] = ("Normal", "Normal"), ["move_ssf2"] = ("Como Smash Flash 2", "Like Smash Flash 2"),
+            ["moveHelp"] = ("Como Smash Flash 2: una tecla camina y pulsarla dos veces rápido corre; abajo dos veces cruza plataformas; A justo después de una dirección hace un ataque Smash.",
+                            "Like Smash Flash 2: a key walks and twice quickly dashes; down twice drops through platforms; A right after a direction is a smash attack."),
+            ["keysTitle"] = ("Teclas", "Keys"),
+            ["keysHelp"] = ("Pulsa una acción y luego la tecla que quieras. Esc cancela. Esc y F1 a F8 son del juego y no se pueden usar.", "Click an action, then the key you want. Esc cancels. Esc and F1 to F8 are the game's own."),
+            ["pressKey"] = ("Pulsa una tecla…", "Press a key…"), ["keyReserved"] = ("Esa tecla es del juego. Elige otra.", "That key belongs to the game. Pick another."),
+            ["keySwapped"] = ("{0} ya era de {1}: ahora {1} no tiene tecla.", "{0} was {1}'s: {1} has no key now."),
+            ["resetKeys"] = ("Restaurar teclas", "Restore keys"), ["openPads"] = ("Abrir controllers.ini", "Open controllers.ini"),
+            ["padPick"] = ("Mando conectado", "Connected controller"),
+            ["padNone"] = ("No hay ningún mando conectado. Conéctalo, o pulsa un botón para despertarlo, y aparecerá aquí.", "No controller is connected. Plug one in, or press a button to wake it, and it shows up here."),
+            ["padNoSdl"] = ("No se pueden leer los mandos: {0}", "The controllers cannot be read: {0}"),
+            ["padWhere"] = ("{0}. Se guarda en controllers.ini, en [device {1}]: vale para este modelo de mando en cualquier puerto.", "{0}. Saved in controllers.ini under [device {1}]: it counts for this model of pad on any port."),
+            ["dpad"] = ("La cruceta mueve al luchador (como el stick)", "The d-pad moves the fighter (as the stick)"),
+            ["taunts"] = ("El stick derecho hace burlas (no ataques Smash)", "The right stick taunts (no smash attacks)"),
+            ["padMapTitle"] = ("Botones", "Buttons"),
+            ["padMapHelp"] = ("Pulsa un botón de la lista y luego el botón del mando que quieras para él. Lo que pulses en el mando se ilumina. Clic derecho vuelve al de fábrica.",
+                              "Click a button in the list, then press the pad's button you want for it. What you press lights up. Right-click puts it back to the default."),
+            ["pressPad"] = ("Pulsa en el mando…", "Press on the pad…"), ["padDefault"] = ("de fábrica", "default"),
+            ["resetPad"] = ("Restaurar este mando", "Restore this pad"),
+            ["padsHelp"] = ("Todo se guarda al momento. Dentro del juego también puedes cambiarlo: pulsa Esc, o el botón Home del mando, y entra en Controles.",
+                            "Everything is saved at once. In the game you can change it too: press Esc, or the pad's Home button, and go to Controllers."),
+
+            // video
+            ["videoTitle"] = ("Video y sonido", "Video and sound"),
+            ["videoHelp"] = ("Los mismos ajustes que el menú del juego (Esc). Se guardan al momento y cuentan la próxima vez que abras el juego.", "The same settings as the game's menu (Esc). Saved at once; they count the next time the game starts."),
+            ["window"] = ("Ventana", "Window"), ["win_windowed"] = ("En ventana", "Windowed"), ["win_borderless"] = ("Sin bordes", "Borderless"), ["win_fullscreen"] = ("Pantalla completa", "Full screen"),
+            ["size"] = ("Tamaño de la ventana", "Window size"),
+            ["scale"] = ("Resolución interna", "Render resolution"),
+            ["scale_1"] = ("1080p (la del juego)", "1080p (the game's)"), ["scale_auto"] = ("Como la ventana", "As the window"),
+            ["scale_1.5"] = ("1620p", "1620p"), ["scale_2"] = ("4K", "4K"), ["scale_3"] = ("6K", "6K"),
+            ["scaleHelp"] = ("Más resolución se ve más nítido pero pide más a la tarjeta gráfica. En un portátil, 1080p es lo mejor.", "Higher looks sharper but asks more of the graphics card. On a laptop, 1080p is best."),
+            ["pacing"] = ("Ritmo de imagen", "Frame pacing"), ["pac_clock"] = ("60 estable", "Steady 60"), ["pac_vrr"] = ("G-Sync / FreeSync", "G-Sync / FreeSync"), ["pac_display"] = ("Seguir el monitor", "Follow the monitor"),
+            ["pacingHelp"] = ("El juego va siempre a 60, como en la Switch: es el ritmo de todos en línea. 60 estable sirve en cualquier monitor, también en uno de 120 Hz.",
+                              "The game always runs at 60, as on the Switch: it is everyone's pace online. Steady 60 works on any monitor, a 120 Hz one too."),
+            ["renderer"] = ("Gráficos", "Renderer"), ["ren_auto"] = ("Automático", "Automatic"), ["ren_direct3d11"] = ("Direct3D 11", "Direct3D 11"), ["ren_vulkan"] = ("Vulkan", "Vulkan"),
+            ["rendererHelp"] = ("Automático usa Vulkan en tarjetas AMD, NVIDIA e Intel. Si ves la imagen rara, prueba Direct3D 11.", "Automatic uses Vulkan on AMD, NVIDIA and Intel cards. If the picture looks wrong, try Direct3D 11."),
+            ["gpu"] = ("Tarjeta gráfica", "Graphics card"), ["gpu_auto"] = ("La más rápida", "The fastest"), ["gpu_warp"] = ("Sin tarjeta (lento)", "No card (slow)"),
+            ["overlay"] = ("Mostrar los fotogramas por segundo en la esquina", "Show the frame rate in the corner"),
+            ["cursor"] = ("Ocultar el puntero cuando no se mueve", "Hide the pointer when it stops moving"),
+            ["volume"] = ("Volumen", "Volume"), ["lang"] = ("Idioma del juego", "Game language"),
+
+            // mods
+            ["modsTitle"] = ("Mods", "Mods"),
+            ["modsHelp"] = ("Trajes, escenarios, música y más. El gestor de mods de OpenSmash los busca, instala y actualiza (GameBanana incluido); aquí ves cuáles tienes y si van activos.",
+                            "Skins, stages, music and more. OpenSmash's mod manager finds, installs and updates them (GameBanana too); here you see which you have and whether they are on."),
+            ["modsNone"] = ("Ninguno", "None"), ["modsCount"] = ("{0} instalados · {1} activos", "{0} installed · {1} on"),
+            ["modsCountNone"] = ("Todavía no tienes mods", "No mods yet"), ["modsReading"] = ("Leyendo los mods…", "Reading the mods…"),
+            ["modsOpen"] = ("Abrir el gestor de mods", "Open the mod manager"), ["modsFolder"] = ("Abrir la carpeta de mods", "Open the mods folder"),
+            ["modsOnline"] = ("En línea: los mods que solo cambian el aspecto (trajes, música) no molestan a tu rival. Los que cambian cómo se juega necesitan que el otro tenga los mismos.",
+                              "Online: mods that only change looks (skins, music) do not bother your opponent. Those that change how it plays need the other player to have the same."),
+            ["modOn"] = ("Activo", "On"), ["modOff"] = ("Apagado", "Off"),
+            ["modsBuild"] = ("Un mod necesita prepararse antes de jugar. Abre el gestor de mods y pulsa Actualizar.", "A mod needs setting up before playing. Open the mod manager and press Update."),
+
+            // shaders
+            ["shadersTitle"] = ("Shaders", "Shaders"),
+            ["shadersHelp"] = ("Los shaders son los programas gráficos del juego. Si un efecto nuevo no tiene el suyo listo, el juego se traba un momento la primera vez. Prepararlos todos de antemano tarda un rato y evita esos tirones.",
+                               "Shaders are the game's graphics programs. When a new effect's is not ready, the game hitches the first time. Preparing them all ahead takes a while and avoids those hitches."),
+            ["shReady"] = ("Todos los shaders están listos", "Every shader is ready"),
+            ["shReadyCap"] = ("Preparados para {0}. Tras una actualización del juego puede hacer falta repetirlo.", "Prepared for {0}. After a game update it may be needed again."),
+            ["shMissing"] = ("Faltan shaders por preparar", "Shaders still need preparing"),
+            ["shMissingCap"] = ("Sin ellos el juego los hace al jugar y puede trabarse un momento con cada efecto nuevo.", "Without them the game makes them in play and may hitch with each new effect."),
+            ["shRunning"] = ("Preparando shaders…", "Preparing shaders…"),
+            ["prepare"] = ("Preparar todos ahora", "Prepare them all now"), ["prepareAgain"] = ("Prepararlos otra vez", "Prepare them again"),
+            ["stop"] = ("Detener", "Stop"),
+            ["shNote"] = ("Puedes cerrar el launcher o jugar mientras tanto: si lo detienes, sigue donde se quedó la próxima vez. Va con prioridad baja para no frenar el PC.",
+                          "You can close the launcher or play meanwhile: stopped, it goes on where it was next time. It runs at low priority so the PC stays usable."),
+            ["shListing"] = ("Revisando los archivos del juego  {0} / {1}", "Reading the game's files  {0} / {1}"),
+            ["shCompiling"] = ("Preparando  {0} / {1}", "Preparing  {0} / {1}"), ["shLeft"] = ("faltan {0}", "{0} left"),
+            ["shDone"] = ("Shaders listos.", "Shaders ready."), ["shStopped"] = ("Se detuvo: la próxima vez sigue donde se quedó.", "Stopped: next time it goes on where it was."),
+
+            // game
+            ["gameTitle"] = ("El juego", "The game"),
+            ["updTitle"] = ("Actualizaciones", "Updates"),
+            ["updCheck"] = ("Buscar actualizaciones", "Check for updates"), ["updChecking"] = ("Buscando…", "Checking…"),
+            ["updNow"] = ("Actualizar ahora", "Update now"), ["updUpToDate"] = ("NativeSmash está al día.", "NativeSmash is up to date."),
+            ["updAvailable"] = ("Hay una actualización: {0} cambios nuevos.", "An update is ready: {0} new changes."),
+            ["updNewer"] = ("Esta copia es más nueva que la publicada.", "This copy is newer than the published one."),
+            ["updOwn"] = ("Esta copia tiene cambios propios, así que no se actualiza sola.", "This copy has changes of its own, so it does not update itself."),
+            ["updUnknown"] = ("No sé de qué versión es esta copia.", "This copy's version is not known."),
+            ["updFail"] = ("No se pudo comprobar: {0}", "Could not check: {0}"),
+            ["updConfirm"] = ("Se descargará la versión nueva y se recompilará lo que cambió (puede tardar un rato). Tus partidas, ajustes y mods se conservan. ¿Seguir?",
+                              "The new version is downloaded and what changed is rebuilt (it can take a while). Your saves, settings and mods are kept. Go on?"),
+            ["updRunning"] = ("Actualizando… no cierres el launcher.", "Updating… do not close the launcher."),
+            ["updBuilding"] = ("Recompilando el juego… {0}%", "Rebuilding the game… {0}%"),
+            ["updDone"] = ("Actualizado. El juego está al día.", "Updated. The game is current."),
+            ["updLauncher"] = ("Actualizado. El launcher se cierra un momento para ponerse al día y se vuelve a abrir.", "Updated. The launcher closes for a moment to update itself and opens again."),
+            ["updError"] = ("La actualización no terminó: {0}", "The update did not finish: {0}"),
+            ["thisCopy"] = ("Esta copia: {0}", "This copy: {0}"),
+            ["toolsTitle"] = ("Herramientas", "Tools"),
+            ["repair"] = ("Reparar o reinstalar", "Repair or reinstall"), ["unlock"] = ("Desbloquear todos los luchadores", "Unlock all fighters"),
+            ["folder"] = ("Abrir la carpeta", "Open the folder"), ["log"] = ("Registro de la última partida", "Last game log"),
+            ["reports"] = ("Informes de fallos", "Crash reports"), ["opensmash"] = ("Abrir el launcher de OpenSmash", "Open OpenSmash's launcher"),
+            ["unlockAsk"] = ("Se desbloquean todos los luchadores en tu partida guardada (se hace una copia antes). ¿Seguir?", "Every fighter gets unlocked in your save (a copy is made first). Go on?"),
+            ["unlockDone"] = ("Listo: todos los luchadores desbloqueados.", "Done: every fighter unlocked."),
+            ["unlockFail"] = ("No se pudo: {0}", "It could not be done: {0}"),
+            ["gameRunning"] = ("Cierra el juego primero.", "Close the game first."),
+            ["toolsNote"] = ("Reparar abre el instalador: vuelve a revisar tus archivos y recompila lo que haga falta.", "Repair opens the installer: it checks your files again and rebuilds what is needed."),
+
+            // play
+            ["starting"] = ("Abriendo el juego…", "Starting the game…"), ["startingSub"] = ("Preparando lo de en línea", "Getting online ready"),
+            ["startingMods"] = ("Poniendo tus mods", "Applying your mods"), ["startingWindow"] = ("Esperando la ventana del juego", "Waiting for the game's window"),
+            ["noStart"] = ("El juego se cerró al arrancar.\n\n{0}", "The game stopped as it was starting.\n\n{0}"),
+            ["notBuilt"] = ("El juego no está instalado todavía.", "The game is not installed yet."),
+            ["playing"] = ("Jugando… el launcher vuelve al cerrar el juego.", "Playing… the launcher comes back when the game closes."),
+            ["welcomeBack"] = ("¡Buena partida!", "Good game!"),
+        };
+    }
+}

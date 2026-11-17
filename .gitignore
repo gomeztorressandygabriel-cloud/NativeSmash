@@ -98,3 +98,5 @@ tools/modmanager/installed.json
 /tests/launcher_yuzu_ui/obj/
 /tests/launcher_settings/bin/
 /tests/launcher_settings/obj/
+/NativeSmash.Launcher/bin/
+/NativeSmash.Launcher/obj/

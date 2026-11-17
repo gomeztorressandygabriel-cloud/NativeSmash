@@ -158,13 +158,14 @@ $TomlCheck = 'import sys, importlib.util as u; sys.exit(0 if sys.version_info >=
 $RepoOwner = 'gomeztorressandygabriel-cloud'
 $RepoName = 'NativeSmash'
 $UpdateBranch = 'nativesmash'
-# Update channel (issue #329): by default a copy follows the newest versioned release (releases/latest); following main
-# commit by commit is opt-in, for testers: OPENSMASH_UPDATE_CHANNEL=main or the word main in tools\update_channel.txt.
-# With no release published yet, main is followed as before.
+# Update channel (OpenSmash issue #329): OpenSmash follows its newest versioned release (releases/latest). NativeSmash
+# follows its branch: its repository's "latest" release is still v0.1.15 (13.0.3) and its 0.2 releases are prereleases,
+# so releases/latest would take a 0.2 copy back to 13.0.3. The release channel is opt-in here:
+# OPENSMASH_UPDATE_CHANNEL=release or the word release in tools\update_channel.txt.
 function Get-UpdateRef {
     $ch = [string]$env:OPENSMASH_UPDATE_CHANNEL
     if (-not $ch) { $f = Join-Path $Root 'tools\update_channel.txt'; if (Test-Path -LiteralPath $f) { $ch = (Get-Content -LiteralPath $f -Raw).Trim() } }
-    if ($ch -eq 'main') { return $UpdateBranch }
+    if ($ch -ne 'release') { return $UpdateBranch }
     $rel = Invoke-Api "$RepoApi/releases/latest"
     if ($rel.Ok -and $rel.Data.tag_name) { return [string]$rel.Data.tag_name }
     return $UpdateBranch
@@ -1224,7 +1225,8 @@ function Get-UpdateBuildAnswers {
        (It used to stop the update with "Open Setup", which the launcher has no way to open: issue #340.) #>
     $folders = Get-DetectedFolders
     $there = { param($p) if ($p -and (Test-Path -LiteralPath $p -PathType Container)) { $p } else { $null } }
-    if (-not $DryRun -and (& $there $folders.Game) -and (& $there $folders.Keys)) { Confirm-Update1305 $folders.Game $folders.Keys | Out-Null }
+    # (NativeSmash: a 13.0.3 game folder gets its 13.0.5 update asked for; Step-Python has found Python by then)
+    if (-not $DryRun -and $Script:Python -and (& $there $folders.Game) -and (& $there $folders.Keys)) { Confirm-Update1305 $folders.Game $folders.Keys | Out-Null }
     return @{ Game = (& $there $folders.Game); Keys = (& $there $folders.Keys); Firmware = (& $there $folders.Firmware) }
 }
 

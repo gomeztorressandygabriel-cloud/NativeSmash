@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- NativeSmash's launcher: its own window (WPF, the look of NativeSmash's first launcher) over OpenSmash's launcher
+       code, compiled in from ..\OpenSmash.Launcher: Discord sign-in, the lobby's feed, the controller remap, the
+       settings table, the installer and the mods window are OpenSmash's own, so a merge of OpenSmash brings their
+       fixes here too and the files the game reads stay written the same way. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Deterministic>false</Deterministic>
+    <AssemblyName>NativeSmash</AssemblyName>
+    <RootNamespace>NativeSmash</RootNamespace>
+    <StartupObject>NativeSmash.App</StartupObject>
+    <ApplicationIcon>Assets\nativesmash.ico</ApplicationIcon>
+    <Version>0.3.0</Version>
+    <Product>NativeSmash</Product>
+    <Description>NativeSmash launcher (Super Smash Bros. Ultimate native PC port)</Description>
+    <Copyright>GPL-3.0</Copyright>
+    <NoWarn>$(NoWarn);CS0414;CS0169;CS0649;CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8619;CS8620;CS8622;CS8625;CS4014;CS1998;CS0168;CS0219;WFO1000</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!-- OpenSmash's launcher code, as it is (its Program.Main is not the start: StartupObject above). -->
+  <ItemGroup>
+    <Compile Include="..\OpenSmash.Launcher\**\*.cs" Exclude="..\OpenSmash.Launcher\bin\**;..\OpenSmash.Launcher\obj\**" LinkBase="OpenSmash" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\locales\*.json" LogicalName="Locales.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\media\opensmash.ico" LogicalName="opensmash.ico" />
+    <EmbeddedResource Include="..\OpenSmash.Launcher\UiLocale.Web.js" LogicalName="UiLocale.Web.js" />
+    <EmbeddedResource Include="..\OpenSmash.Launcher\MarketplaceHtml.html" LogicalName="MarketplaceHtml.html" />
+    <EmbeddedResource Include="..\OpenSmash.Launcher\Assets\Anton-Regular.ttf" LogicalName="Anton-Regular.ttf" />
+    <EmbeddedResource Include="..\OpenSmash.Launcher\Assets\emblem-white.png" LogicalName="emblem.png" />
+    <Resource Include="Assets\nativesmash-512.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>
